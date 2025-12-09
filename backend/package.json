@@ -1,0 +1,25 @@
+{
+    "name": "productivity-saas-backend",
+    "version": "1.0.0",
+    "description": "AI-powered team productivity backend",
+    "main": "api/index.js",
+    "type": "module",
+    "scripts": {
+      "dev": "node --watch api/index.js",
+      "start": "node api/index.js"
+    },
+    "dependencies": {
+      "express": "^4.18.2",
+      "cors": "^2.8.5",
+      "helmet": "^7.1.0",
+      "dotenv": "^16.3.1",
+      "@supabase/supabase-js": "^2.39.0",
+      "@slack/web-api": "^6.11.2",
+      "winston": "^3.11.0",
+      "compression": "^1.7.4",
+      "express-rate-limit": "^7.1.5"
+    },
+    "engines": {
+      "node": ">=18.0.0"
+    }
+  }
