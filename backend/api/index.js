@@ -4,7 +4,6 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
-import logger from './utils/logger.js';
 import slackRoutes from './routes/slack.js';
 
 dotenv.config();
@@ -12,8 +11,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Security & middleware
-app.use(helmet());
+// Middleware
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(compression());
 
@@ -25,7 +24,6 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // Body parsing
-app.use('/api/slack/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 // Health check
@@ -36,9 +34,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Routes
-app.use('/api/slack', slackRoutes);
-
 // Root
 app.get('/', (req, res) => {
   res.json({
@@ -48,6 +43,9 @@ app.get('/', (req, res) => {
   });
 });
 
+// Routes
+app.use('/api/slack', slackRoutes);
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -55,14 +53,14 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  logger.error('Error:', err);
+  console.error('Error:', err);
   res.status(500).json({ error: err.message });
 });
 
-// Start server (for local dev only)
+// Start server for local dev
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
-    logger.info(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
