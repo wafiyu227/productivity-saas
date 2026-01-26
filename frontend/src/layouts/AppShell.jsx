@@ -1,7 +1,6 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, AlertCircle, Calendar, User, LogOut } from 'lucide-react';
-
+import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings } from 'lucide-react';
 export default function AppShell() {
     const { user, signOut } = useAuth();
     const navigate = useNavigate();
@@ -28,6 +27,9 @@ export default function AppShell() {
                     </NavLink>
                     <NavLink to="/app/meetings" icon={<Calendar size={20} />}>
                         Meetings
+                    </NavLink>
+                    <NavLink to="/app/integrations" icon={<Settings size={20} />}>
+                        Integrations
                     </NavLink>
                     <NavLink to="/app/profile" icon={<User size={20} />}>
                         Profile
