@@ -5,6 +5,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import slackRoutes from './routes/slack.js';
+import authRoutes from './routes/auth.js';
 
 dotenv.config();
 
@@ -45,6 +46,8 @@ app.get('/', (req, res) => {
 
 // Routes
 app.use('/api/slack', slackRoutes);
+
+app.use('/api/auth', authRoutes);
 
 // 404 handler
 app.use((req, res) => {
