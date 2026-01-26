@@ -46,8 +46,7 @@ app.get('/', (req, res) => {
 
 // Routes
 app.use('/api/slack', slackRoutes);
-
-app.use('/api/auth', authRoutes);
+app.use('/api/slack', authRoutes);
 
 // 404 handler
 app.use((req, res) => {
