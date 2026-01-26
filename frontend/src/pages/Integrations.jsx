@@ -16,7 +16,7 @@ export default function Integrations() {
         if (!user) return;
 
         try {
-            const res = await fetch(`${API_URL}/api/auth/slack/status?userId=${user.id}`);
+            const res = await fetch(`${API_URL}/api/slack/status?userId=${user.id}`);
             const data = await res.json();
             setSlackStatus({ ...data, loading: false });
         } catch (error) {
@@ -27,14 +27,14 @@ export default function Integrations() {
 
     const connectSlack = () => {
         if (!user) return;
-        window.location.href = `${API_URL}/api/auth/slack/connect?userId=${user.id}`;
+        window.location.href = `${API_URL}/api/slack/connect?userId=${user.id}`;
     };
 
     const disconnectSlack = async () => {
         if (!user || !confirm('Disconnect Slack workspace?')) return;
 
         try {
-            const res = await fetch(`${API_URL}/api/auth/slack/disconnect?userId=${user.id}`, {
+            const res = await fetch(`${API_URL}/api/slack/disconnect?userId=${user.id}`, {
                 method: 'DELETE'
             });
 
