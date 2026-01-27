@@ -24,6 +24,17 @@ export const db = {
     return result;
   },
 
+  async deleteIntegration(userId, platform) {
+    const { error } = await supabaseAdmin
+      .from('integrations')
+      .delete()
+      .eq('user_id', userId)
+      .eq('platform', platform);
+
+    if (error) throw error;
+    return true;
+  },
+
   async getSummaries(teamId, limit = 10) {
     const { data, error } = await supabase
       .from('slack_summaries')
