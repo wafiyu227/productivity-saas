@@ -19,12 +19,21 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
-  origin: [
-    'https://productivity-saas-frontend.vercel.app',
-    'https://productivity-saas-tau.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ],
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'https://productivity-saas-frontend.vercel.app',
+      'https://productivity-saas-tau.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:5173'
+    ];
+    // Allow if origin is in the list or if it's a sub-deployment of our project
+    if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      console.warn('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -64,58 +73,58 @@ app.use('/api/auth', authRoutes);
 
 // Direct OAuth callback handler at root level
 app.get('/api/auth/slack/oauth/callback', async (req, res) => {
-    const { code, state, error } = req.query;
-    const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
-    const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
-    const API_BASE_URL = process.env.API_BASE_URL || 'https://productivity-saas-tau.vercel.app';
-    const REDIRECT_URI = `${API_BASE_URL}/api/auth/slack/oauth/callback`;
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
+  const { code, state, error } = req.query;
+  const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
+  const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
+  const API_BASE_URL = process.env.API_BASE_URL || 'https://productivity-saas-tau.vercel.app';
+  const REDIRECT_URI = `${API_BASE_URL}/api/auth/slack/oauth/callback`;
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
 
-    logger.info('=== DIRECT OAuth callback received ===');
-    logger.info('Details', { hasCode: !!code, hasState: !!state, error, url: req.url });
+  logger.info('=== DIRECT OAuth callback received ===');
+  logger.info('Details', { hasCode: !!code, hasState: !!state, error, url: req.url });
 
-    if (error) {
-        logger.error('Slack OAuth error:', error);
-        return res.redirect(`${FRONTEND_URL}/app?error=slack_auth_failed`);
+  if (error) {
+    logger.error('Slack OAuth error:', error);
+    return res.redirect(`${FRONTEND_URL}/app?error=slack_auth_failed`);
+  }
+
+  if (!code || !state) {
+    logger.error('Missing code or state', { code, state });
+    return res.redirect(`${FRONTEND_URL}/app?error=missing_params`);
+  }
+
+  try {
+    const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+    logger.info('Decoded userId:', { userId });
+
+    const client = new WebClient();
+    const result = await client.oauth.v2.access({
+      client_id: SLACK_CLIENT_ID,
+      client_secret: SLACK_CLIENT_SECRET,
+      code,
+      redirect_uri: REDIRECT_URI
+    });
+
+    logger.info('Token exchange result:', { ok: result.ok, error: result.error });
+
+    if (!result.ok) {
+      throw new Error(`Token exchange failed: ${result.error}`);
     }
 
-    if (!code || !state) {
-        logger.error('Missing code or state', { code, state });
-        return res.redirect(`${FRONTEND_URL}/app?error=missing_params`);
-    }
+    await db.saveIntegration(userId, 'slack', {
+      accessToken: result.access_token,
+      teamId: result.team.id,
+      teamName: result.team.name,
+      botUserId: result.bot_user_id
+    });
 
-    try {
-        const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
-        logger.info('Decoded userId:', { userId });
+    logger.info('Integration saved successfully');
+    res.redirect(`${FRONTEND_URL}/app?success=slack_connected`);
 
-        const client = new WebClient();
-        const result = await client.oauth.v2.access({
-            client_id: SLACK_CLIENT_ID,
-            client_secret: SLACK_CLIENT_SECRET,
-            code,
-            redirect_uri: REDIRECT_URI
-        });
-
-        logger.info('Token exchange result:', { ok: result.ok, error: result.error });
-
-        if (!result.ok) {
-            throw new Error(`Token exchange failed: ${result.error}`);
-        }
-
-        await db.saveIntegration(userId, 'slack', {
-            accessToken: result.access_token,
-            teamId: result.team.id,
-            teamName: result.team.name,
-            botUserId: result.bot_user_id
-        });
-
-        logger.info('Integration saved successfully');
-        res.redirect(`${FRONTEND_URL}/app?success=slack_connected`);
-
-    } catch (error) {
-        logger.error('Callback error:', error);
-        res.redirect(`${FRONTEND_URL}/app?error=oauth_failed`);
-    }
+  } catch (error) {
+    logger.error('Callback error:', error);
+    res.redirect(`${FRONTEND_URL}/app?error=oauth_failed`);
+  }
 });
 
 // Debug endpoint to verify routing
@@ -140,14 +149,14 @@ app.get('/api/summaries', async (req, res) => {
 
     // Get user's Slack integration to find their team
     const integration = await db.getIntegration(userId, 'slack');
-    
+
     if (!integration) {
       return res.status(401).json({ error: 'Slack not connected', summaries: [] });
     }
 
     // Fetch summaries for the user's team
     const summaries = await db.getSummaries(integration.team_id);
-    
+
     logger.info('Summaries fetched successfully', { userId, count: summaries.length });
 
     res.json(summaries || []);
@@ -224,8 +233,8 @@ app.get('/api/auth/slack/oauth/callback/debug', (req, res) => {
 // Error handler for 404
 app.use((req, res) => {
   logger.warn('404 - Route not found', { method: req.method, path: req.path, url: req.url });
-  res.status(404).json({ 
-    error: 'Not found', 
+  res.status(404).json({
+    error: 'Not found',
     path: req.path,
     method: req.method,
     availableRoutes: [
