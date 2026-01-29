@@ -1,45 +1,62 @@
 import { AlertTriangle, Clock, MessageSquare, CheckCircle, Filter, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+
+const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Blockers() {
+    const { user } = useAuth();
+    const [blockers, setBlockers] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
+    const [searchTerm, setSearchTerm] = useState('');
 
-    const blockers = [
-        {
-            id: 1,
-            title: 'API rate limiting causing delays',
-            source: '#engineering',
-            date: '2 hours ago',
-            status: 'active',
-            priority: 'high',
-            assignee: 'Sarah Chen',
-            description: 'External API rate limits are blocking user registration flow'
-        },
-        {
-            id: 2,
-            title: 'Database migration pending approval',
-            source: '#devops',
-            date: '5 hours ago',
-            status: 'active',
-            priority: 'medium',
-            assignee: 'Mike Rodriguez',
-            description: 'Schema changes need review before deployment'
-        },
-        {
-            id: 3,
-            title: 'Design assets missing for mobile',
-            source: '#design',
-            date: '1 day ago',
-            status: 'resolved',
-            priority: 'low',
-            assignee: 'Emily Taylor',
-            description: 'Mobile mockups have been delivered'
+    useEffect(() => {
+        if (user) {
+            fetchBlockers();
         }
-    ];
+    }, [user]);
 
-    const filteredBlockers = filter === 'all'
-        ? blockers
-        : blockers.filter(b => b.status === filter);
+    const fetchBlockers = async () => {
+        try {
+            setLoading(true);
+            const res = await fetch(`${API_URL}/api/summaries?userId=${user.id}`);
+            const summaries = await res.json();
+
+            // Extract blockers from summaries
+            const extractedBlockers = [];
+            summaries.forEach((summary, index) => {
+                if (summary.blockers && Array.isArray(summary.blockers)) {
+                    summary.blockers.forEach((blocker, blockIndex) => {
+                        extractedBlockers.push({
+                            id: `${summary.id}-${blockIndex}`,
+                            title: blocker,
+                            source: `#${summary.channel_name}`,
+                            date: new Date(summary.created_at).toLocaleDateString(),
+                            status: 'active',
+                            priority: 'medium',
+                            description: `Blocker detected in #${summary.channel_name}`,
+                            channelId: summary.channel_id
+                        });
+                    });
+                }
+            });
+
+            setBlockers(extractedBlockers);
+        } catch (error) {
+            console.error('Failed to fetch blockers:', error);
+            setBlockers([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const filteredBlockers = blockers.filter(b => {
+        const matchesFilter = filter === 'all' || b.status === filter;
+        const matchesSearch = b.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                             b.source.toLowerCase().includes(searchTerm.toLowerCase());
+        return matchesFilter && matchesSearch;
+    });
 
     const activeCount = blockers.filter(b => b.status === 'active').length;
     const resolvedCount = blockers.filter(b => b.status === 'resolved').length;
@@ -99,7 +116,7 @@ export default function Blockers() {
 
                     {/* Filters */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-                        <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                        <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-4">
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => setFilter('all')}
@@ -108,7 +125,7 @@ export default function Blockers() {
                                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                         }`}
                                 >
-                                    All ({blockers.length})
+                                    All ({filteredBlockers.length})
                                 </button>
                                 <button
                                     onClick={() => setFilter('active')}
@@ -129,20 +146,28 @@ export default function Blockers() {
                                     Resolved ({resolvedCount})
                                 </button>
                             </div>
+                        </div>
 
-                            <div className="flex gap-2">
-                                <button className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition">
-                                    <Filter size={20} className="text-gray-600" />
-                                </button>
-                                <button className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition">
-                                    <Search size={20} className="text-gray-600" />
-                                </button>
-                            </div>
+                        {/* Search */}
+                        <div className="relative">
+                            <Search size={20} className="absolute left-3 top-3 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search blockers by title or channel..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
                         </div>
                     </div>
 
                     {/* Blockers List */}
-                    {filteredBlockers.length === 0 ? (
+                    {loading ? (
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
+                            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                            <p className="text-gray-600">Loading blockers...</p>
+                        </div>
+                    ) : filteredBlockers.length === 0 ? (
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
                             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <CheckCircle className="text-green-600" size={40} />
@@ -151,7 +176,7 @@ export default function Blockers() {
                                 No blockers found! 🎉
                             </h3>
                             <p className="text-gray-600">
-                                Your team is running smoothly
+                                {filter === 'all' && searchTerm === '' ? 'Generate summaries to see blockers' : 'No matching blockers found'}
                             </p>
                         </div>
                     ) : (
@@ -204,13 +229,10 @@ function BlockerCard({ blocker }) {
                             <Clock size={16} />
                             {blocker.date}
                         </span>
-                        <span className="flex items-center gap-2">
-                            👤 {blocker.assignee}
-                        </span>
                     </div>
                 </div>
                 <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-                    View Details
+                    Resolve
                 </button>
             </div>
         </div>

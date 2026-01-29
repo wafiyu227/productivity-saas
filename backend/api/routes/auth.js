@@ -73,4 +73,70 @@ router.delete('/slack/disconnect', async (req, res) => {
     }
 });
 
+// Get user settings
+router.get('/settings', async (req, res) => {
+    const { userId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        const { data, error } = await db.supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+
+        if (error && error.code !== 'PGRST116') {
+            throw error;
+        }
+
+        // Return defaults if no settings exist
+        const settings = data || {
+            user_id: userId,
+            email_notifications: true,
+            slack_notifications: true,
+            blocker_alerts: false,
+            daily_digest: true,
+            appearance: 'light',
+            created_at: new Date().toISOString()
+        };
+
+        res.json(settings);
+    } catch (error) {
+        logger.error('Settings fetch error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update user settings
+router.post('/settings', async (req, res) => {
+    const { userId, settings } = req.body;
+
+    if (!userId || !settings) {
+        return res.status(400).json({ error: 'userId and settings required' });
+    }
+
+    try {
+        const { data, error } = await db.supabase
+            .from('user_settings')
+            .upsert({
+                user_id: userId,
+                ...settings,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        logger.info('Settings updated', { userId });
+        res.json(data);
+    } catch (error) {
+        logger.error('Settings update error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 export default router;

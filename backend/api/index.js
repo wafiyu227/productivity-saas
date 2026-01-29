@@ -11,6 +11,7 @@ import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
+import emailService from './services/email-service.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -156,6 +157,61 @@ app.get('/api/summaries', async (req, res) => {
   }
 });
 
+// Send daily digest email
+app.post('/api/email/daily-digest', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
+    }
+
+    // Get user info
+    const { data: userData, error: userError } = await db.supabase.auth.admin.getUserById(userId);
+    if (userError || !userData.user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    // Get user settings
+    const { data: settings } = await db.supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    // Check if daily digest is enabled
+    if (!settings?.daily_digest) {
+      return res.status(200).json({ message: 'Daily digest disabled for user' });
+    }
+
+    // Get user's integration
+    const integration = await db.getIntegration(userId, 'slack');
+    if (!integration) {
+      return res.status(400).json({ error: 'Slack not connected' });
+    }
+
+    // Get today's summaries (last 24 hours)
+    const { data: summaries } = await db.supabase
+      .from('slack_summaries')
+      .select('*')
+      .eq('team_id', integration.team_id)
+      .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .order('created_at', { ascending: false });
+
+    // Send email
+    const result = await emailService.sendDailyDigest(userData.user.email, summaries || []);
+
+    if (result.success) {
+      res.json({ success: true, message: 'Daily digest sent', messageId: result.messageId });
+    } else {
+      res.status(500).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error('Failed to send daily digest:', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Debug endpoint to verify routing
 app.get('/api/auth/slack/oauth/callback/debug', (req, res) => {
   res.json({
@@ -179,7 +235,8 @@ app.use((req, res) => {
       'GET /api/auth/slack/connect',
       'GET /api/auth/slack/oauth/callback',
       'GET /api/auth/slack/status',
-      'DELETE /api/auth/slack/disconnect'
+      'DELETE /api/auth/slack/disconnect',
+      'POST /api/email/daily-digest'
     ]
   });
 });

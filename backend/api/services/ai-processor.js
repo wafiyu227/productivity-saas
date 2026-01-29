@@ -3,14 +3,13 @@ import logger from '../utils/logger.js';
 
 dotenv.config();
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-// Use gemini-2.0-flash which is the latest available model
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 class AIProcessor {
   async summarizeSlackMessages(messages, channelName) {
-    if (!GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY not configured');
+    if (!GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY not configured');
     }
 
     // Use demo mode if needed (set USE_DEMO_MODE=true in environment)
@@ -22,7 +21,7 @@ class AIProcessor {
       .map(msg => `[${msg.user}]: ${msg.text}`)
       .join('\n');
 
-    const prompt = `Analyze these Slack messages from #${channelName} and provide a JSON response.
+    const userMessage = `Analyze these Slack messages from #${channelName} and provide a JSON response.
 
 Messages:
 ${formattedMessages}
@@ -35,42 +34,49 @@ Provide ONLY a valid JSON response with this exact structure (no markdown, no ex
 }`;
 
     try {
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(GROQ_API_URL, {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }]
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'user',
+              content: userMessage
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 500
         })
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+        logger.error('Groq API error response', { status: response.status, error: errorText });
+        throw new Error(`Groq API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
 
-      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-        throw new Error('Invalid response from Gemini API');
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        throw new Error('Invalid response from Groq API');
       }
 
-      const content = data.candidates[0].content.parts[0].text;
+      const content = data.choices[0].message.content;
 
       // Extract JSON from response
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
+        logger.error('Failed to extract JSON from Groq response', { content });
         throw new Error('Failed to parse AI response as JSON');
       }
 
       const result = JSON.parse(jsonMatch[0]);
 
-      logger.info('Successfully processed messages with Gemini AI', {
+      logger.info('Successfully processed messages with Groq AI', {
         channelName,
         messageCount: messages.length
       });
@@ -78,7 +84,7 @@ Provide ONLY a valid JSON response with this exact structure (no markdown, no ex
       return result;
 
     } catch (error) {
-      logger.error('Gemini AI processing failed', { error: error.message });
+      logger.error('Groq AI processing failed', { error: error.message });
       throw error;
     }
   }
@@ -109,8 +115,8 @@ Provide ONLY a valid JSON response with this exact structure (no markdown, no ex
   }
 
   async analyzeAsanaTasks(tasks, projectName) {
-    if (!GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY not configured');
+    if (!GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY not configured');
     }
 
     const formattedTasks = tasks
@@ -121,7 +127,7 @@ Provide ONLY a valid JSON response with this exact structure (no markdown, no ex
       })
       .join('\n');
 
-    const prompt = `Analyze these Asana tasks from project "${projectName}".
+    const userMessage = `Analyze these Asana tasks from project "${projectName}".
 
 Tasks:
 ${formattedTasks}
@@ -135,26 +141,31 @@ Provide ONLY a valid JSON response (no markdown):
 }`;
 
     try {
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(GROQ_API_URL, {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }]
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'user',
+              content: userMessage
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 500
         })
       });
 
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
+        throw new Error(`Groq API error: ${response.status}`);
       }
 
       const data = await response.json();
-      const content = data.candidates[0].content.parts[0].text;
+      const content = data.choices[0].message.content;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
 
       if (!jsonMatch) {
@@ -164,7 +175,7 @@ Provide ONLY a valid JSON response (no markdown):
       return JSON.parse(jsonMatch[0]);
 
     } catch (error) {
-      logger.error('Gemini analysis failed', { error: error.message });
+      logger.error('Groq analysis failed', { error: error.message });
       throw error;
     }
   }

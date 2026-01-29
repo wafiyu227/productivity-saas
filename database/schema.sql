@@ -32,3 +32,18 @@ CREATE TABLE IF NOT EXISTS integrations (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_user_platform ON integrations(user_id, platform);
+
+-- User settings table
+CREATE TABLE IF NOT EXISTS user_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL UNIQUE,
+    email_notifications BOOLEAN DEFAULT true,
+    slack_notifications BOOLEAN DEFAULT true,
+    blocker_alerts BOOLEAN DEFAULT false,
+    daily_digest BOOLEAN DEFAULT true,
+    appearance TEXT DEFAULT 'light',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
