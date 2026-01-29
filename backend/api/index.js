@@ -18,22 +18,17 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
+
+// Global debug logger
+app.use((req, res, next) => {
+  logger.info(`Incoming request: ${req.method} ${req.url}`, {
+    headers: { origin: req.headers.origin, host: req.headers.host }
+  });
+  next();
+});
+
 app.use(cors({
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      'https://productivity-saas-frontend.vercel.app',
-      'https://productivity-saas-tau.vercel.app',
-      'http://localhost:3000',
-      'http://localhost:5173'
-    ];
-    // Allow if origin is in the list or if it's a sub-deployment of our project
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.vercel.app')) {
-      callback(null, true);
-    } else {
-      console.warn('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Reflect request origin
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']

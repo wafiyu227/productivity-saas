@@ -2,8 +2,8 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/api/:match*",
-      "destination": "/api/index.js"
+      "source": "/api/ping",
+      "destination": "/api/ping.js"
     },
     {
       "source": "/(.*)",
