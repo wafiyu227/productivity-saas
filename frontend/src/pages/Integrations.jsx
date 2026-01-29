@@ -1,22 +1,68 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { CheckCircle, XCircle, Loader, ExternalLink } from 'lucide-react';
+import { CheckCircle, XCircle, Loader, ExternalLink, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Integrations() {
     const { user } = useAuth();
     const [slackStatus, setSlackStatus] = useState({ connected: false, loading: true });
+    const [notification, setNotification] = useState(null);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [oauthProcessed, setOauthProcessed] = useState(false);
 
     useEffect(() => {
-        checkSlackStatus();
+        if (user) {
+            checkSlackStatus();
+        }
     }, [user]);
+
+    useEffect(() => {
+        if (oauthProcessed) return;
+
+        const error = searchParams.get('error');
+        const success = searchParams.get('success');
+
+        if (error || success) {
+            setOauthProcessed(true);
+
+            if (error) {
+                const errorMessages = {
+                    'oauth_failed': 'Failed to complete Slack authentication. Please try again.',
+                    'slack_auth_failed': 'Slack authentication was denied. Please try again.',
+                    'missing_params': 'Missing required parameters. Please try again.'
+                };
+                setNotification({
+                    type: 'error',
+                    message: errorMessages[error] || 'An error occurred during authentication.'
+                });
+            } else if (success) {
+                const successMessages = {
+                    'slack_connected': 'Slack workspace connected successfully!'
+                };
+                setNotification({
+                    type: 'success',
+                    message: successMessages[success] || 'Connected successfully!'
+                });
+                // Refresh Slack status
+                if (user) {
+                    checkSlackStatus();
+                }
+                // Clear notification after 5 seconds
+                setTimeout(() => setNotification(null), 5000);
+            }
+
+            // Clear the URL parameters
+            setSearchParams({});
+        }
+    }, []);
 
     const checkSlackStatus = async () => {
         if (!user) return;
 
         try {
-            const res = await fetch(`${API_URL}/api/slack/status?userId=${user.id}`);
+            const res = await fetch(`${API_URL}/api/auth/slack/status?userId=${user.id}`);
             const data = await res.json();
             setSlackStatus({ ...data, loading: false });
         } catch (error) {
@@ -27,14 +73,14 @@ export default function Integrations() {
 
     const connectSlack = () => {
         if (!user) return;
-        window.location.href = `${API_URL}/api/slack/connect?userId=${user.id}`;
+        window.location.href = `${API_URL}/api/auth/slack/connect?userId=${user.id}`;
     };
 
     const disconnectSlack = async () => {
         if (!user || !confirm('Disconnect Slack workspace?')) return;
 
         try {
-            const res = await fetch(`${API_URL}/api/slack/disconnect?userId=${user.id}`, {
+            const res = await fetch(`${API_URL}/api/auth/slack/disconnect?userId=${user.id}`, {
                 method: 'DELETE'
             });
 
@@ -50,6 +96,23 @@ export default function Integrations() {
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
             <div className="p-8">
                 <div className="max-w-4xl mx-auto">
+                    {notification && (
+                        <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                            notification.type === 'error' 
+                                ? 'bg-red-50 border border-red-200' 
+                                : 'bg-green-50 border border-green-200'
+                        }`}>
+                            {notification.type === 'error' ? (
+                                <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
+                            ) : (
+                                <CheckCircle className="text-green-600 flex-shrink-0" size={20} />
+                            )}
+                            <p className={notification.type === 'error' ? 'text-red-800' : 'text-green-800'}>
+                                {notification.message}
+                            </p>
+                        </div>
+                    )}
+                    
                     <h1 className="text-4xl font-bold text-gray-900 mb-2">Integrations</h1>
                     <p className="text-lg text-gray-600 mb-8">
                         Connect your tools to unlock AI-powered insights

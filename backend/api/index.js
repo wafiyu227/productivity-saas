@@ -1,13 +1,13 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,7 +46,7 @@ app.get('/', (req, res) => {
 
 // Routes
 app.use('/api/slack', slackRoutes);
-app.use('/api/slack', authRoutes);
+app.use('/api/auth', authRoutes);
 
 // 404 handler
 app.use((req, res) => {

@@ -7,11 +7,11 @@ const router = express.Router();
 
 const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
 const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
-const REDIRECT_URI = process.env.API_BASE_URL + '/api/slack/oauth/callback';
+const REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/slack/oauth/callback';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
 
 // Initiate OAuth flow
-router.get('/connect', (req, res) => {
+router.get('/slack/connect', (req, res) => {
     const { userId } = req.query;
 
     if (!userId) {
@@ -35,7 +35,7 @@ router.get('/connect', (req, res) => {
 });
 
 // OAuth callback
-router.get('/oauth/callback', async (req, res) => {
+router.get('/slack/oauth/callback', async (req, res) => {
     const { code, state, error } = req.query;
 
     if (error) {
@@ -84,7 +84,7 @@ router.get('/oauth/callback', async (req, res) => {
 });
 
 // Check integration status
-router.get('/status', async (req, res) => {
+router.get('/slack/status', async (req, res) => {
     const { userId } = req.query;
 
     if (!userId) {
@@ -105,7 +105,7 @@ router.get('/status', async (req, res) => {
 });
 
 // Disconnect Slack
-router.delete('/disconnect', async (req, res) => {
+router.delete('/slack/disconnect', async (req, res) => {
     const { userId } = req.query;
 
     if (!userId) {
