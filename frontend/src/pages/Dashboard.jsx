@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 import {
     RefreshCw, MessageSquare, AlertTriangle, TrendingUp,
@@ -6,6 +7,7 @@ import {
 } from 'lucide-react';
 
 export default function Dashboard() {
+    const { user } = useAuth();
     const [channels, setChannels] = useState([]);
     const [summaries, setSummaries] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -36,12 +38,12 @@ export default function Dashboard() {
         try {
             const data = await api.getChannels();
             setChannels(data.channels || []);
+            if (data.error) {
+                console.warn('Channels error:', data.error);
+            }
         } catch (error) {
             console.error('Failed to load channels:', error);
-            // If no channels, might need to connect Slack
-            if (error.message.includes('401') || error.message.includes('403')) {
-                setChannels([]);
-            }
+            setChannels([]);
         }
     };
 

@@ -6,6 +6,39 @@ import logger from '../utils/logger.js';
 
 const router = express.Router();
 
+// Get Slack channels
+router.get('/channels', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required' });
+    }
+
+    // Check if user has Slack integration
+    const integration = await db.getIntegration(userId, 'slack');
+    
+    if (!integration) {
+      return res.status(401).json({ 
+        error: 'Slack not connected',
+        channels: []
+      });
+    }
+
+    // Get channels from Slack service
+    const channels = await slackService.listChannels();
+    
+    res.json({
+      channels: channels || [],
+      teamId: integration.team_id,
+      teamName: integration.team_name
+    });
+  } catch (error) {
+    logger.error('Failed to fetch channels:', error);
+    res.status(500).json({ error: 'Failed to fetch channels', channels: [] });
+  }
+});
+
 // Webhook endpoint
 router.post('/webhook', async (req, res) => {
   try {

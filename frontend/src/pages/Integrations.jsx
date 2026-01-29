@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { CheckCircle, XCircle, Loader, ExternalLink, AlertCircle } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Integrations() {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [slackStatus, setSlackStatus] = useState({ connected: false, loading: true });
     const [notification, setNotification] = useState(null);
     const [searchParams, setSearchParams] = useSearchParams();
@@ -43,14 +44,15 @@ export default function Integrations() {
                 };
                 setNotification({
                     type: 'success',
-                    message: successMessages[success] || 'Connected successfully!'
+                    message: successMessages[success] || 'Connected successfully!',
+                    action: 'dashboard'
                 });
                 // Refresh Slack status
                 if (user) {
                     checkSlackStatus();
                 }
-                // Clear notification after 5 seconds
-                setTimeout(() => setNotification(null), 5000);
+                // Clear the URL parameters
+                setSearchParams({});
             }
 
             // Clear the URL parameters
@@ -97,19 +99,29 @@ export default function Integrations() {
             <div className="p-8">
                 <div className="max-w-4xl mx-auto">
                     {notification && (
-                        <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                        <div className={`mb-6 p-4 rounded-lg flex items-center justify-between gap-3 ${
                             notification.type === 'error' 
                                 ? 'bg-red-50 border border-red-200' 
                                 : 'bg-green-50 border border-green-200'
                         }`}>
-                            {notification.type === 'error' ? (
-                                <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
-                            ) : (
-                                <CheckCircle className="text-green-600 flex-shrink-0" size={20} />
+                            <div className="flex items-center gap-3">
+                                {notification.type === 'error' ? (
+                                    <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
+                                ) : (
+                                    <CheckCircle className="text-green-600 flex-shrink-0" size={20} />
+                                )}
+                                <p className={notification.type === 'error' ? 'text-red-800' : 'text-green-800'}>
+                                    {notification.message}
+                                </p>
+                            </div>
+                            {notification.action === 'dashboard' && (
+                                <button
+                                    onClick={() => navigate('/app/dashboard')}
+                                    className="ml-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium whitespace-nowrap flex-shrink-0"
+                                >
+                                    Go to Dashboard
+                                </button>
                             )}
-                            <p className={notification.type === 'error' ? 'text-red-800' : 'text-green-800'}>
-                                {notification.message}
-                            </p>
                         </div>
                     )}
                     

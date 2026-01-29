@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS integrations (
     user_id TEXT NOT NULL,
     platform TEXT NOT NULL,
     access_token TEXT NOT NULL,
-    refresh_token TEXT NOT NULL,
+    refresh_token TEXT,
     team_id TEXT,
     team_name TEXT,
     workspace_id TEXT,

@@ -6,15 +6,28 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import { WebClient } from '@slack/web-api';
 import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
+import logger from './utils/logger.js';
+import { db } from './services/supabase-client.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://productivity-saas-frontend.vercel.app',
+    'https://productivity-saas-tau.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(compression());
 
 // Rate limiting
@@ -47,6 +60,90 @@ app.get('/', (req, res) => {
 // Routes
 app.use('/api/slack', slackRoutes);
 app.use('/api/auth', authRoutes);
+
+// Direct OAuth callback handler at root level
+app.get('/api/auth/slack/oauth/callback', async (req, res) => {
+    const { code, state, error } = req.query;
+    const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
+    const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
+    const API_BASE_URL = process.env.API_BASE_URL || 'https://productivity-saas-tau.vercel.app';
+    const REDIRECT_URI = `${API_BASE_URL}/api/auth/slack/oauth/callback`;
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
+
+    logger.info('=== DIRECT OAuth callback received ===');
+    logger.info('Details', { hasCode: !!code, hasState: !!state, error, url: req.url });
+
+    if (error) {
+        logger.error('Slack OAuth error:', error);
+        return res.redirect(`${FRONTEND_URL}/app?error=slack_auth_failed`);
+    }
+
+    if (!code || !state) {
+        logger.error('Missing code or state', { code, state });
+        return res.redirect(`${FRONTEND_URL}/app?error=missing_params`);
+    }
+
+    try {
+        const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+        logger.info('Decoded userId:', { userId });
+
+        const client = new WebClient();
+        const result = await client.oauth.v2.access({
+            client_id: SLACK_CLIENT_ID,
+            client_secret: SLACK_CLIENT_SECRET,
+            code,
+            redirect_uri: REDIRECT_URI
+        });
+
+        logger.info('Token exchange result:', { ok: result.ok, error: result.error });
+
+        if (!result.ok) {
+            throw new Error(`Token exchange failed: ${result.error}`);
+        }
+
+        await db.saveIntegration(userId, 'slack', {
+            accessToken: result.access_token,
+            teamId: result.team.id,
+            teamName: result.team.name,
+            botUserId: result.bot_user_id
+        });
+
+        logger.info('Integration saved successfully');
+        res.redirect(`${FRONTEND_URL}/app?success=slack_connected`);
+
+    } catch (error) {
+        logger.error('Callback error:', error);
+        res.redirect(`${FRONTEND_URL}/app?error=oauth_failed`);
+    }
+});
+
+// Debug endpoint to verify routing
+app.get('/api/auth/slack/oauth/callback/debug', (req, res) => {
+  res.json({
+    message: 'OAuth callback route is reachable',
+    query: req.query,
+    headers: req.headers
+  });
+});
+
+// Error handler for 404
+app.use((req, res) => {
+  logger.warn('404 - Route not found', { method: req.method, path: req.path, url: req.url });
+  res.status(404).json({ 
+    error: 'Not found', 
+    path: req.path,
+    method: req.method,
+    availableRoutes: [
+      'GET /health',
+      'GET /api/slack/channels',
+      'POST /api/slack/webhook',
+      'GET /api/auth/slack/connect',
+      'GET /api/auth/slack/oauth/callback',
+      'GET /api/auth/slack/status',
+      'DELETE /api/auth/slack/disconnect'
+    ]
+  });
+});
 
 // 404 handler
 app.use((req, res) => {

@@ -24,17 +24,6 @@ export const db = {
     return result;
   },
 
-  async deleteIntegration(userId, platform) {
-    const { error } = await supabaseAdmin
-      .from('integrations')
-      .delete()
-      .eq('user_id', userId)
-      .eq('platform', platform);
-
-    if (error) throw error;
-    return true;
-  },
-
   async getSummaries(teamId, limit = 10) {
     const { data, error } = await supabase
       .from('slack_summaries')
@@ -47,10 +36,8 @@ export const db = {
     return data;
   },
 
-  // Add these methods to the db object
-
   async saveIntegration(userId, platform, tokens) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('integrations')
       .upsert({
         user_id: userId,
@@ -71,7 +58,7 @@ export const db = {
   },
 
   async getIntegration(userId, platform) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('integrations')
       .select('*')
       .eq('user_id', userId)
@@ -83,7 +70,7 @@ export const db = {
   },
 
   async deleteIntegration(userId, platform) {
-    const { error } = await supabaseAdmin
+    const { error } = await supabase
       .from('integrations')
       .delete()
       .eq('user_id', userId)
