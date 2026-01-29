@@ -87,13 +87,29 @@ cp .env.example .env
 3. Install to workspace
 4. Copy tokens to `.env`
 
-### 6. Run Locally
+### 6. Demo Mode (Optional)
+If you're using the free tier of Gemini API and hit quota limits, enable demo mode:
+
+**Local Development:**
+```bash
+# Create .env.local in backend/ directory
+echo "USE_DEMO_MODE=true" >> .env.local
+```
+
+**Production (Vercel):**
+1. Go to Project Settings → Environment Variables
+2. Add `USE_DEMO_MODE = true`
+3. Redeploy
+
+This enables realistic synthetic summaries without API calls. See [DEMO_MODE.md](docs/DEMO_MODE.md) for more details.
+
+### 7. Run Locally
 ```bash
 npm run dev
 # Server starts at http://localhost:3000
 ```
 
-### 7. Test API
+### 8. Test API
 ```bash
 # Health check
 curl http://localhost:3000/health
@@ -111,6 +127,7 @@ curl -X POST http://localhost:3000/api/slack/summarize \
 
 - **[Setup Guide](docs/SETUP.md)** - Complete setup instructions
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Deploy to production + scaling
+- **[Demo Mode Guide](docs/DEMO_MODE.md)** - Using demo mode for testing without API quota
 - **[API Documentation](docs/API.md)** - API endpoints reference
 
 ## 🔑 Key API Endpoints

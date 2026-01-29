@@ -5,6 +5,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import Summaries from './pages/Summaries';
 import Blockers from './pages/Blockers';
 import Meetings from './pages/Meetings';
 import Profile from './pages/Profile';
@@ -30,6 +31,8 @@ function App() {
             </ProtectedRoute>
           }>
             <Route index element={<Dashboard />} />
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="summaries" element={<Summaries />} />
             <Route path="blockers" element={<Blockers />} />
             <Route path="meetings" element={<Meetings />} />
             <Route path="integrations" element={<Integrations />} />

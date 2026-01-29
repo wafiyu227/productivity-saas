@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import {
     RefreshCw, MessageSquare, AlertTriangle, TrendingUp,
@@ -8,6 +9,7 @@ import {
 
 export default function Dashboard() {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [channels, setChannels] = useState([]);
     const [summaries, setSummaries] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -31,12 +33,22 @@ export default function Dashboard() {
     }, []);
 
     useEffect(() => {
-        loadChannels();
-    }, []);
+        if (user) {
+            loadChannels();
+            loadSummaries();
+        }
+    }, [user]);
 
     const loadChannels = async () => {
+        if (!user) {
+            console.log('No user available yet');
+            return;
+        }
+        
+        console.log('Loading channels for user:', user.id);
         try {
             const data = await api.getChannels();
+            console.log('Loaded channels:', data);
             setChannels(data.channels || []);
             if (data.error) {
                 console.warn('Channels error:', data.error);
@@ -44,6 +56,19 @@ export default function Dashboard() {
         } catch (error) {
             console.error('Failed to load channels:', error);
             setChannels([]);
+        }
+    };
+
+    const loadSummaries = async () => {
+        if (!user) return;
+
+        console.log('Loading summaries for user:', user.id);
+        try {
+            const data = await api.getSummaries();
+            console.log('Loaded summaries:', data);
+            setSummaries(data || []);
+        } catch (error) {
+            console.error('Failed to load summaries:', error);
         }
     };
 
@@ -56,7 +81,10 @@ export default function Dashboard() {
         setLoading(true);
         try {
             const result = await api.createSummary(selectedChannel, 24);
-            setSummaries([result.summary, ...summaries]);
+            console.log('Summary created:', result);
+            // Reload summaries from database
+            await loadSummaries();
+            alert('✅ Summary generated successfully!');
         } catch (error) {
             alert('Failed to generate summary: ' + error.message);
         } finally {
@@ -67,8 +95,11 @@ export default function Dashboard() {
     const stats = {
         channelsMonitored: channels.length,
         summariesGenerated: summaries.length,
-        activeBlockers: summaries.reduce((acc, s) => acc + (s.blockers?.length || 0), 0),
-        totalMessages: summaries.reduce((acc, s) => acc + (s.messageCount || 0), 0)
+        activeBlockers: summaries.reduce((acc, s) => {
+            const blockers = s.blockers || s.key_topics || [];
+            return acc + (Array.isArray(blockers) ? blockers.length : 0);
+        }, 0),
+        totalMessages: summaries.reduce((acc, s) => acc + (s.message_count || 0), 0)
     };
 
     return (
@@ -91,28 +122,28 @@ export default function Dashboard() {
                             title="Channels"
                             value={stats.channelsMonitored}
                             icon={<MessageSquare className="text-blue-600" size={24} />}
-                            change="+2 this week"
+                            change={`${stats.channelsMonitored} connected`}
                             trend="up"
                         />
                         <StatCard
                             title="Summaries"
                             value={stats.summariesGenerated}
                             icon={<Sparkles className="text-purple-600" size={24} />}
-                            change="+12 today"
+                            change={`${stats.summariesGenerated} generated`}
                             trend="up"
                         />
                         <StatCard
                             title="Active Blockers"
                             value={stats.activeBlockers}
                             icon={<AlertTriangle className="text-red-600" size={24} />}
-                            change="-3 resolved"
+                            change={`${stats.activeBlockers} total`}
                             trend="down"
                         />
                         <StatCard
                             title="Messages Analyzed"
                             value={stats.totalMessages}
                             icon={<TrendingUp className="text-green-600" size={24} />}
-                            change="+156 today"
+                            change={`${stats.totalMessages} messages`}
                             trend="up"
                         />
                     </div>
@@ -180,7 +211,10 @@ export default function Dashboard() {
                                     <h2 className="text-2xl font-bold text-gray-900">
                                         Recent Summaries
                                     </h2>
-                                    <button className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">
+                                    <button 
+                                        onClick={() => navigate('/app/summaries')}
+                                        className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
+                                    >
                                         View All
                                         <ArrowRight size={16} />
                                     </button>
@@ -229,6 +263,13 @@ function StatCard({ title, value, icon, change, trend }) {
 }
 
 function SummaryCard({ summary }) {
+    const channelName = summary.channel_name || summary.channelName || 'unknown';
+    const summaryText = summary.summary || '';
+    const blockers = summary.blockers || summary.key_topics || [];
+    const keyTopics = summary.keyTopics || [];
+    const messageCount = summary.message_count || summary.messageCount || 0;
+    const createdAt = summary.created_at ? new Date(summary.created_at).toLocaleDateString() : 'Just now';
+
     return (
         <div className="border border-gray-200 rounded-xl p-5 hover:shadow-md hover:border-blue-200 transition-all">
             <div className="flex items-start justify-between mb-3">
@@ -237,22 +278,22 @@ function SummaryCard({ summary }) {
                         <MessageSquare className="text-white" size={20} />
                     </div>
                     <div>
-                        <h3 className="font-semibold text-gray-900">#{summary.channel}</h3>
+                        <h3 className="font-semibold text-gray-900">#{channelName}</h3>
                         <p className="text-sm text-gray-500 flex items-center gap-1">
                             <Clock size={14} />
-                            Just now • {summary.messageCount} messages
+                            {createdAt} • {messageCount} messages
                         </p>
                     </div>
                 </div>
             </div>
 
-            <p className="text-gray-700 mb-4 leading-relaxed">{summary.summary}</p>
+            <p className="text-gray-700 mb-4 leading-relaxed">{summaryText}</p>
 
-            {summary.blockers && summary.blockers.length > 0 && (
+            {Array.isArray(blockers) && blockers.length > 0 && (
                 <div className="mb-3">
                     <p className="text-xs font-semibold text-red-600 mb-2 uppercase">Blockers Detected</p>
                     <div className="flex flex-wrap gap-2">
-                        {summary.blockers.map((blocker, i) => (
+                        {blockers.map((blocker, i) => (
                             <span
                                 key={i}
                                 className="px-3 py-1.5 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 flex items-center gap-1"
@@ -265,9 +306,9 @@ function SummaryCard({ summary }) {
                 </div>
             )}
 
-            {summary.keyTopics && (
+            {Array.isArray(keyTopics) && keyTopics.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                    {summary.keyTopics.map((topic, i) => (
+                    {keyTopics.map((topic, i) => (
                         <span
                             key={i}
                             className="px-3 py-1 bg-blue-50 text-blue-700 text-sm rounded-lg"

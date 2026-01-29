@@ -126,6 +126,45 @@ app.get('/api/auth/slack/oauth/callback/debug', (req, res) => {
   });
 });
 
+// Get summaries for a team
+app.get('/api/summaries', async (req, res) => {
+  try {
+    const { userId, teamId } = req.query;
+
+    logger.info('Summaries request received', { userId, teamId });
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId required', summaries: [] });
+    }
+
+    // Get user's Slack integration to find their team
+    const integration = await db.getIntegration(userId, 'slack');
+    
+    if (!integration) {
+      return res.status(401).json({ error: 'Slack not connected', summaries: [] });
+    }
+
+    // Fetch summaries for the user's team
+    const summaries = await db.getSummaries(integration.team_id);
+    
+    logger.info('Summaries fetched successfully', { userId, count: summaries.length });
+
+    res.json(summaries || []);
+  } catch (error) {
+    logger.error('Failed to fetch summaries:', { error: error.message });
+    res.status(500).json({ error: error.message || 'Failed to fetch summaries' });
+  }
+});
+
+// Debug endpoint to verify routing
+app.get('/api/auth/slack/oauth/callback/debug', (req, res) => {
+  res.json({
+    message: 'OAuth callback route is reachable',
+    query: req.query,
+    headers: req.headers
+  });
+});
+
 // Error handler for 404
 app.use((req, res) => {
   logger.warn('404 - Route not found', { method: req.method, path: req.path, url: req.url });

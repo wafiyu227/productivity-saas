@@ -35,12 +35,14 @@ class SlackService {
     );
   }
 
-  async getChannelMessages(channelId, options = {}) {
-    if (!this.client) throw new Error('Slack not configured');
+  async getChannelMessages(channelId, options = {}, accessToken = null) {
+    const token = accessToken || SLACK_BOT_TOKEN;
+    if (!token) throw new Error('Slack not configured - no access token');
 
+    const client = new WebClient(token);
     const { limit = 100, oldest } = options;
 
-    const result = await this.client.conversations.history({
+    const result = await client.conversations.history({
       channel: channelId,
       limit,
       oldest
@@ -55,10 +57,13 @@ class SlackService {
       }));
   }
 
-  async getChannelInfo(channelId) {
-    if (!this.client) throw new Error('Slack not configured');
+  async getChannelInfo(channelId, accessToken = null) {
+    const token = accessToken || SLACK_BOT_TOKEN;
+    if (!token) throw new Error('Slack not configured - no access token');
 
-    const result = await this.client.conversations.info({
+    const client = new WebClient(token);
+
+    const result = await client.conversations.info({
       channel: channelId
     });
 
@@ -69,23 +74,33 @@ class SlackService {
     };
   }
 
-  async listChannels() {
-    if (!this.client) throw new Error('Slack not configured');
+  async listChannels(accessToken = null) {
+    // Use provided access token or fall back to bot token
+    const token = accessToken || SLACK_BOT_TOKEN;
+    if (!token) throw new Error('Slack not configured - no access token or bot token');
 
-    const result = await this.client.conversations.list({
-      types: 'public_channel,private_channel',
-      exclude_archived: true
-    });
+    const client = new WebClient(token);
 
-    return result.channels.map(ch => ({
-      id: ch.id,
-      name: ch.name
-    }));
+    try {
+      const result = await client.conversations.list({
+        types: 'public_channel,private_channel',
+        exclude_archived: true,
+        limit: 100
+      });
+
+      return result.channels.map(ch => ({
+        id: ch.id,
+        name: ch.name
+      }));
+    } catch (error) {
+      logger.error('Error listing channels:', error);
+      throw error;
+    }
   }
 
-  async getRecentMessages(channelId, hours = 24) {
+  async getRecentMessages(channelId, hours = 24, accessToken = null) {
     const oldest = Math.floor((Date.now() - hours * 60 * 60 * 1000) / 1000);
-    return this.getChannelMessages(channelId, { oldest: oldest.toString() });
+    return this.getChannelMessages(channelId, { oldest: oldest.toString() }, accessToken);
   }
 }
 

@@ -14,13 +14,33 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export const db = {
   async saveSlackSummary(data) {
+    // Ensure arrays are properly formatted for JSONB
+    const summaryData = {
+      channel_id: data.channel_id,
+      channel_name: data.channel_name,
+      team_id: data.team_id,
+      summary: data.summary,
+      blockers: Array.isArray(data.blockers) ? data.blockers : [],
+      key_topics: Array.isArray(data.key_topics) ? data.key_topics : [],
+      message_count: data.message_count || 0,
+      time_period_start: data.time_period_start,
+      time_period_end: data.time_period_end
+    };
+
+    console.log('Saving summary to database:', summaryData);
+
     const { data: result, error } = await supabase
       .from('slack_summaries')
-      .insert(data)
+      .insert([summaryData])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error saving summary:', error);
+      throw error;
+    }
+    
+    console.log('Summary saved successfully:', result);
     return result;
   },
 

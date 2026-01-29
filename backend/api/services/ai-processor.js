@@ -4,12 +4,18 @@ import logger from '../utils/logger.js';
 dotenv.config();
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+// Use gemini-2.0-flash which is the latest available model
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 class AIProcessor {
   async summarizeSlackMessages(messages, channelName) {
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY not configured');
+    }
+
+    // Use demo mode if needed (set USE_DEMO_MODE=true in environment)
+    if (process.env.USE_DEMO_MODE === 'true') {
+      return this.getDemoSummary(channelName);
     }
 
     const formattedMessages = messages
@@ -75,6 +81,31 @@ Provide ONLY a valid JSON response with this exact structure (no markdown, no ex
       logger.error('Gemini AI processing failed', { error: error.message });
       throw error;
     }
+  }
+
+  getDemoSummary(channelName) {
+    // Return a demo summary when API quota is exceeded
+    const demoSummaries = {
+      'example-channel': {
+        summary: 'Team discussed Q1 roadmap priorities and upcoming feature releases. Focus areas include performance optimization and user experience improvements.',
+        blockers: ['Missing database schema approval', 'Waiting on design review'],
+        keyTopics: ['Q1 Planning', 'Performance', 'User Experience', 'Database Optimization']
+      },
+      'general': {
+        summary: 'General discussion about team updates, announcements about company events, and casual conversation about weekend plans.',
+        blockers: [],
+        keyTopics: ['Team Updates', 'Announcements', 'Company Culture']
+      }
+    };
+
+    const demo = demoSummaries[channelName] || {
+      summary: `Team had a productive discussion in #${channelName}. Multiple action items were identified and assigned. Key takeaways include improved processes and better communication strategies.`,
+      blockers: ['Resource constraints', 'Timeline delays'],
+      keyTopics: ['Strategy', 'Action Items', 'Process Improvement', 'Communication']
+    };
+
+    logger.info('Returning demo summary for channel', { channelName });
+    return demo;
   }
 
   async analyzeAsanaTasks(tasks, projectName) {
