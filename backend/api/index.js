@@ -8,7 +8,6 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
-import blockersRoutes from './routes/blockers.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
 
@@ -96,7 +95,6 @@ app.get('/', (req, res) => {
 // ============================================
 app.use('/api/slack', slackRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/blockers', blockersRoutes);
 
 // ============================================
 // Summaries Endpoint
