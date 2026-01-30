@@ -45,7 +45,7 @@ export const db = {
   },
 
   async getSummaries(teamId, limit = 10) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('slack_summaries')
       .select('*')
       .eq('team_id', teamId)
