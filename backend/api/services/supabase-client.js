@@ -39,13 +39,13 @@ export const db = {
       console.error('Supabase error saving summary:', error);
       throw error;
     }
-    
+
     console.log('Summary saved successfully:', result);
     return result;
   },
 
   async getSummaries(teamId, limit = 10) {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('slack_summaries')
       .select('*')
       .eq('team_id', teamId)
@@ -53,7 +53,7 @@ export const db = {
       .limit(limit);
 
     if (error) throw error;
-    return data;
+    return data || [];
   },
 
   async saveIntegration(userId, platform, tokens) {

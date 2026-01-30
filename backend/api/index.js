@@ -6,23 +6,28 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import { WebClient } from '@slack/web-api';
 import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
+import blockersRoutes from './routes/blockers.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
 
+// ============================================
+// App Initialization
+// ============================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS - allow both origins
+// ============================================
+// CORS Configuration
+// ============================================
 const allowedOrigins = [
   'https://productivity-saas-frontend.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000'
 ];
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like Postman, curl)
     if (!origin) return callback(null, true);
@@ -37,11 +42,19 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
 
-// Middleware
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// ============================================
+// Security & Performance Middleware
+// ============================================
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
+
+// Body parsing
+app.use(express.json());
 
 // Rate limiting
 const limiter = rateLimit({
@@ -50,10 +63,9 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Body parsing
-app.use(express.json());
-
-// Request logger
+// ============================================
+// Request Logging Middleware
+// ============================================
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.url}`, {
     origin: req.headers.origin
@@ -61,7 +73,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check
+// ============================================
+// Health Check & Root Routes
+// ============================================
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -69,7 +83,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root
 app.get('/', (req, res) => {
   res.json({
     name: 'Productivity SaaS API',
@@ -78,11 +91,16 @@ app.get('/', (req, res) => {
   });
 });
 
-// Routes
+// ============================================
+// API Routes
+// ============================================
 app.use('/api/slack', slackRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/blockers', blockersRoutes);
 
-// Get summaries endpoint
+// ============================================
+// Summaries Endpoint
+// ============================================
 app.get('/api/summaries', async (req, res) => {
   try {
     const { userId } = req.query;
@@ -108,7 +126,11 @@ app.get('/api/summaries', async (req, res) => {
   }
 });
 
-// 404 handler (only one!)
+// ============================================
+// Error Handlers (Order matters - these go last)
+// ============================================
+
+// 404 handler
 app.use((req, res) => {
   logger.warn('404 - Route not found:', req.url);
   res.status(404).json({
@@ -117,16 +139,19 @@ app.use((req, res) => {
   });
 });
 
-// Error handler
+// Global error handler
 app.use((err, req, res, next) => {
   logger.error('Server error:', err);
   res.status(500).json({ error: err.message });
 });
 
-// Start server for local dev
+// ============================================
+// Server Startup
+// ============================================
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     logger.info(`Server running on http://localhost:${PORT}`);
+    logger.info(`CORS enabled for origins: ${allowedOrigins.join(', ')}`);
   });
 }
 
