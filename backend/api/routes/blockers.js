@@ -1,5 +1,5 @@
 import express from 'express';
-import { db } from '../services/supabase-client.js';
+import { db, supabase } from '../services/supabase-client.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -16,7 +16,7 @@ router.post('/resolve', express.json(), async (req, res) => {
         logger.info('Resolving blocker', { summaryId, blockIndex, userId });
 
         // Get current summary
-        const { data: summary, error: fetchError } = await db.supabaseAdmin
+        const { data: summary, error: fetchError } = await supabase
             .from('slack_summaries')
             .select('blocker_status, blockers')
             .eq('id', summaryId)
@@ -43,7 +43,7 @@ router.post('/resolve', express.json(), async (req, res) => {
         };
 
         // Update in database
-        const { error: updateError } = await db.supabaseAdmin
+        const { error: updateError } = await supabase
             .from('slack_summaries')
             .update({ blocker_status: blockerStatus })
             .eq('id', summaryId);
@@ -83,7 +83,7 @@ router.get('/', async (req, res) => {
         }
 
         // Fetch summaries with blockers
-        const { data: summaries, error } = await db.supabaseAdmin
+        const { data: summaries, error } = await supabase
             .from('slack_summaries')
             .select('*')
             .eq('team_id', integration.team_id)
