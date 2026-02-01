@@ -10,6 +10,7 @@ import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
+import blockersRoutes from './routes/blockers.js';
 
 // ============================================
 // App Initialization
@@ -142,6 +143,8 @@ app.use((err, req, res, next) => {
   logger.error('Server error:', err);
   res.status(500).json({ error: err.message });
 });
+app.use('/api/blockers', blockersRoutes);
+
 
 // ============================================
 // Server Startup
