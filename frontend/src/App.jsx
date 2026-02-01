@@ -10,6 +10,7 @@ import Blockers from './pages/Blockers';
 import Meetings from './pages/Meetings';
 import Profile from './pages/Profile';
 import Integrations from './pages/Integrations';
+import Analytics from './pages/Analytics';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -37,6 +38,7 @@ function App() {
             <Route path="meetings" element={<Meetings />} />
             <Route path="integrations" element={<Integrations />} />
             <Route path="profile" element={<Profile />} />
+            <Route path="analytics" element={<Analytics />} />
           </Route>
         </Routes>
       </AuthProvider>

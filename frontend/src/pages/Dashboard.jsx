@@ -4,28 +4,31 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import {
     RefreshCw, MessageSquare, AlertTriangle, TrendingUp,
-    Sparkles, Clock, CheckCircle, ArrowRight, Zap
+    Sparkles, Clock, CheckCircle, ArrowRight, Zap, Activity
 } from 'lucide-react';
+
+const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Dashboard() {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [channels, setChannels] = useState([]);
     const [summaries, setSummaries] = useState([]);
+    const [activities, setActivities] = useState([]);
+    const [blockerStats, setBlockerStats] = useState({ active: 0, resolved: 0, total: 0 });
     const [loading, setLoading] = useState(false);
     const [selectedChannel, setSelectedChannel] = useState('');
-
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
-        // Check for OAuth success/error in URL
         const params = new URLSearchParams(window.location.search);
         const success = params.get('success');
         const error = params.get('error');
 
         if (success === 'slack_connected') {
             alert('✅ Slack connected successfully!');
-            loadChannels(); // Reload channels
-            window.history.replaceState({}, '', '/app'); // Clean URL
+            loadChannels();
+            window.history.replaceState({}, '', '/app');
         } else if (error) {
             alert('❌ Connection failed: ' + error);
             window.history.replaceState({}, '', '/app');
@@ -36,23 +39,17 @@ export default function Dashboard() {
         if (user) {
             loadChannels();
             loadSummaries();
+            loadActivities();
+            loadBlockerStats();
         }
     }, [user]);
 
     const loadChannels = async () => {
-        if (!user) {
-            console.log('No user available yet');
-            return;
-        }
-        
-        console.log('Loading channels for user:', user.id);
+        if (!user) return;
+
         try {
             const data = await api.getChannels();
-            console.log('Loaded channels:', data);
             setChannels(data.channels || []);
-            if (data.error) {
-                console.warn('Channels error:', data.error);
-            }
         } catch (error) {
             console.error('Failed to load channels:', error);
             setChannels([]);
@@ -62,13 +59,85 @@ export default function Dashboard() {
     const loadSummaries = async () => {
         if (!user) return;
 
-        console.log('Loading summaries for user:', user.id);
         try {
             const data = await api.getSummaries();
-            console.log('Loaded summaries:', data);
             setSummaries(data || []);
         } catch (error) {
             console.error('Failed to load summaries:', error);
+        }
+    };
+
+    const loadBlockerStats = async () => {
+        if (!user) return;
+
+        try {
+            const res = await fetch(`${API_URL}/api/blockers?userId=${user.id}`);
+            const summariesWithBlockers = await res.json();
+
+            let activeCount = 0;
+            let resolvedCount = 0;
+            let totalCount = 0;
+
+            summariesWithBlockers.forEach(summary => {
+                if (summary.blockers && Array.isArray(summary.blockers)) {
+                    summary.blockers.forEach((blocker, index) => {
+                        totalCount++;
+                        const status = summary.blocker_status?.[index]?.status || 'active';
+                        if (status === 'active') {
+                            activeCount++;
+                        } else if (status === 'resolved') {
+                            resolvedCount++;
+                        }
+                    });
+                }
+            });
+
+            setBlockerStats({
+                active: activeCount,
+                resolved: resolvedCount,
+                total: totalCount
+            });
+        } catch (error) {
+            console.error('Failed to load blocker stats:', error);
+        }
+    };
+
+    const loadActivities = async () => {
+        if (!user) return;
+
+        try {
+            const data = await api.getSummaries();
+            const activityList = [];
+
+            data?.forEach(summary => {
+                activityList.push({
+                    id: `summary-${summary.id}`,
+                    type: 'summary',
+                    text: `Summary generated for #${summary.channel_name}`,
+                    time: new Date(summary.created_at),
+                    icon: Sparkles,
+                    color: 'blue'
+                });
+
+                const blockers = summary.blockers || [];
+                if (Array.isArray(blockers) && blockers.length > 0) {
+                    blockers.forEach((blocker, idx) => {
+                        activityList.push({
+                            id: `blocker-${summary.id}-${idx}`,
+                            type: 'blocker',
+                            text: `Blocker detected: "${blocker}" in #${summary.channel_name}`,
+                            time: new Date(summary.created_at),
+                            icon: AlertTriangle,
+                            color: 'red'
+                        });
+                    });
+                }
+            });
+
+            activityList.sort((a, b) => b.time - a.time);
+            setActivities(activityList.slice(0, 10));
+        } catch (error) {
+            console.error('Failed to load activities:', error);
         }
     };
 
@@ -81,9 +150,10 @@ export default function Dashboard() {
         setLoading(true);
         try {
             const result = await api.createSummary(selectedChannel, 24);
-            console.log('Summary created:', result);
-            // Reload summaries from database
             await loadSummaries();
+            await loadActivities();
+            await loadBlockerStats(); // Refresh blocker stats
+            setSelectedChannel('');
             alert('✅ Summary generated successfully!');
         } catch (error) {
             alert('Failed to generate summary: ' + error.message);
@@ -92,13 +162,20 @@ export default function Dashboard() {
         }
     };
 
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        await Promise.all([
+            loadSummaries(),
+            loadActivities(),
+            loadBlockerStats()
+        ]);
+        setRefreshing(false);
+    };
+
     const stats = {
         channelsMonitored: channels.length,
         summariesGenerated: summaries.length,
-        activeBlockers: summaries.reduce((acc, s) => {
-            const blockers = s.blockers || s.key_topics || [];
-            return acc + (Array.isArray(blockers) ? blockers.length : 0);
-        }, 0),
+        activeBlockers: blockerStats.active,
         totalMessages: summaries.reduce((acc, s) => acc + (s.message_count || 0), 0)
     };
 
@@ -123,7 +200,7 @@ export default function Dashboard() {
                             value={stats.channelsMonitored}
                             icon={<MessageSquare className="text-blue-600" size={24} />}
                             change={`${stats.channelsMonitored} connected`}
-                            trend="up"
+                            trend="neutral"
                         />
                         <StatCard
                             title="Summaries"
@@ -136,8 +213,9 @@ export default function Dashboard() {
                             title="Active Blockers"
                             value={stats.activeBlockers}
                             icon={<AlertTriangle className="text-red-600" size={24} />}
-                            change={`${stats.activeBlockers} total`}
-                            trend="down"
+                            change={`${blockerStats.resolved} resolved`}
+                            trend={stats.activeBlockers > 0 ? "down" : "up"}
+                            onClick={() => navigate('/app/blockers')}
                         />
                         <StatCard
                             title="Messages Analyzed"
@@ -211,12 +289,18 @@ export default function Dashboard() {
                                     <h2 className="text-2xl font-bold text-gray-900">
                                         Recent Summaries
                                     </h2>
-                                    <button 
-                                        onClick={() => navigate('/app/summaries')}
+                                    <button
+                                        onClick={handleRefresh}
                                         className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
                                     >
-                                        View All
-                                        <ArrowRight size={16} />
+                                        {refreshing ? (
+                                            <RefreshCw size={16} className="animate-spin" />
+                                        ) : (
+                                            <>
+                                                Refresh
+                                                <RefreshCw size={16} />
+                                            </>
+                                        )}
                                     </button>
                                 </div>
 
@@ -224,7 +308,7 @@ export default function Dashboard() {
                                     <EmptyState />
                                 ) : (
                                     <div className="space-y-4">
-                                        {summaries.map((summary, idx) => (
+                                        {summaries.slice(0, 3).map((summary, idx) => (
                                             <SummaryCard key={idx} summary={summary} />
                                         ))}
                                     </div>
@@ -232,10 +316,10 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {/* Quick Actions */}
+                        {/* Quick Actions & Activity */}
                         <div className="space-y-6">
-                            <QuickActionsCard />
-                            <ActivityFeed />
+                            <QuickActionsCard navigate={navigate} />
+                            <ActivityFeed activities={activities} refreshing={refreshing} onRefresh={handleRefresh} />
                         </div>
                     </div>
                 </div>
@@ -244,14 +328,19 @@ export default function Dashboard() {
     );
 }
 
-function StatCard({ title, value, icon, change, trend }) {
+function StatCard({ title, value, icon, change, trend, onClick }) {
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
+        <div
+            onClick={onClick}
+            className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow ${onClick ? 'cursor-pointer' : ''}`}
+        >
             <div className="flex items-center justify-between mb-4">
                 <div className="p-3 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl">
                     {icon}
                 </div>
-                <span className={`text-sm font-medium ${trend === 'up' ? 'text-green-600' : 'text-red-600'
+                <span className={`text-sm font-medium ${trend === 'up' ? 'text-green-600' :
+                        trend === 'down' ? 'text-red-600' :
+                            'text-gray-600'
                     }`}>
                     {change}
                 </span>
@@ -265,8 +354,8 @@ function StatCard({ title, value, icon, change, trend }) {
 function SummaryCard({ summary }) {
     const channelName = summary.channel_name || summary.channelName || 'unknown';
     const summaryText = summary.summary || '';
-    const blockers = summary.blockers || summary.key_topics || [];
-    const keyTopics = summary.keyTopics || [];
+    const blockers = summary.blockers || [];
+    const keyTopics = summary.key_topics || summary.keyTopics || [];
     const messageCount = summary.message_count || summary.messageCount || 0;
     const createdAt = summary.created_at ? new Date(summary.created_at).toLocaleDateString() : 'Just now';
 
@@ -338,34 +427,34 @@ function EmptyState() {
     );
 }
 
-function QuickActionsCard() {
+function QuickActionsCard({ navigate }) {
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h3 className="font-bold text-gray-900 mb-4">Quick Actions</h3>
             <div className="space-y-3">
                 <QuickAction
-                    icon={<MessageSquare size={18} className="text-blue-600" />}
-                    title="Connect Slack"
-                    description="Add more workspaces"
-                />
-                <QuickAction
-                    icon={<TrendingUp size={18} className="text-green-600" />}
-                    title="View Analytics"
-                    description="Team productivity insights"
-                />
-                <QuickAction
                     icon={<AlertTriangle size={18} className="text-red-600" />}
                     title="Manage Blockers"
                     description="Track and resolve issues"
+                    onClick={() => navigate('/app/blockers')}
+                />
+                <QuickAction
+                    icon={<MessageSquare size={18} className="text-blue-600" />}
+                    title="Connect Slack"
+                    description="Add more workspaces"
+                    onClick={() => navigate('/app/integrations')}
                 />
             </div>
         </div>
     );
 }
 
-function QuickAction({ icon, title, description }) {
+function QuickAction({ icon, title, description, onClick }) {
     return (
-        <button className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left">
+        <button
+            onClick={onClick}
+            className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
+        >
             <div className="p-2 bg-gray-50 rounded-lg">
                 {icon}
             </div>
@@ -377,28 +466,60 @@ function QuickAction({ icon, title, description }) {
     );
 }
 
-function ActivityFeed() {
-    const activities = [
-        { type: 'summary', text: 'Summary generated for #engineering', time: '2m ago' },
-        { type: 'blocker', text: 'New blocker detected in #devops', time: '15m ago' },
-        { type: 'resolved', text: 'Blocker resolved in #design', time: '1h ago' }
-    ];
+function ActivityFeed({ activities, refreshing, onRefresh }) {
+    const formatTime = (date) => {
+        const now = new Date();
+        const diffMs = now - new Date(date);
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return new Date(date).toLocaleDateString();
+    };
+
+    const colorMap = {
+        blue: 'bg-blue-500',
+        red: 'bg-red-500',
+        green: 'bg-green-500',
+        purple: 'bg-purple-500'
+    };
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h3 className="font-bold text-gray-900 mb-4">Recent Activity</h3>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                    <Activity size={20} />
+                    Recent Activity
+                </h3>
+                <button
+                    onClick={onRefresh}
+                    disabled={refreshing}
+                    className="text-gray-400 hover:text-gray-600 transition"
+                >
+                    <RefreshCw
+                        size={16}
+                        className={refreshing ? 'animate-spin' : ''}
+                    />
+                </button>
+            </div>
             <div className="space-y-4">
-                {activities.map((activity, i) => (
-                    <div key={i} className="flex gap-3">
-                        <div className={`w-2 h-2 rounded-full mt-2 ${activity.type === 'blocker' ? 'bg-red-500' :
-                            activity.type === 'resolved' ? 'bg-green-500' : 'bg-blue-500'
-                            }`} />
-                        <div>
-                            <p className="text-sm text-gray-900">{activity.text}</p>
-                            <p className="text-xs text-gray-500">{activity.time}</p>
+                {activities.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-4">No activities yet</p>
+                ) : (
+                    activities.map((activity) => (
+                        <div key={activity.id} className="flex gap-3">
+                            <div className={`w-2 h-2 rounded-full mt-2 ${colorMap[activity.color]}`} />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm text-gray-900 truncate">{activity.text}</p>
+                                <p className="text-xs text-gray-500">{formatTime(activity.time)}</p>
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    ))
+                )}
             </div>
         </div>
     );

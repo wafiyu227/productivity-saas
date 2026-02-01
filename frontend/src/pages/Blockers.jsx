@@ -10,6 +10,7 @@ export default function Blockers() {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+    const [resolving, setResolving] = useState(null);
 
     useEffect(() => {
         if (user) {
@@ -32,11 +33,14 @@ export default function Blockers() {
                             id: `${summary.id}-${blockIndex}`,
                             title: blocker,
                             source: `#${summary.channel_name}`,
-                            date: new Date(summary.created_at).toLocaleDateString(),
-                            status: 'active',
+                            createdAt: summary.created_at,
+                            status: summary.blocker_status && summary.blocker_status[blockIndex]?.status ? summary.blocker_status[blockIndex].status : 'active',
                             priority: 'medium',
                             description: `Blocker detected in #${summary.channel_name}`,
-                            channelId: summary.channel_id
+                            channelId: summary.channel_id,
+                            summaryId: summary.id,
+                            blockIndex: blockIndex,
+                            resolvedAt: summary.blocker_status && summary.blocker_status[blockIndex]?.resolved_at ? summary.blocker_status[blockIndex].resolved_at : null
                         });
                     });
                 }
@@ -51,10 +55,49 @@ export default function Blockers() {
         }
     };
 
+    const resolveBlocker = async (blockerId) => {
+        const blocker = blockers.find(b => b.id === blockerId);
+        if (!blocker) return;
+
+        setResolving(blockerId);
+
+        try {
+            // Save resolved blocker status to backend
+            const response = await fetch(`${API_URL}/api/blockers/resolve`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    summaryId: blocker.summaryId,
+                    blockIndex: blocker.blockIndex,
+                    userId: user.id,
+                    resolvedAt: new Date().toISOString()
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to save resolution');
+            }
+
+            // Update local state
+            setBlockers(blockers.map(b =>
+                b.id === blockerId
+                    ? { ...b, status: 'resolved', resolvedAt: new Date().toISOString() }
+                    : b
+            ));
+        } catch (error) {
+            console.error('Failed to resolve blocker:', error);
+            alert('Failed to resolve blocker. Please try again.');
+        } finally {
+            setResolving(null);
+        }
+    };
+
     const filteredBlockers = blockers.filter(b => {
         const matchesFilter = filter === 'all' || b.status === filter;
         const matchesSearch = b.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                             b.source.toLowerCase().includes(searchTerm.toLowerCase());
+            b.source.toLowerCase().includes(searchTerm.toLowerCase());
         return matchesFilter && matchesSearch;
     });
 
@@ -92,7 +135,7 @@ export default function Blockers() {
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm text-gray-600 mb-1">Resolved Today</p>
+                                    <p className="text-sm text-gray-600 mb-1">Resolved Blockers</p>
                                     <p className="text-3xl font-bold text-green-600">{resolvedCount}</p>
                                 </div>
                                 <div className="p-3 bg-green-50 rounded-xl">
@@ -104,8 +147,10 @@ export default function Blockers() {
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm text-gray-600 mb-1">Avg Resolution Time</p>
-                                    <p className="text-3xl font-bold text-blue-600">4.2h</p>
+                                    <p className="text-sm text-gray-600 mb-1">Resolution Rate</p>
+                                    <p className="text-3xl font-bold text-blue-600">
+                                        {blockers.length > 0 ? Math.round((resolvedCount / blockers.length) * 100) : 0}%
+                                    </p>
                                 </div>
                                 <div className="p-3 bg-blue-50 rounded-xl">
                                     <Clock className="text-blue-600" size={24} />
@@ -121,8 +166,8 @@ export default function Blockers() {
                                 <button
                                     onClick={() => setFilter('all')}
                                     className={`px-4 py-2 rounded-lg font-medium transition-all ${filter === 'all'
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                         }`}
                                 >
                                     All ({filteredBlockers.length})
@@ -130,8 +175,8 @@ export default function Blockers() {
                                 <button
                                     onClick={() => setFilter('active')}
                                     className={`px-4 py-2 rounded-lg font-medium transition-all ${filter === 'active'
-                                            ? 'bg-red-600 text-white'
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        ? 'bg-red-600 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                         }`}
                                 >
                                     Active ({activeCount})
@@ -139,8 +184,8 @@ export default function Blockers() {
                                 <button
                                     onClick={() => setFilter('resolved')}
                                     className={`px-4 py-2 rounded-lg font-medium transition-all ${filter === 'resolved'
-                                            ? 'bg-green-600 text-white'
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                         }`}
                                 >
                                     Resolved ({resolvedCount})
@@ -182,7 +227,12 @@ export default function Blockers() {
                     ) : (
                         <div className="space-y-4">
                             {filteredBlockers.map((blocker) => (
-                                <BlockerCard key={blocker.id} blocker={blocker} />
+                                <BlockerCard
+                                    key={blocker.id}
+                                    blocker={blocker}
+                                    onResolve={resolveBlocker}
+                                    isResolving={resolving === blocker.id}
+                                />
                             ))}
                         </div>
                     )}
@@ -192,7 +242,7 @@ export default function Blockers() {
     );
 }
 
-function BlockerCard({ blocker }) {
+function BlockerCard({ blocker, onResolve, isResolving }) {
     const priorityColors = {
         high: 'border-red-500 bg-red-50',
         medium: 'border-yellow-500 bg-yellow-50',
@@ -202,6 +252,23 @@ function BlockerCard({ blocker }) {
     const statusColors = {
         active: 'bg-red-100 text-red-700',
         resolved: 'bg-green-100 text-green-700'
+    };
+
+    const formatDateTime = (isoString) => {
+        const date = new Date(isoString);
+        const formattedDate = date.toLocaleDateString('en-US', {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+        const formattedTime = date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+        return `${formattedDate} at ${formattedTime}`;
     };
 
     return (
@@ -220,20 +287,48 @@ function BlockerCard({ blocker }) {
                         </span>
                     </div>
                     <p className="text-gray-700 mb-4">{blocker.description}</p>
-                    <div className="flex items-center gap-6 text-sm text-gray-600">
-                        <span className="flex items-center gap-2">
-                            <MessageSquare size={16} />
-                            {blocker.source}
-                        </span>
-                        <span className="flex items-center gap-2">
-                            <Clock size={16} />
-                            {blocker.date}
-                        </span>
+                    <div className="flex flex-col gap-3 text-sm text-gray-600">
+                        <div className="flex items-center gap-6">
+                            <span className="flex items-center gap-2">
+                                <MessageSquare size={16} />
+                                {blocker.source}
+                            </span>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <span className="flex items-center gap-2">
+                                <Clock size={16} />
+                                <span className="font-medium">Created:</span> {formatDateTime(blocker.createdAt)}
+                            </span>
+                            {blocker.status === 'resolved' && blocker.resolvedAt && (
+                                <span className="flex items-center gap-2 text-green-700">
+                                    <CheckCircle size={16} />
+                                    <span className="font-medium">Resolved:</span> {formatDateTime(blocker.resolvedAt)}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-                    Resolve
-                </button>
+                {blocker.status === 'active' && (
+                    <button
+                        onClick={() => onResolve(blocker.id)}
+                        disabled={isResolving}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                        {isResolving ? (
+                            <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                Resolving...
+                            </>
+                        ) : (
+                            'Resolve'
+                        )}
+                    </button>
+                )}
+                {blocker.status === 'resolved' && (
+                    <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg font-medium whitespace-nowrap">
+                        ✓ Resolved
+                    </div>
+                )}
             </div>
         </div>
     );
