@@ -15,28 +15,42 @@ import { db } from './services/supabase-client.js';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS - MUST be first
-const allowedOrigins = [
-  'https://productivity-saas-frontend.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000'
-];
+// CORS - Manual middleware for Vercel compatibility
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
 
+  // Allow these origins
+  const allowedOrigins = [
+    'https://productivity-saas-frontend.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000'
+  ];
+
+  // Set CORS headers for all requests
+  if (allowedOrigins.includes(origin) || !origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  next();
+});
+
+// Also use cors package as backup
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Allow all for now
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: true,
+  credentials: true
 }));
-
-// Handle preflight
-app.options('*', cors());
 
 // Other middleware
 app.use(helmet({ contentSecurityPolicy: false }));
