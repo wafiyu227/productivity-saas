@@ -1,9 +1,9 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/index.js",
-      "use": "@vercel/node"
+      "source": "/(.*)",
+      "destination": "/api/index.js"
     }
   ],
   "headers": [
@@ -16,7 +16,7 @@
         },
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "*"
+          "value": "https://productivity-saas-frontend.vercel.app"
         },
         {
           "key": "Access-Control-Allow-Methods",
@@ -27,12 +27,6 @@
           "value": "X-CSRF-Token,X-Requested-With,Accept,Accept-Version,Content-Length,Content-MD5,Content-Type,Date,X-Api-Version,Authorization"
         }
       ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api/index.js"
     }
   ]
 }
