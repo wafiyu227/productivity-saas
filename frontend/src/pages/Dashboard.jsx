@@ -152,11 +152,15 @@ export default function Dashboard() {
             const result = await api.createSummary(selectedChannel, 24);
             await loadSummaries();
             await loadActivities();
-            await loadBlockerStats(); // Refresh blocker stats
+            await loadBlockerStats();
             setSelectedChannel('');
             alert('✅ Summary generated successfully!');
         } catch (error) {
-            alert('Failed to generate summary: ' + error.message);
+            if (error.message.includes('not_in_channel')) {
+                alert('⚠️ The bot is not in this channel!\n\nTo fix:\n1. Go to the channel in Slack\n2. Type: /invite @Productivity Assistant\n3. Try again');
+            } else {
+                alert('Failed to generate summary: ' + error.message);
+            }
         } finally {
             setLoading(false);
         }
