@@ -9,6 +9,7 @@ export default function Integrations() {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [slackStatus, setSlackStatus] = useState({ connected: false, loading: true });
+    const [asanaStatus, setAsanaStatus] = useState({ connected: false, loading: true });
     const [notification, setNotification] = useState(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const [oauthProcessed, setOauthProcessed] = useState(false);
@@ -16,6 +17,7 @@ export default function Integrations() {
     useEffect(() => {
         if (user) {
             checkSlackStatus();
+            checkAsanaStatus();
         }
     }, [user]);
 
@@ -30,8 +32,9 @@ export default function Integrations() {
 
             if (error) {
                 const errorMessages = {
-                    'oauth_failed': 'Failed to complete Slack authentication. Please try again.',
+                    'oauth_failed': 'Failed to complete authentication. Please try again.',
                     'slack_auth_failed': 'Slack authentication was denied. Please try again.',
+                    'asana_auth_failed': 'Asana authentication was denied. Please try again.',
                     'missing_params': 'Missing required parameters. Please try again.'
                 };
                 setNotification({
@@ -40,29 +43,25 @@ export default function Integrations() {
                 });
             } else if (success) {
                 const successMessages = {
-                    'slack_connected': 'Slack workspace connected successfully!'
+                    'slack_connected': 'Slack workspace connected successfully!',
+                    'asana_connected': 'Asana workspace connected successfully!'
                 };
                 setNotification({
                     type: 'success',
                     message: successMessages[success] || 'Connected successfully!',
                     action: 'dashboard'
                 });
-                // Refresh Slack status
                 if (user) {
                     checkSlackStatus();
+                    checkAsanaStatus();
                 }
-                // Clear the URL parameters
-                setSearchParams({});
             }
-
-            // Clear the URL parameters
             setSearchParams({});
         }
     }, []);
 
     const checkSlackStatus = async () => {
         if (!user) return;
-
         try {
             const res = await fetch(`${API_URL}/api/auth/slack/status?userId=${user.id}`);
             const data = await res.json();
@@ -73,21 +72,50 @@ export default function Integrations() {
         }
     };
 
+    const checkAsanaStatus = async () => {
+        if (!user) return;
+        try {
+            const res = await fetch(`${API_URL}/api/auth/asana/status?userId=${user.id}`);
+            const data = await res.json();
+            setAsanaStatus({ ...data, loading: false });
+        } catch (error) {
+            console.error('Failed to check Asana status:', error);
+            setAsanaStatus({ connected: false, loading: false });
+        }
+    };
+
     const connectSlack = () => {
         if (!user) return;
         window.location.href = `${API_URL}/api/auth/slack/connect?userId=${user.id}`;
     };
 
+    const connectAsana = () => {
+        if (!user) return;
+        window.location.href = `${API_URL}/api/auth/asana/connect?userId=${user.id}`;
+    };
+
     const disconnectSlack = async () => {
         if (!user || !confirm('Disconnect Slack workspace?')) return;
-
         try {
             const res = await fetch(`${API_URL}/api/auth/slack/disconnect?userId=${user.id}`, {
                 method: 'DELETE'
             });
-
             if (res.ok) {
                 setSlackStatus({ connected: false, loading: false, team: null });
+            }
+        } catch (error) {
+            console.error('Failed to disconnect:', error);
+        }
+    };
+
+    const disconnectAsana = async () => {
+        if (!user || !confirm('Disconnect Asana workspace?')) return;
+        try {
+            const res = await fetch(`${API_URL}/api/auth/asana/disconnect?userId=${user.id}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                setAsanaStatus({ connected: false, loading: false, workspace: null });
             }
         } catch (error) {
             console.error('Failed to disconnect:', error);
@@ -99,11 +127,10 @@ export default function Integrations() {
             <div className="p-8">
                 <div className="max-w-4xl mx-auto">
                     {notification && (
-                        <div className={`mb-6 p-4 rounded-lg flex items-center justify-between gap-3 ${
-                            notification.type === 'error' 
-                                ? 'bg-red-50 border border-red-200' 
+                        <div className={`mb-6 p-4 rounded-lg flex items-center justify-between gap-3 ${notification.type === 'error'
+                                ? 'bg-red-50 border border-red-200'
                                 : 'bg-green-50 border border-green-200'
-                        }`}>
+                            }`}>
                             <div className="flex items-center gap-3">
                                 {notification.type === 'error' ? (
                                     <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
@@ -116,7 +143,7 @@ export default function Integrations() {
                             </div>
                             {notification.action === 'dashboard' && (
                                 <button
-                                    onClick={() => navigate('/app/dashboard')}
+                                    onClick={() => navigate('/app')}
                                     className="ml-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium whitespace-nowrap flex-shrink-0"
                                 >
                                     Go to Dashboard
@@ -124,14 +151,13 @@ export default function Integrations() {
                             )}
                         </div>
                     )}
-                    
+
                     <h1 className="text-4xl font-bold text-gray-900 mb-2">Integrations</h1>
                     <p className="text-lg text-gray-600 mb-8">
                         Connect your tools to unlock AI-powered insights
                     </p>
 
                     <div className="space-y-6">
-                        {/* Slack Integration */}
                         <IntegrationCard
                             name="Slack"
                             description="Connect your Slack workspace to generate AI summaries and detect blockers"
@@ -147,28 +173,41 @@ export default function Integrations() {
                             ]}
                         />
 
-                        {/* Asana Integration (Coming Soon) */}
                         <IntegrationCard
                             name="Asana"
                             description="Track tasks and project progress with AI insights"
                             icon="https://upload.wikimedia.org/wikipedia/commons/3/3b/Asana_logo.svg"
-                            status={{ connected: false, loading: false, comingSoon: true }}
+                            status={asanaStatus}
+                            onConnect={connectAsana}
+                            onDisconnect={disconnectAsana}
                             features={[
                                 'Project health monitoring',
-                                'Deadline tracking',
-                                'Task dependency analysis',
+                                'Task tracking & analysis',
+                                'Deadline alerts',
                                 'Team workload insights'
                             ]}
                         />
 
-                        {/* Google Calendar (Coming Soon) */}
+                        <IntegrationCard
+                            name="GitHub"
+                            description="Monitor code activity, PRs, and developer productivity"
+                            icon="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+                            status={{ connected: false, loading: false, comingSoon: true }}
+                            features={[
+                                'PR review tracking',
+                                'Commit analysis',
+                                'Code review insights',
+                                'Developer metrics'
+                            ]}
+                        />
+
                         <IntegrationCard
                             name="Google Calendar"
                             description="Automatically summarize meetings and extract action items"
                             icon="https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg"
                             status={{ connected: false, loading: false, comingSoon: true }}
                             features={[
-                                'Meeting transcription',
+                                'Meeting summaries',
                                 'Action item extraction',
                                 'Schedule optimization',
                                 'Time analytics'
@@ -186,7 +225,7 @@ function IntegrationCard({ name, description, icon, status, onConnect, onDisconn
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition">
             <div className="flex items-start justify-between mb-4">
                 <div className="flex items-start gap-4">
-                    <img src={icon} alt={name} className="w-12 h-12" />
+                    <img src={icon} alt={name} className="w-12 h-12 rounded-lg" />
                     <div>
                         <h3 className="text-xl font-bold text-gray-900 mb-1">{name}</h3>
                         <p className="text-gray-600">{description}</p>
@@ -225,10 +264,10 @@ function IntegrationCard({ name, description, icon, status, onConnect, onDisconn
                 </div>
             </div>
 
-            {status.connected && status.team && (
+            {status.connected && (status.team || status.workspace) && (
                 <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
                     <p className="text-sm text-green-800">
-                        <strong>Connected workspace:</strong> {status.team}
+                        <strong>Connected workspace:</strong> {status.team || status.workspace}
                     </p>
                 </div>
             )}
