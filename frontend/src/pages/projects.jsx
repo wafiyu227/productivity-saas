@@ -12,8 +12,9 @@ import {
     Target,
     Activity
 } from 'lucide-react';
+import { api } from '../api/client';
 
-const Projects = ({ userId }) => {
+const Projects = () => {
     const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState(null);
     const [projectHealth, setProjectHealth] = useState(null);
@@ -25,17 +26,16 @@ const Projects = ({ userId }) => {
     useEffect(() => {
         fetchProjects();
         fetchWorkload();
-    }, [userId]);
+    }, []);
 
     const fetchProjects = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`/api/asana/projects?userId=${userId}`);
-            const data = await response.json();
+            const data = await api.getAsanaProjects();
 
-            if (!response.ok) throw new Error(data.error || 'Failed to fetch projects');
+            if (data.error) throw new Error(data.error);
 
-            setProjects(data.projects);
+            setProjects(data.projects || []);
             setError(null);
         } catch (err) {
             setError(err.message);
@@ -47,12 +47,14 @@ const Projects = ({ userId }) => {
 
     const fetchWorkload = async () => {
         try {
-            const response = await fetch(`/api/asana/workload?userId=${userId}`);
-            const data = await response.json();
+            const data = await api.getAsanaWorkload();
 
-            if (!response.ok) throw new Error(data.error || 'Failed to fetch workload');
+            if (data.error) {
+                console.error('Error fetching workload:', data.error);
+                return;
+            }
 
-            setWorkload(data.workload);
+            setWorkload(data.workload || []);
         } catch (err) {
             console.error('Error fetching workload:', err);
         }
@@ -60,15 +62,13 @@ const Projects = ({ userId }) => {
 
     const fetchProjectHealth = async (projectId) => {
         try {
-            const response = await fetch(`/api/asana/projects/${projectId}/health?userId=${userId}`);
-            const data = await response.json();
-
-            if (!response.ok) throw new Error(data.error || 'Failed to fetch project health');
+            const data = await api.getAsanaProjectHealth(projectId);
 
             setProjectHealth(data);
             setSelectedProject(projects.find(p => p.gid === projectId));
         } catch (err) {
             console.error('Error fetching project health:', err);
+            alert('Failed to fetch project details: ' + err.message);
         }
     };
 

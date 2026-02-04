@@ -11,6 +11,7 @@ import Meetings from './pages/Meetings';
 import Profile from './pages/Profile';
 import Integrations from './pages/Integrations';
 import Analytics from './pages/Analytics';
+import Projects from './components/Projects';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -39,6 +40,7 @@ function App() {
             <Route path="integrations" element={<Integrations />} />
             <Route path="profile" element={<Profile />} />
             <Route path="analytics" element={<Analytics />} />
+            <Route path="projects" element={<Projects />} />
           </Route>
         </Routes>
       </AuthProvider>
