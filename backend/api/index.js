@@ -11,6 +11,7 @@ import authRoutes from './routes/auth.js';
 import blockersRoutes from './routes/blockers.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
+import asanaRoutes from './routes/asana.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -78,6 +79,8 @@ app.get('/api/summaries', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+app.use('/api/asana', asanaRoutes);
 
 app.use((req, res) => {
   logger.warn('404:', req.url);
