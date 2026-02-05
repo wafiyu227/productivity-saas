@@ -9,20 +9,30 @@ import rateLimit from 'express-rate-limit';
 import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
 import blockersRoutes from './routes/blockers.js';
+import asanaRoutes from './routes/asana.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
-import asanaRoutes from './routes/asana.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Single CORS setup - let vercel.json handle headers
+// IMPORTANT: CORS must be FIRST, before any other middleware
 app.use(cors({
-  origin: true,
-  credentials: true
+  origin: true, // Allow all origins in production
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
 }));
 
-app.use(helmet({ contentSecurityPolicy: false }));
+// Handle preflight
+app.options('*', cors());
+
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: false
+}));
+
 app.use(compression());
 
 const limiter = rateLimit({
@@ -33,11 +43,13 @@ app.use('/api/', limiter);
 
 app.use(express.json());
 
+// Logging middleware
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.url}`);
   next();
 });
 
+// Health check
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -45,18 +57,29 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({
     name: 'Productivity SaaS API',
     version: '1.0.0',
-    health: '/health'
+    health: '/health',
+    endpoints: {
+      slack: '/api/slack',
+      auth: '/api/auth',
+      blockers: '/api/blockers',
+      asana: '/api/asana',
+      summaries: '/api/summaries'
+    }
   });
 });
 
+// API Routes
 app.use('/api/slack', slackRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/blockers', blockersRoutes);
+app.use('/api/asana', asanaRoutes);
 
+// Summaries endpoint
 app.get('/api/summaries', async (req, res) => {
   try {
     const { userId } = req.query;
@@ -80,22 +103,31 @@ app.get('/api/summaries', async (req, res) => {
   }
 });
 
-app.use('/api/asana', asanaRoutes);
-
+// 404 handler - MUST return JSON, not HTML
 app.use((req, res) => {
   logger.warn('404:', req.url);
-  res.status(404).json({ error: 'Not found', path: req.url });
+  res.status(404).json({
+    error: 'Not found',
+    path: req.url,
+    message: 'This endpoint does not exist'
+  });
 });
 
+// Error handler - MUST return JSON
 app.use((err, req, res, next) => {
   logger.error('Server error:', err);
-  res.status(500).json({ error: err.message });
+  res.status(500).json({
+    error: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
 });
 
+// For local development only
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     logger.info(`Server running on http://localhost:${PORT}`);
   });
 }
 
+// CRITICAL: Export for Vercel serverless
 export default app;
