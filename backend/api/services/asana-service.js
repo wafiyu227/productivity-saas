@@ -11,8 +11,21 @@ class AsanaService {
 
     setupClient(accessToken) {
         const client = Asana.ApiClient.instance;
-        const oauth2 = client.authentications['oauth2'];
-        oauth2.accessToken = accessToken;
+        if (client.authentications) {
+            if (client.authentications['token']) {
+                client.authentications['token'].accessToken = accessToken;
+            } else if (client.authentications['personalAccessToken']) {
+                client.authentications['personalAccessToken'].accessToken = accessToken;
+            } else if (client.authentications['oauth2']) {
+                client.authentications['oauth2'].accessToken = accessToken;
+            }
+        }
+
+        // Fallback for cases where specific auth objects are not initialized
+        client.defaultHeaders = {
+            ...client.defaultHeaders,
+            'Authorization': `Bearer ${accessToken}`
+        };
         return client;
     }
 
