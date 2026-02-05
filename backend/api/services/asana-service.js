@@ -11,12 +11,16 @@ class AsanaService {
 
     setupClient(accessToken) {
         const client = new Asana.ApiClient();
-        const oauth2 = client.authentications['oauth2'];
-        oauth2.accessToken = accessToken;
 
-        // Also set as personalAccessToken as fallback
-        const pat = client.authentications['personalAccessToken'];
-        if (pat) pat.accessToken = accessToken;
+        // Asana SDK v3 uses 'token' for OAuth and PATs
+        if (client.authentications && client.authentications['token']) {
+            client.authentications['token'].accessToken = accessToken;
+        }
+
+        // Defensive check for other possible authentication keys
+        if (client.authentications && client.authentications['personalAccessToken']) {
+            client.authentications['personalAccessToken'].accessToken = accessToken;
+        }
 
         // Set default header as extra fallback
         client.defaultHeaders = {
