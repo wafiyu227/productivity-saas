@@ -11,7 +11,7 @@ import Meetings from './pages/Meetings';
 import Profile from './pages/Profile';
 import Integrations from './pages/Integrations';
 import Analytics from './pages/Analytics';
-import Projects from './components/Projects';
+import Projects from './pages/Projects';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
