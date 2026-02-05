@@ -6,18 +6,22 @@ dotenv.config();
 
 class AsanaService {
     constructor() {
-        // Client will be created per-user with their token
+        // API Client instance is a singleton in Asana SDK v3
     }
 
-    createClient(accessToken) {
-        return Asana.ApiClient.instance.authentications['oauth2'].accessToken = accessToken;
+    setupClient(accessToken) {
+        const client = Asana.ApiClient.instance;
+        const oauth2 = client.authentications['oauth2'];
+        oauth2.accessToken = accessToken;
+        return client;
     }
 
     async getWorkspaces(accessToken) {
         try {
-            const client = Asana.Client.create({ token: accessToken });
-            const workspaces = await client.workspaces.getWorkspaces();
-            return workspaces.data;
+            this.setupClient(accessToken);
+            const apiInstance = new Asana.WorkspacesApi();
+            const result = await apiInstance.getWorkspaces();
+            return result.data;
         } catch (error) {
             logger.error('Failed to get workspaces:', error);
             throw error;
@@ -26,11 +30,13 @@ class AsanaService {
 
     async getProjects(accessToken, workspaceId) {
         try {
-            const client = Asana.Client.create({ token: accessToken });
-            const projects = await client.projects.getProjectsForWorkspace(workspaceId, {
-                opt_fields: 'name,due_date,completed,archived,notes,members,owner'
-            });
-            return projects.data;
+            this.setupClient(accessToken);
+            const apiInstance = new Asana.ProjectsApi();
+            const opts = {
+                'opt_fields': 'name,due_date,completed,archived,notes,members,owner'
+            };
+            const result = await apiInstance.getProjectsForWorkspace(workspaceId, opts);
+            return result.data;
         } catch (error) {
             logger.error('Failed to get projects:', error);
             throw error;
@@ -39,11 +45,13 @@ class AsanaService {
 
     async getTasksForProject(accessToken, projectId) {
         try {
-            const client = Asana.Client.create({ token: accessToken });
-            const tasks = await client.tasks.getTasksForProject(projectId, {
-                opt_fields: 'name,completed,due_on,assignee,notes,tags,num_subtasks,completed_at,created_at'
-            });
-            return tasks.data;
+            this.setupClient(accessToken);
+            const apiInstance = new Asana.TasksApi();
+            const opts = {
+                'opt_fields': 'name,completed,due_on,assignee,notes,tags,num_subtasks,completed_at,created_at'
+            };
+            const result = await apiInstance.getTasksForProject(projectId, opts);
+            return result.data;
         } catch (error) {
             logger.error('Failed to get tasks:', error);
             throw error;
@@ -52,13 +60,15 @@ class AsanaService {
 
     async getAllTasks(accessToken, workspaceId) {
         try {
-            const client = Asana.Client.create({ token: accessToken });
-            const tasks = await client.tasks.getTasks({
-                workspace: workspaceId,
-                opt_fields: 'name,completed,due_on,assignee,notes,projects,tags',
-                completed_since: 'now'
-            });
-            return tasks.data;
+            this.setupClient(accessToken);
+            const apiInstance = new Asana.TasksApi();
+            const opts = {
+                'workspace': workspaceId,
+                'opt_fields': 'name,completed,due_on,assignee,notes,projects,tags',
+                'completed_since': 'now'
+            };
+            const result = await apiInstance.getTasks(opts);
+            return result.data;
         } catch (error) {
             logger.error('Failed to get all tasks:', error);
             throw error;
@@ -66,6 +76,13 @@ class AsanaService {
     }
 
     calculateProjectHealth(tasks) {
+        if (!tasks || !Array.isArray(tasks)) {
+            return {
+                total: 0, completed: 0, overdue: 0, onTrack: 0,
+                completionRate: 0, overdueRate: 0, healthStatus: 'healthy'
+            };
+        }
+
         const total = tasks.length;
         const completed = tasks.filter(t => t.completed).length;
         const overdue = tasks.filter(t => {
