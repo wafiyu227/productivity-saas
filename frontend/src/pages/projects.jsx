@@ -150,8 +150,8 @@ const Projects = () => {
                             <button
                                 onClick={() => setActiveView('grid')}
                                 className={`px-4 py-2 rounded-lg transition-all ${activeView === 'grid'
-                                        ? 'bg-[#00ff87] text-black font-semibold'
-                                        : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
+                                    ? 'bg-[#00ff87] text-black font-semibold'
+                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
                                     }`}
                             >
                                 Grid
@@ -159,8 +159,8 @@ const Projects = () => {
                             <button
                                 onClick={() => setActiveView('list')}
                                 className={`px-4 py-2 rounded-lg transition-all ${activeView === 'list'
-                                        ? 'bg-[#00ff87] text-black font-semibold'
-                                        : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
+                                    ? 'bg-[#00ff87] text-black font-semibold'
+                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
                                     }`}
                             >
                                 List
