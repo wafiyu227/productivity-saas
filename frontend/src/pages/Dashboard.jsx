@@ -294,17 +294,14 @@ export default function Dashboard() {
                                         Recent Summaries
                                     </h2>
                                     <button
-                                        onClick={handleRefresh}
+                                        onClick={() => navigate('/app/summaries')}
                                         className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
                                     >
-                                        {refreshing ? (
-                                            <RefreshCw size={16} className="animate-spin" />
-                                        ) : (
-                                            <>
-                                                Refresh
-                                                <RefreshCw size={16} />
-                                            </>
-                                        )}
+
+
+                                        View all summaries
+
+
                                     </button>
                                 </div>
 
