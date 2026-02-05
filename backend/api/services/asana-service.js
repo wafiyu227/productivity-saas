@@ -6,33 +6,30 @@ dotenv.config();
 
 class AsanaService {
     constructor() {
-        // API Client instance is a singleton in Asana SDK v3
+        // No longer using instance singleton
     }
 
     setupClient(accessToken) {
-        const client = Asana.ApiClient.instance;
-        if (client.authentications) {
-            if (client.authentications['token']) {
-                client.authentications['token'].accessToken = accessToken;
-            } else if (client.authentications['personalAccessToken']) {
-                client.authentications['personalAccessToken'].accessToken = accessToken;
-            } else if (client.authentications['oauth2']) {
-                client.authentications['oauth2'].accessToken = accessToken;
-            }
-        }
+        const client = new Asana.ApiClient();
+        const oauth2 = client.authentications['oauth2'];
+        oauth2.accessToken = accessToken;
 
-        // Fallback for cases where specific auth objects are not initialized
+        // Also set as personalAccessToken as fallback
+        const pat = client.authentications['personalAccessToken'];
+        if (pat) pat.accessToken = accessToken;
+
+        // Set default header as extra fallback
         client.defaultHeaders = {
-            ...client.defaultHeaders,
             'Authorization': `Bearer ${accessToken}`
         };
+
         return client;
     }
 
     async getWorkspaces(accessToken) {
         try {
-            this.setupClient(accessToken);
-            const apiInstance = new Asana.WorkspacesApi();
+            const client = this.setupClient(accessToken);
+            const apiInstance = new Asana.WorkspacesApi(client);
             const result = await apiInstance.getWorkspaces();
             return result.data;
         } catch (error) {
@@ -43,8 +40,8 @@ class AsanaService {
 
     async getProjects(accessToken, workspaceId) {
         try {
-            this.setupClient(accessToken);
-            const apiInstance = new Asana.ProjectsApi();
+            const client = this.setupClient(accessToken);
+            const apiInstance = new Asana.ProjectsApi(client);
             const opts = {
                 'opt_fields': 'name,due_date,completed,archived,notes,members,owner'
             };
@@ -58,8 +55,8 @@ class AsanaService {
 
     async getTasksForProject(accessToken, projectId) {
         try {
-            this.setupClient(accessToken);
-            const apiInstance = new Asana.TasksApi();
+            const client = this.setupClient(accessToken);
+            const apiInstance = new Asana.TasksApi(client);
             const opts = {
                 'opt_fields': 'name,completed,due_on,assignee,notes,tags,num_subtasks,completed_at,created_at'
             };
@@ -73,8 +70,8 @@ class AsanaService {
 
     async getAllTasks(accessToken, workspaceId) {
         try {
-            this.setupClient(accessToken);
-            const apiInstance = new Asana.TasksApi();
+            const client = this.setupClient(accessToken);
+            const apiInstance = new Asana.TasksApi(client);
             const opts = {
                 'workspace': workspaceId,
                 'opt_fields': 'name,completed,due_on,assignee,notes,projects,tags',
