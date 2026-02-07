@@ -51,12 +51,16 @@ const Projects = () => {
 
             if (data.error) {
                 console.error('Error fetching workload:', data.error);
+                // Don't set error state - workload is optional
+                setWorkload([]);
                 return;
             }
 
             setWorkload(data.workload || []);
         } catch (err) {
             console.error('Error fetching workload:', err);
+            // Don't throw - workload is optional
+            setWorkload([]);
         }
     };
 
@@ -150,8 +154,8 @@ const Projects = () => {
                             <button
                                 onClick={() => setActiveView('grid')}
                                 className={`px-4 py-2 rounded-lg transition-all ${activeView === 'grid'
-                                    ? 'bg-[#00ff87] text-black font-semibold'
-                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
+                                        ? 'bg-[#00ff87] text-black font-semibold'
+                                        : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
                                     }`}
                             >
                                 Grid
@@ -159,8 +163,8 @@ const Projects = () => {
                             <button
                                 onClick={() => setActiveView('list')}
                                 className={`px-4 py-2 rounded-lg transition-all ${activeView === 'list'
-                                    ? 'bg-[#00ff87] text-black font-semibold'
-                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
+                                        ? 'bg-[#00ff87] text-black font-semibold'
+                                        : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
                                     }`}
                             >
                                 List
@@ -277,7 +281,7 @@ const Projects = () => {
                                 )}
 
                                 {/* Owner */}
-                                {project.owner && (
+                                {project.owner?.name && (
                                     <div className="flex items-center gap-2 mb-4">
                                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#00ff87] to-[#00d9ff] flex items-center justify-center text-black font-bold text-sm">
                                             {project.owner.name.charAt(0)}
@@ -317,7 +321,7 @@ const Projects = () => {
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-4 flex-1">
-                                        {project.owner && (
+                                        {project.owner?.name && (
                                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#00ff87] to-[#00d9ff] flex items-center justify-center text-black font-bold shrink-0">
                                                 {project.owner.name.charAt(0)}
                                             </div>
@@ -327,7 +331,7 @@ const Projects = () => {
                                                 {project.name}
                                             </h3>
                                             <div className="flex items-center gap-4 mt-1">
-                                                {project.owner && (
+                                                {project.owner?.name && (
                                                     <span className="text-sm text-gray-400">{project.owner.name}</span>
                                                 )}
                                                 {project.due_date && (
