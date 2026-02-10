@@ -69,6 +69,9 @@ export const db = {
         workspace_id: tokens.workspaceId,
         workspace_name: tokens.workspaceName,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,platform',
+        ignoreDuplicates: false
       })
       .select()
       .single();
@@ -98,5 +101,129 @@ export const db = {
 
     if (error) throw error;
     return true;
+  },
+
+  // User Profile Methods
+  async getProfile(userId) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*, teams(*)')
+      .eq('id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  },
+
+  async upsertProfile(userId, profileData) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert({
+        id: userId,
+        ...profileData,
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateProfile(userId, profileData) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        ...profileData,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select();
+
+    if (error) throw error;
+
+    // If update returned no rows, try upsert (profile might not exist yet)
+    if (!data || data.length === 0) {
+      console.log(`Profile not found for update ${userId}, attempting upsert...`);
+      return this.upsertProfile(userId, profileData);
+    }
+
+    return data[0];
+  },
+
+  // Team Methods
+  async createTeam(userId, teamData) {
+    // 1. Create Team
+    const { data: team, error: teamError } = await supabase
+      .from('teams')
+      .insert({
+        name: teamData.name,
+        size_range: teamData.size_range
+      })
+      .select();
+
+    if (teamError) {
+      console.error('Supabase Create Team Error:', teamError);
+      throw teamError;
+    }
+
+    const team = data?.[0];
+    if (!team) {
+      throw new Error('Failed to create team: No data returned. Check database permissions.');
+    }
+
+    // 2. Link User to Team
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ team_id: team.id })
+      .eq('id', userId);
+
+    if (profileError) {
+      console.error('Supabase Link User Error:', profileError);
+      throw profileError;
+    }
+
+    return team;
+  },
+
+  async getTeamMembers(teamId) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('team_id', teamId);
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Invitation Methods
+  async createInvitation(teamId, inviterId, email) {
+    const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
+    const { data, error } = await supabase
+      .from('team_invitations')
+      .insert({
+        team_id: teamId,
+        invited_by: inviterId,
+        email,
+        token,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async getTeamInvitations(teamId) {
+    const { data, error } = await supabase
+      .from('team_invitations')
+      .select('*')
+      .eq('team_id', teamId)
+      .eq('status', 'pending');
+
+    if (error) throw error;
+    return data;
   }
 };

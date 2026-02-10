@@ -263,4 +263,127 @@ router.delete('/asana/disconnect', async (req, res) => {
     }
 });
 
+// Google Calendar OAuth routes
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/google/oauth/callback';
+
+// Initiate Google OAuth
+router.get('/google/connect', (req, res) => {
+    const { userId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+
+    // Scopes for Google Calendar
+    const scopes = [
+        'https://www.googleapis.com/auth/calendar.readonly',
+        'https://www.googleapis.com/auth/calendar.events.readonly'
+    ].join(' ');
+
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOGLE_REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent&state=${state}`;
+
+    res.redirect(authUrl);
+});
+
+// Google OAuth callback
+router.get('/google/oauth/callback', async (req, res) => {
+    const { code, state, error } = req.query;
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
+
+    if (error) {
+        logger.error('Google OAuth error:', error);
+        return res.redirect(`${FRONTEND_URL}/app/integrations?error=google_auth_failed`);
+    }
+
+    if (!code || !state) {
+        return res.redirect(`${FRONTEND_URL}/app/integrations?error=missing_params`);
+    }
+
+    try {
+        const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+
+        // Exchange code for access token
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: new URLSearchParams({
+                code,
+                client_id: GOOGLE_CLIENT_ID,
+                client_secret: GOOGLE_CLIENT_SECRET,
+                redirect_uri: GOOGLE_REDIRECT_URI,
+                grant_type: 'authorization_code'
+            })
+        });
+
+        if (!tokenResponse.ok) {
+            const errData = await tokenResponse.json();
+            logger.error('Google token exchange failed:', errData);
+            throw new Error('Failed to exchange code for token');
+        }
+
+        const tokenData = await tokenResponse.json();
+
+        // Save integration
+        await db.saveIntegration(userId, 'google_calendar', {
+            accessToken: tokenData.access_token,
+            refreshToken: tokenData.refresh_token, // Only returned on first consent or if prompt=consent
+            expiresIn: tokenData.expires_in,
+            scope: tokenData.scope,
+            tokenType: tokenData.token_type
+        });
+
+        logger.info('Google Calendar integration saved', { userId });
+
+        res.redirect(`${FRONTEND_URL}/app/integrations?success=google_connected`);
+
+    } catch (error) {
+        logger.error('Google OAuth callback error:', error);
+        const errorMessage = error.message || 'Unknown error';
+        res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`);
+    }
+});
+
+// Check Google status
+router.get('/google/status', async (req, res) => {
+    const { userId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        const integration = await db.getIntegration(userId, 'google_calendar');
+
+        res.json({
+            connected: !!integration
+        });
+    } catch (error) {
+        logger.error('Google status check error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Disconnect Google
+router.delete('/google/disconnect', async (req, res) => {
+    const { userId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        await db.deleteIntegration(userId, 'google_calendar');
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Google disconnect error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 export default router;
