@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import {
     RefreshCw, MessageSquare, AlertTriangle, TrendingUp,
-    Sparkles, Clock, CheckCircle, ArrowRight, Zap, Activity
+    Sparkles, Clock, CheckCircle, ArrowRight, Zap, Activity, Target
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -19,6 +19,7 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
     const [selectedChannel, setSelectedChannel] = useState('');
     const [refreshing, setRefreshing] = useState(false);
+    const [asanaStats, setAsanaStats] = useState({ projects: 0, overdue: 0 });
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -41,6 +42,7 @@ export default function Dashboard() {
             loadSummaries();
             loadActivities();
             loadBlockerStats();
+            loadAsanaStats();
         }
     }, [user]);
 
@@ -99,6 +101,26 @@ export default function Dashboard() {
             });
         } catch (error) {
             console.error('Failed to load blocker stats:', error);
+        }
+    };
+
+    const loadAsanaStats = async () => {
+        if (!user) return;
+
+        try {
+            const [projectsData, deadlinesData] = await Promise.all([
+                api.getAsanaProjects().catch(() => ({ projects: [] })),
+                api.getAsanaDeadlines().catch(() => ({ totalAtRisk: 0 }))
+            ]);
+
+            setAsanaStats({
+                projects: projectsData.projects?.length || 0,
+                overdue: deadlinesData.totalAtRisk || 0
+            });
+        } catch (error) {
+            if (!error.message?.includes('401')) {
+                console.error('Failed to load Asana stats:', error);
+            }
         }
     };
 
@@ -198,7 +220,7 @@ export default function Dashboard() {
                     </div>
 
                     {/* Stats Grid */}
-                    <div className="grid md:grid-cols-4 gap-6 mb-8">
+                    <div className="grid md:grid-cols-5 gap-6 mb-8">
                         <StatCard
                             title="Channels"
                             value={stats.channelsMonitored}
@@ -227,6 +249,14 @@ export default function Dashboard() {
                             icon={<TrendingUp className="text-green-600" size={24} />}
                             change={`${stats.totalMessages} messages`}
                             trend="up"
+                        />
+                        <StatCard
+                            title="Asana Projects"
+                            value={asanaStats.projects}
+                            icon={<Target className="text-cyan-600" size={24} />}
+                            change={asanaStats.overdue > 0 ? `${asanaStats.overdue} at risk` : 'All on track'}
+                            trend={asanaStats.overdue > 0 ? "down" : "up"}
+                            onClick={() => navigate('/app/projects')}
                         />
                     </div>
 
@@ -433,6 +463,12 @@ function QuickActionsCard({ navigate }) {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h3 className="font-bold text-gray-900 mb-4">Quick Actions</h3>
             <div className="space-y-3">
+                <QuickAction
+                    icon={<Target size={18} className="text-cyan-600" />}
+                    title="View Projects"
+                    description="Check Asana project health"
+                    onClick={() => navigate('/app/projects')}
+                />
                 <QuickAction
                     icon={<AlertTriangle size={18} className="text-red-600" />}
                     title="Manage Blockers"

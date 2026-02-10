@@ -10,14 +10,16 @@ export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    const [profile, setProfile] = useState(null);
+
     useEffect(() => {
         // Get initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
             const currentUser = session?.user ?? null;
             setUser(currentUser);
             setCurrentUser(currentUser);
-            console.log('Auth initialized, user:', currentUser?.id);
-            setLoading(false);
+            if (currentUser) fetchProfile(currentUser.id);
+            else setLoading(false);
         });
 
         // Listen for auth changes
@@ -25,11 +27,29 @@ export function AuthProvider({ children }) {
             const currentUser = session?.user ?? null;
             setUser(currentUser);
             setCurrentUser(currentUser);
-            console.log('Auth changed, user:', currentUser?.id);
+            if (currentUser) fetchProfile(currentUser.id);
+            else {
+                setProfile(null);
+                setLoading(false);
+            }
         });
 
         return () => subscription.unsubscribe();
     }, []);
+
+    const fetchProfile = async (userId) => {
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user/profile?userId=${userId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setProfile(data);
+            }
+        } catch (error) {
+            console.error('Error fetching profile:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const signUp = (email, password) => {
         return supabase.auth.signUp({ email, password });
@@ -43,8 +63,16 @@ export function AuthProvider({ children }) {
         return supabase.auth.signOut();
     };
 
+    const refreshProfile = async () => {
+        if (user) {
+            await fetchProfile(user.id);
+        }
+    };
+
     const value = {
         user,
+        profile,
+        refreshProfile,
         signUp,
         signIn,
         signOut

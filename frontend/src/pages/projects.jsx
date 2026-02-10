@@ -10,7 +10,13 @@ import {
     ChevronRight,
     Calendar,
     Target,
-    Activity
+    Activity,
+    RefreshCw,
+    AlertTriangle,
+    Bell,
+    Filter,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -19,55 +25,86 @@ const Projects = () => {
     const [selectedProject, setSelectedProject] = useState(null);
     const [projectHealth, setProjectHealth] = useState(null);
     const [workload, setWorkload] = useState([]);
+    const [workloadSummary, setWorkloadSummary] = useState(null);
+    const [deadlines, setDeadlines] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeView, setActiveView] = useState('grid'); // 'grid' or 'list'
+    const [refreshing, setRefreshing] = useState(false);
+    const [activeView, setActiveView] = useState('grid');
     const [error, setError] = useState(null);
+    const [showDeadlines, setShowDeadlines] = useState(true);
+    const [taskFilter, setTaskFilter] = useState('all');
 
     useEffect(() => {
-        fetchProjects();
-        fetchWorkload();
+        fetchAllData();
     }, []);
 
-    const fetchProjects = async () => {
+    const fetchAllData = async () => {
+        setLoading(true);
         try {
-            setLoading(true);
-            const data = await api.getAsanaProjects();
-
-            if (data.error) throw new Error(data.error);
-
-            setProjects(data.projects || []);
+            await Promise.all([
+                fetchProjects(),
+                fetchWorkload(),
+                fetchDeadlines()
+            ]);
             setError(null);
         } catch (err) {
             setError(err.message);
-            console.error('Error fetching projects:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        await fetchAllData();
+        setRefreshing(false);
+    };
+
+    const fetchProjects = async () => {
+        try {
+            const data = await api.getAsanaProjects();
+            if (data.error) throw new Error(data.error);
+            setProjects(data.projects || []);
+        } catch (err) {
+            console.error('Error fetching projects:', err);
+            throw err;
         }
     };
 
     const fetchWorkload = async () => {
         try {
             const data = await api.getAsanaWorkload();
-
             if (data.error) {
                 console.error('Error fetching workload:', data.error);
-                // Don't set error state - workload is optional
                 setWorkload([]);
                 return;
             }
-
             setWorkload(data.workload || []);
+            setWorkloadSummary(data.summary || null);
         } catch (err) {
             console.error('Error fetching workload:', err);
-            // Don't throw - workload is optional
             setWorkload([]);
+        }
+    };
+
+    const fetchDeadlines = async () => {
+        try {
+            const data = await api.getAsanaDeadlines();
+            if (data.error) {
+                console.error('Error fetching deadlines:', data.error);
+                setDeadlines(null);
+                return;
+            }
+            setDeadlines(data);
+        } catch (err) {
+            console.error('Error fetching deadlines:', err);
+            setDeadlines(null);
         }
     };
 
     const fetchProjectHealth = async (projectId) => {
         try {
             const data = await api.getAsanaProjectHealth(projectId);
-
             setProjectHealth(data);
             setSelectedProject(projects.find(p => p.gid === projectId));
         } catch (err) {
@@ -92,6 +129,23 @@ const Projects = () => {
             case 'critical': return <AlertCircle className="w-5 h-5" />;
             default: return <Activity className="w-5 h-5" />;
         }
+    };
+
+    const formatDueDate = (dateStr) => {
+        const date = new Date(dateStr);
+        const now = new Date();
+        const diffDays = Math.ceil((date - now) / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) return `${Math.abs(diffDays)} days overdue`;
+        if (diffDays === 0) return 'Due today';
+        if (diffDays === 1) return 'Due tomorrow';
+        return `Due in ${diffDays} days`;
+    };
+
+    const getDaysOverdue = (dateStr) => {
+        const date = new Date(dateStr);
+        const now = new Date();
+        return Math.ceil((now - date) / (1000 * 60 * 60 * 24));
     };
 
     if (loading) {
@@ -121,7 +175,7 @@ const Projects = () => {
                     <h2 className="text-xl font-bold text-white mb-2">Connection Error</h2>
                     <p className="text-gray-400 mb-4">{error}</p>
                     <button
-                        onClick={fetchProjects}
+                        onClick={fetchAllData}
                         className="px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
                     >
                         Try Again
@@ -152,10 +206,18 @@ const Projects = () => {
 
                         <div className="flex items-center gap-3">
                             <button
+                                onClick={handleRefresh}
+                                disabled={refreshing}
+                                className="p-2 bg-gray-800/50 hover:bg-gray-800 rounded-lg transition-all disabled:opacity-50"
+                                title="Refresh data"
+                            >
+                                <RefreshCw className={`w-5 h-5 text-gray-400 ${refreshing ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
                                 onClick={() => setActiveView('grid')}
                                 className={`px-4 py-2 rounded-lg transition-all ${activeView === 'grid'
-                                        ? 'bg-[#00ff87] text-black font-semibold'
-                                        : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
+                                    ? 'bg-[#00ff87] text-black font-semibold'
+                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
                                     }`}
                             >
                                 Grid
@@ -163,8 +225,8 @@ const Projects = () => {
                             <button
                                 onClick={() => setActiveView('list')}
                                 className={`px-4 py-2 rounded-lg transition-all ${activeView === 'list'
-                                        ? 'bg-[#00ff87] text-black font-semibold'
-                                        : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
+                                    ? 'bg-[#00ff87] text-black font-semibold'
+                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800'
                                     }`}
                             >
                                 List
@@ -208,16 +270,16 @@ const Projects = () => {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.3 }}
-                            className="bg-gradient-to-br from-purple-500/10 to-transparent border border-purple-500/20 rounded-xl p-4"
+                            className={`bg-gradient-to-br ${deadlines?.totalAtRisk > 0 ? 'from-red-500/10 border-red-500/20' : 'from-orange-500/10 border-orange-500/20'} to-transparent border rounded-xl p-4`}
                         >
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-gray-400 text-sm font-mono mb-1">AI Insights</p>
-                                    <p className="text-3xl font-bold text-white">
-                                        {projects.filter(p => p.notes).length}
+                                    <p className="text-gray-400 text-sm font-mono mb-1">At Risk Tasks</p>
+                                    <p className={`text-3xl font-bold ${deadlines?.totalAtRisk > 0 ? 'text-red-400' : 'text-white'}`}>
+                                        {deadlines?.totalAtRisk || 0}
                                     </p>
                                 </div>
-                                <Sparkles className="w-8 h-8 text-purple-400" />
+                                <AlertTriangle className={`w-8 h-8 ${deadlines?.totalAtRisk > 0 ? 'text-red-400' : 'text-orange-400'}`} />
                             </div>
                         </motion.div>
 
@@ -225,18 +287,16 @@ const Projects = () => {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.4 }}
-                            className="bg-gradient-to-br from-orange-500/10 to-transparent border border-orange-500/20 rounded-xl p-4"
+                            className="bg-gradient-to-br from-purple-500/10 to-transparent border border-purple-500/20 rounded-xl p-4"
                         >
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-gray-400 text-sm font-mono mb-1">Avg Completion</p>
+                                    <p className="text-gray-400 text-sm font-mono mb-1">Due This Week</p>
                                     <p className="text-3xl font-bold text-white">
-                                        {projects.length > 0
-                                            ? Math.round(projects.filter(p => p.completed).length / projects.length * 100)
-                                            : 0}%
+                                        {(deadlines?.dueToday?.count || 0) + (deadlines?.dueTomorrow?.count || 0) + (deadlines?.dueThisWeek?.count || 0)}
                                     </p>
                                 </div>
-                                <TrendingUp className="w-8 h-8 text-orange-400" />
+                                <Calendar className="w-8 h-8 text-purple-400" />
                             </div>
                         </motion.div>
                     </div>
@@ -244,6 +304,127 @@ const Projects = () => {
             </motion.header>
 
             <div className="max-w-7xl mx-auto px-6 py-8">
+                {/* Deadline Alerts Section */}
+                {deadlines && (deadlines.overdue?.count > 0 || deadlines.dueToday?.count > 0) && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mb-8"
+                    >
+                        <button
+                            onClick={() => setShowDeadlines(!showDeadlines)}
+                            className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-red-500/10 via-orange-500/10 to-yellow-500/10 border border-red-500/30 rounded-xl hover:border-red-500/50 transition-all"
+                        >
+                            <div className="flex items-center gap-3">
+                                <Bell className="w-6 h-6 text-red-400" />
+                                <span className="text-lg font-bold text-white">
+                                    Deadline Alerts
+                                </span>
+                                <span className="px-3 py-1 bg-red-500/20 text-red-400 text-sm font-mono rounded-full">
+                                    {deadlines.overdue?.count || 0} overdue
+                                </span>
+                                {deadlines.dueToday?.count > 0 && (
+                                    <span className="px-3 py-1 bg-orange-500/20 text-orange-400 text-sm font-mono rounded-full">
+                                        {deadlines.dueToday.count} due today
+                                    </span>
+                                )}
+                            </div>
+                            {showDeadlines ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                        </button>
+
+                        <AnimatePresence>
+                            {showDeadlines && (
+                                <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    className="mt-4 space-y-4"
+                                >
+                                    {/* Overdue Tasks */}
+                                    {deadlines.overdue?.tasks?.length > 0 && (
+                                        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+                                            <h3 className="text-red-400 font-bold mb-3 flex items-center gap-2">
+                                                <AlertCircle className="w-5 h-5" />
+                                                Overdue Tasks ({deadlines.overdue.count})
+                                            </h3>
+                                            <div className="space-y-2">
+                                                {deadlines.overdue.tasks.map((task) => (
+                                                    <div key={task.gid} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                                                            <div>
+                                                                <p className="text-white font-medium">{task.name}</p>
+                                                                <p className="text-sm text-gray-500">
+                                                                    {task.project?.name} • {task.assignee?.name || 'Unassigned'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-red-400 text-sm font-mono">
+                                                            {getDaysOverdue(task.due_on)} days overdue
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Due Today */}
+                                    {deadlines.dueToday?.tasks?.length > 0 && (
+                                        <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
+                                            <h3 className="text-orange-400 font-bold mb-3 flex items-center gap-2">
+                                                <Clock className="w-5 h-5" />
+                                                Due Today ({deadlines.dueToday.count})
+                                            </h3>
+                                            <div className="space-y-2">
+                                                {deadlines.dueToday.tasks.map((task) => (
+                                                    <div key={task.gid} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                                                            <div>
+                                                                <p className="text-white font-medium">{task.name}</p>
+                                                                <p className="text-sm text-gray-500">
+                                                                    {task.project?.name} • {task.assignee?.name || 'Unassigned'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-orange-400 text-sm font-mono">Due today</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Due Tomorrow */}
+                                    {deadlines.dueTomorrow?.tasks?.length > 0 && (
+                                        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-4">
+                                            <h3 className="text-yellow-400 font-bold mb-3 flex items-center gap-2">
+                                                <Calendar className="w-5 h-5" />
+                                                Due Tomorrow ({deadlines.dueTomorrow.count})
+                                            </h3>
+                                            <div className="space-y-2">
+                                                {deadlines.dueTomorrow.tasks.map((task) => (
+                                                    <div key={task.gid} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+                                                            <div>
+                                                                <p className="text-white font-medium">{task.name}</p>
+                                                                <p className="text-sm text-gray-500">
+                                                                    {task.project?.name} • {task.assignee?.name || 'Unassigned'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-yellow-400 text-sm font-mono">Due tomorrow</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </motion.div>
+                )}
+
                 {/* Projects Grid/List */}
                 {activeView === 'grid' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -370,10 +551,24 @@ const Projects = () => {
                         transition={{ delay: 0.5 }}
                         className="mt-12"
                     >
-                        <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                            <Users className="w-6 h-6 text-[#00ff87]" />
-                            Team Workload Distribution
-                        </h2>
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-2xl font-bold flex items-center gap-3">
+                                <Users className="w-6 h-6 text-[#00ff87]" />
+                                Team Workload Distribution
+                            </h2>
+                            {workloadSummary && (
+                                <div className="flex items-center gap-4">
+                                    <span className="text-sm text-gray-400">
+                                        Avg: <span className="text-white font-mono">{workloadSummary.avgTasksPerMember}</span> tasks/member
+                                    </span>
+                                    {workloadSummary.overloadedMembers > 0 && (
+                                        <span className="px-3 py-1 bg-red-500/20 text-red-400 text-sm rounded-full">
+                                            {workloadSummary.overloadedMembers} overloaded
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             {workload.map((member, index) => (
@@ -382,14 +577,19 @@ const Projects = () => {
                                     initial={{ opacity: 0, scale: 0.9 }}
                                     animate={{ opacity: 1, scale: 1 }}
                                     transition={{ delay: 0.6 + index * 0.05 }}
-                                    className="bg-gradient-to-br from-gray-900/80 to-gray-800/50 border border-gray-700/50 rounded-xl p-5"
+                                    className={`bg-gradient-to-br from-gray-900/80 to-gray-800/50 border ${member.isOverloaded ? 'border-red-500/50' : 'border-gray-700/50'} rounded-xl p-5`}
                                 >
                                     <div className="flex items-center gap-3 mb-4">
-                                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#00ff87] to-[#00d9ff] flex items-center justify-center text-black font-bold text-lg">
+                                        <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${member.isOverloaded ? 'from-red-500 to-orange-500' : 'from-[#00ff87] to-[#00d9ff]'} flex items-center justify-center text-black font-bold text-lg`}>
                                             {member.name.charAt(0)}
                                         </div>
                                         <div>
-                                            <h3 className="font-semibold text-white">{member.name}</h3>
+                                            <h3 className="font-semibold text-white flex items-center gap-2">
+                                                {member.name}
+                                                {member.isOverloaded && (
+                                                    <AlertTriangle className="w-4 h-4 text-red-400" />
+                                                )}
+                                            </h3>
                                             <p className="text-sm text-gray-400">{member.totalTasks} tasks</p>
                                         </div>
                                     </div>
@@ -423,6 +623,13 @@ const Projects = () => {
                                                     ></div>
                                                 </div>
                                             </>
+                                        )}
+
+                                        {member.upcomingTasks > 0 && (
+                                            <div className="flex justify-between text-sm mt-2">
+                                                <span className="text-gray-400">Upcoming</span>
+                                                <span className="text-blue-400 font-mono">{member.upcomingTasks}</span>
+                                            </div>
                                         )}
                                     </div>
                                 </motion.div>

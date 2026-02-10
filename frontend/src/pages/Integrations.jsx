@@ -10,6 +10,7 @@ export default function Integrations() {
     const navigate = useNavigate();
     const [slackStatus, setSlackStatus] = useState({ connected: false, loading: true });
     const [asanaStatus, setAsanaStatus] = useState({ connected: false, loading: true });
+    const [googleStatus, setGoogleStatus] = useState({ connected: false, loading: true });
     const [notification, setNotification] = useState(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const [oauthProcessed, setOauthProcessed] = useState(false);
@@ -18,6 +19,7 @@ export default function Integrations() {
         if (user) {
             checkSlackStatus();
             checkAsanaStatus();
+            checkGoogleStatus();
         }
     }, [user]);
 
@@ -34,17 +36,25 @@ export default function Integrations() {
                 const errorMessages = {
                     'oauth_failed': 'Failed to complete authentication. Please try again.',
                     'slack_auth_failed': 'Slack authentication was denied. Please try again.',
-                    'asana_auth_failed': 'Asana authentication was denied. Please try again.',
+                    'google_auth_failed': 'Google authentication was denied. Please try again.',
                     'missing_params': 'Missing required parameters. Please try again.'
                 };
+
+                let message = errorMessages[error] || 'An error occurred during authentication.';
+                const debugMessage = searchParams.get('message');
+                if (debugMessage && error === 'oauth_failed') {
+                    message += ` (Error: ${decodeURIComponent(debugMessage)})`;
+                }
+
                 setNotification({
                     type: 'error',
-                    message: errorMessages[error] || 'An error occurred during authentication.'
+                    message: message
                 });
             } else if (success) {
                 const successMessages = {
                     'slack_connected': 'Slack workspace connected successfully!',
-                    'asana_connected': 'Asana workspace connected successfully!'
+                    'asana_connected': 'Asana workspace connected successfully!',
+                    'google_connected': 'Google Calendar connected successfully!'
                 };
                 setNotification({
                     type: 'success',
@@ -54,6 +64,7 @@ export default function Integrations() {
                 if (user) {
                     checkSlackStatus();
                     checkAsanaStatus();
+                    checkGoogleStatus();
                 }
             }
             setSearchParams({});
@@ -84,6 +95,18 @@ export default function Integrations() {
         }
     };
 
+    const checkGoogleStatus = async () => {
+        if (!user) return;
+        try {
+            const res = await fetch(`${API_URL}/api/auth/google/status?userId=${user.id}`);
+            const data = await res.json();
+            setGoogleStatus({ ...data, loading: false });
+        } catch (error) {
+            console.error('Failed to check Google status:', error);
+            setGoogleStatus({ connected: false, loading: false });
+        }
+    };
+
     const connectSlack = () => {
         if (!user) return;
         window.location.href = `${API_URL}/api/auth/slack/connect?userId=${user.id}`;
@@ -92,6 +115,11 @@ export default function Integrations() {
     const connectAsana = () => {
         if (!user) return;
         window.location.href = `${API_URL}/api/auth/asana/connect?userId=${user.id}`;
+    };
+
+    const connectGoogle = () => {
+        if (!user) return;
+        window.location.href = `${API_URL}/api/auth/google/connect?userId=${user.id}`;
     };
 
     const disconnectSlack = async () => {
@@ -122,14 +150,28 @@ export default function Integrations() {
         }
     };
 
+    const disconnectGoogle = async () => {
+        if (!user || !confirm('Disconnect Google Calendar?')) return;
+        try {
+            const res = await fetch(`${API_URL}/api/auth/google/disconnect?userId=${user.id}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                setGoogleStatus({ connected: false, loading: false });
+            }
+        } catch (error) {
+            console.error('Failed to disconnect:', error);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
             <div className="p-8">
                 <div className="max-w-4xl mx-auto">
                     {notification && (
                         <div className={`mb-6 p-4 rounded-lg flex items-center justify-between gap-3 ${notification.type === 'error'
-                                ? 'bg-red-50 border border-red-200'
-                                : 'bg-green-50 border border-green-200'
+                            ? 'bg-red-50 border border-red-200'
+                            : 'bg-green-50 border border-green-200'
                             }`}>
                             <div className="flex items-center gap-3">
                                 {notification.type === 'error' ? (
@@ -205,7 +247,9 @@ export default function Integrations() {
                             name="Google Calendar"
                             description="Automatically summarize meetings and extract action items"
                             icon="https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg"
-                            status={{ connected: false, loading: false, comingSoon: true }}
+                            status={googleStatus}
+                            onConnect={connectGoogle}
+                            onDisconnect={disconnectGoogle}
                             features={[
                                 'Meeting summaries',
                                 'Action item extraction',

@@ -4,6 +4,7 @@ import AppShell from './layouts/AppShell';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Summaries from './pages/Summaries';
 import Blockers from './pages/Blockers';
@@ -12,6 +13,7 @@ import Profile from './pages/Profile';
 import Integrations from './pages/Integrations';
 import Analytics from './pages/Analytics';
 import Projects from './pages/Projects';
+import Team from './pages/Team';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -26,6 +28,11 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/onboarding" element={
+            <ProtectedRoute>
+              <Onboarding />
+            </ProtectedRoute>
+          } />
 
           <Route path="/app" element={
             <ProtectedRoute>
@@ -41,6 +48,7 @@ function App() {
             <Route path="profile" element={<Profile />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="projects" element={<Projects />} />
+            <Route path="team" element={<Team />} />
           </Route>
         </Routes>
       </AuthProvider>

@@ -250,5 +250,122 @@ export const api = {
             console.error('Fetch Asana workspaces error:', error);
             return { workspaces: [], error: error.message };
         }
+    },
+
+    async getAsanaDeadlines() {
+        const userId = getUserId();
+
+        if (!userId) {
+            const error = 'Not authenticated - no user ID';
+            console.error(error);
+            return { error };
+        }
+
+        const url = `${API_BASE_URL}/api/asana/deadlines?userId=${userId}`;
+        console.log('Fetching Asana deadlines from:', url);
+
+        try {
+            const res = await fetch(url);
+            console.log('Asana deadlines response status:', res.status);
+
+            if (!res.ok) {
+                const data = await res.json();
+                console.error('Asana deadlines error response:', data);
+                return { error: data.error, needsReauth: data.needsReauth };
+            }
+
+            const data = await res.json();
+            console.log('Asana deadlines fetched:', data);
+            return data;
+        } catch (error) {
+            console.error('Fetch Asana deadlines error:', error);
+            return { error: error.message };
+        }
+    },
+
+    async getAsanaTasks(filters = {}) {
+        const userId = getUserId();
+
+        if (!userId) {
+            const error = 'Not authenticated - no user ID';
+            console.error(error);
+            return { tasks: [], error };
+        }
+
+        const params = new URLSearchParams({ userId });
+        if (filters.status) params.append('status', filters.status);
+        if (filters.projectId) params.append('projectId', filters.projectId);
+
+        const url = `${API_BASE_URL}/api/asana/tasks?${params}`;
+        console.log('Fetching Asana tasks from:', url);
+
+        try {
+            const res = await fetch(url);
+            console.log('Asana tasks response status:', res.status);
+
+            if (!res.ok) {
+                const data = await res.json();
+                console.error('Asana tasks error response:', data);
+                return { tasks: [], error: data.error, needsReauth: data.needsReauth };
+            }
+
+            const data = await res.json();
+            console.log('Asana tasks fetched:', data);
+            return data;
+        } catch (error) {
+            console.error('Fetch Asana tasks error:', error);
+            return { tasks: [], error: error.message };
+        }
+    },
+
+    async getGoogleCalendarEvents(days = 7) {
+        const userId = getUserId();
+        if (!userId) return { error: 'Not authenticated' };
+
+        const url = `${API_BASE_URL}/api/google-calendar/events?userId=${userId}&days=${days}`;
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const data = await res.json();
+                return { error: data.error, needsReauth: data.needsReauth };
+            }
+            return await res.json();
+        } catch (error) {
+            return { error: error.message };
+        }
+    },
+
+    async getGoogleCalendarAnalytics(days = 30) {
+        const userId = getUserId();
+        if (!userId) return { error: 'Not authenticated' };
+
+        const url = `${API_BASE_URL}/api/google-calendar/analytics?userId=${userId}&days=${days}`;
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const data = await res.json();
+                return { error: data.error, needsReauth: data.needsReauth };
+            }
+            return await res.json();
+        } catch (error) {
+            return { error: error.message };
+        }
+    },
+
+    async getGoogleCalendarActionItems(days = 7) {
+        const userId = getUserId();
+        if (!userId) return { error: 'Not authenticated' };
+
+        const url = `${API_BASE_URL}/api/google-calendar/action-items?userId=${userId}&days=${days}`;
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const data = await res.json();
+                return { error: data.error, needsReauth: data.needsReauth };
+            }
+            return await res.json();
+        } catch (error) {
+            return { error: error.message };
+        }
     }
 };

@@ -1,14 +1,45 @@
+import { useEffect } from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings } from 'lucide-react';
 export default function AppShell() {
-    const { user, signOut } = useAuth();
+    const { user, profile, signOut } = useAuth();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        if (profile) {
+            // console.log('AppShell Profile Check:', profile);
+            if (!profile.full_name || !profile.team_id) {
+                console.warn('Redirecting to onboarding. Missing data:', {
+                    hasName: !!profile.full_name,
+                    hasTeam: !!profile.team_id
+                });
+                navigate('/onboarding');
+            }
+        }
+    }, [profile, navigate]);
 
     const handleSignOut = async () => {
         await signOut();
         navigate('/login');
     };
+
+    // Show loader while checking authentication/profile
+    if (!profile) {
+        return (
+            <div className="flex h-screen items-center justify-center bg-gray-50">
+                <div className="text-center">
+                    <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-gray-500">Loading workspace...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Double check constraints before rendering content
+    if (!profile.full_name || !profile.team_id) {
+        return null; // Will trigger redirect in useEffect
+    }
 
     return (
         <div className="flex h-screen bg-gray-50">
@@ -33,6 +64,9 @@ export default function AppShell() {
                     </NavLink>
                     <NavLink to="/app/profile" icon={<User size={20} />}>
                         Profile
+                    </NavLink>
+                    <NavLink to="/app/team" icon={<User size={20} />}>
+                        Team
                     </NavLink>
                 </nav>
 
