@@ -107,7 +107,9 @@ export const db = {
   async getProfile(userId) {
     const { data, error } = await supabase
       .from('profiles')
-      .select('*, teams(*)')
+      // Keep this focused on the profile record only to avoid
+      // permission issues when joining against related tables.
+      .select('*')
       .eq('id', userId)
       .single();
 
@@ -154,7 +156,7 @@ export const db = {
   // Team Methods
   async createTeam(userId, teamData) {
     // 1. Create Team
-    const { data: team, error: teamError } = await supabase
+    const { data, error: teamError } = await supabase
       .from('teams')
       .insert({
         name: teamData.name,
@@ -225,5 +227,39 @@ export const db = {
 
     if (error) throw error;
     return data;
+  },
+
+  async acceptInvitation(token, userId) {
+    // 1. Verify invitation
+    const { data: invitation, error: inviteError } = await supabase
+      .from('team_invitations')
+      .select('*')
+      .eq('token', token)
+      .eq('status', 'pending')
+      .single();
+
+    if (inviteError || !invitation) {
+      throw new Error('Invalid or expired invitation');
+    }
+
+    // 2. Update invitation status
+    const { error: updateError } = await supabase
+      .from('team_invitations')
+      .update({ status: 'accepted' })
+      .eq('id', invitation.id);
+
+    if (updateError) throw updateError;
+
+    // 3. Add user to team
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ team_id: invitation.team_id })
+      .eq('id', userId);
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    return { success: true, teamId: invitation.team_id };
   }
 };

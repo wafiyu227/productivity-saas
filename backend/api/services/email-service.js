@@ -40,6 +40,67 @@ class EmailService {
     }
   }
 
+  async sendInvitation(email, invitation, inviterName) {
+    if (!RESEND_API_KEY) {
+      logger.warn('RESEND_API_KEY not configured, skipping invitation email');
+      return { success: false, error: 'Email service not configured' };
+    }
+
+    try {
+      const joinUrl = `${process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app'}/join?token=${invitation.token}`;
+
+      const emailHtml = `
+        <!DOCTYPE html>
+        <html>
+          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #111827; background-color: #f3f4f6; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 40px; border-radius: 8px;">
+              <h1 style="margin-top: 0; color: #111827;">Join the team on SyncSphere</h1>
+              <p style="font-size: 16px; color: #4b5563;">
+                <strong>${inviterName}</strong> has invited you to join their team on SyncSphere.
+              </p>
+              <div style="margin: 32px 0; text-align: center;">
+                <a href="${joinUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">
+                  Accept Invitation
+                </a>
+              </div>
+              <p style="font-size: 14px; color: #6b7280;">
+                Or copy and paste this link into your browser:<br>
+                <a href="${joinUrl}" style="color: #2563eb;">${joinUrl}</a>
+              </p>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'SyncSphere <noreply@productivity-saas.com>',
+          to: email,
+          subject: `${inviterName} invited you to join a team on SyncSphere`,
+          html: emailHtml
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Resend API error: ${error}`);
+      }
+
+      const result = await response.json();
+      logger.info('Invitation sent', { email, messageId: result.id });
+      return { success: true, messageId: result.id };
+    } catch (error) {
+      logger.error('Failed to send invitation', { email, error: error.message });
+      // Don't throw, just return failure so api doesn't crash
+      return { success: false, error: error.message };
+    }
+  }
+
   generateDigestHTML(summaries) {
     const summariesHTML = summaries
       .map(s => `

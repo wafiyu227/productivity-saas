@@ -101,12 +101,32 @@ router.post('/team/invite', async (req, res) => {
     try {
         const invitation = await db.createInvitation(teamId, userId, email);
 
-        // TODO: Send email via emailService
-        // await emailService.sendInvitation(email, invitation);
+        // Send email via emailService
+        const inviterProfile = await db.getProfile(userId);
+        const inviterName = inviterProfile?.full_name || 'A teammate';
+
+        await emailService.sendInvitation(email, invitation, inviterName);
 
         res.json(invitation);
     } catch (error) {
         logger.error('Invite member error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Join Team (Accept Invitation)
+router.post('/team/join', async (req, res) => {
+    const { token, userId } = req.body;
+
+    if (!token || !userId) {
+        return res.status(400).json({ error: 'token and userId required' });
+    }
+
+    try {
+        const result = await db.acceptInvitation(token, userId);
+        res.json(result);
+    } catch (error) {
+        logger.error('Join team error:', error);
         res.status(500).json({ error: error.message });
     }
 });
