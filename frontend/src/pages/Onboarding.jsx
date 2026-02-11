@@ -70,7 +70,24 @@ const Onboarding = () => {
             const apiUrl = import.meta.env.VITE_API_URL;
             const userId = user.id;
 
-            // 1. Create Team (Company)
+            // 1. Update Profile (Create if doesn't exist)
+            const profileRes = await fetch(`${apiUrl}/api/user/profile`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    email: user.email,
+                    full_name: formData.fullName,
+                    job_title: formData.jobTitle
+                })
+            });
+
+            if (!profileRes.ok) {
+                const err = await profileRes.json();
+                throw new Error(err.error || 'Failed to update profile');
+            }
+
+            // 2. Create Team (Company)
             const teamRes = await fetch(`${apiUrl}/api/user/team`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -87,22 +104,6 @@ const Onboarding = () => {
             }
 
             const teamData = await teamRes.json();
-
-            // 2. Update Profile
-            const profileRes = await fetch(`${apiUrl}/api/user/profile`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId,
-                    full_name: formData.fullName,
-                    job_title: formData.jobTitle
-                })
-            });
-
-            if (!profileRes.ok) {
-                const err = await profileRes.json();
-                throw new Error(err.error || 'Failed to update profile');
-            }
 
             // 3. Send Invites
             const validEmails = formData.teamInvites.filter(e => e && e.includes('@'));

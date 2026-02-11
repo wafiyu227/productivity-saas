@@ -4,6 +4,7 @@ import AppShell from './layouts/AppShell';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import JoinTeam from './pages/JoinTeam';
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Summaries from './pages/Summaries';
@@ -26,6 +27,7 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/join" element={<JoinTeam />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/onboarding" element={
