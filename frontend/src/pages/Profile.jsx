@@ -1,11 +1,11 @@
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Calendar, Shield, Bell, Palette, Key } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, Palette, Key, LogOut, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Profile() {
-    const { user } = useAuth();
+    const { user, signOut, supabase } = useAuth();
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saved, setSaved] = useState(false);
@@ -79,6 +79,43 @@ export default function Profile() {
         }
     };
 
+    const handleResetPassword = async () => {
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+                redirectTo: `${window.location.origin}/auth/reset-password`,
+            });
+            if (error) throw error;
+            alert('Password reset email sent!');
+        } catch (error) {
+            console.error('Reset password error:', error);
+            alert('Failed to send reset email: ' + error.message);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!window.confirm('CRITICAL: Are you sure you want to delete your account? This action is permanent and will remove ALL your data.')) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/api/auth/account?userId=${user.id}`, {
+                method: 'DELETE'
+            });
+
+            if (res.ok) {
+                alert('Account deleted successfully.');
+                await signOut();
+                window.location.href = '/';
+            } else {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to delete account');
+            }
+        } catch (error) {
+            console.error('Delete account error:', error);
+            alert('Failed to delete account: ' + error.message);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50">
             <div className="p-8">
@@ -128,23 +165,23 @@ export default function Profile() {
                                 title="Notifications"
                                 description="Manage your notification preferences"
                             >
-                                <ToggleSetting 
-                                    label="Email notifications" 
-                                    enabled={settings?.email_notifications} 
+                                <ToggleSetting
+                                    label="Email notifications"
+                                    enabled={settings?.email_notifications}
                                     onChange={(val) => updateSettings('email_notifications', val)}
                                 />
-                                <ToggleSetting 
-                                    label="Slack notifications" 
+                                <ToggleSetting
+                                    label="Slack notifications"
                                     enabled={settings?.slack_notifications}
                                     onChange={(val) => updateSettings('slack_notifications', val)}
                                 />
-                                <ToggleSetting 
-                                    label="Blocker alerts" 
+                                <ToggleSetting
+                                    label="Blocker alerts"
                                     enabled={settings?.blocker_alerts}
                                     onChange={(val) => updateSettings('blocker_alerts', val)}
                                 />
-                                <ToggleSetting 
-                                    label="Daily digest email" 
+                                <ToggleSetting
+                                    label="Daily digest email"
                                     enabled={settings?.daily_digest}
                                     onChange={(val) => updateSettings('daily_digest', val)}
                                 />
@@ -156,33 +193,30 @@ export default function Profile() {
                                 description="Customize your dashboard experience"
                             >
                                 <div className="flex gap-4">
-                                    <button 
+                                    <button
                                         onClick={() => updateSettings('appearance', 'light')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition ${
-                                            settings?.appearance === 'light' 
-                                                ? 'bg-blue-600 text-white' 
+                                        className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'light'
+                                                ? 'bg-blue-600 text-white'
                                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                        }`}
+                                            }`}
                                     >
                                         Light
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => updateSettings('appearance', 'dark')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition ${
-                                            settings?.appearance === 'dark' 
-                                                ? 'bg-blue-600 text-white' 
+                                        className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'dark'
+                                                ? 'bg-blue-600 text-white'
                                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                        }`}
+                                            }`}
                                     >
                                         Dark
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => updateSettings('appearance', 'auto')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition ${
-                                            settings?.appearance === 'auto' 
-                                                ? 'bg-blue-600 text-white' 
+                                        className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'auto'
+                                                ? 'bg-blue-600 text-white'
                                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                        }`}
+                                            }`}
                                     >
                                         Auto
                                     </button>
@@ -190,13 +224,38 @@ export default function Profile() {
                             </SettingsSection>
 
                             <SettingsSection
-                                icon={<Shield className="text-green-600" size={24} />}
-                                title="Security"
-                                description="Keep your account secure"
+                                icon={<Shield className="text-red-600" size={24} />}
+                                title="Account Management"
+                                description="Secure your account or remove your data"
                             >
-                                <div className="space-y-3">
-                                    <InfoRow label="User ID" value={user?.id?.slice(0, 8) + '...'} />
-                                    <InfoRow label="Last login" value="Just now" />
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                        <div>
+                                            <h4 className="font-semibold text-gray-900">Reset Password</h4>
+                                            <p className="text-sm text-gray-600">Receive an email to securely change your password</p>
+                                        </div>
+                                        <button
+                                            onClick={handleResetPassword}
+                                            className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm font-medium flex items-center gap-2"
+                                        >
+                                            <Key size={16} />
+                                            Reset
+                                        </button>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 bg-red-50 rounded-xl border border-red-100">
+                                        <div>
+                                            <h4 className="font-semibold text-red-900">Delete Account</h4>
+                                            <p className="text-sm text-red-700">Permanently remove your account and all associated data</p>
+                                        </div>
+                                        <button
+                                            onClick={handleDeleteAccount}
+                                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-medium flex items-center gap-2"
+                                        >
+                                            <Trash2 size={16} />
+                                            Delete
+                                        </button>
+                                    </div>
                                 </div>
                             </SettingsSection>
 
@@ -205,7 +264,7 @@ export default function Profile() {
                                 title="Email"
                                 description="Test your email settings"
                             >
-                                <button 
+                                <button
                                     onClick={sendTestDigest}
                                     className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition text-sm font-medium"
                                 >

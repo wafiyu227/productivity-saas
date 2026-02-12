@@ -15,7 +15,7 @@ export default function Landing() {
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
                                 <Zap className="text-white" size={24} />
                             </div>
-                            <span className="text-xl font-bold text-gray-900">ProductivityAI</span>
+                            <span className="text-xl font-bold text-gray-900">Teama AI</span>
                         </div>
                         <div className="hidden md:flex items-center gap-8">
                             <a href="#features" className="text-gray-600 hover:text-gray-900 transition">Features</a>
@@ -50,7 +50,7 @@ export default function Landing() {
                             AI-Powered Team
                             <br />
                             <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                                Productivity Intelligence
+                                Teama AI Productivity
                             </span>
                         </h1>
                         <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto leading-relaxed">
@@ -214,7 +214,7 @@ export default function Landing() {
 
                     <div className="grid md:grid-cols-3 gap-8">
                         <Testimonial
-                            quote="ProductivityAI saved us 10+ hours per week. We catch blockers before they impact delivery."
+                            quote="Teama AI saved us 10+ hours per week. We catch blockers before they impact delivery."
                             author="Sarah Chen"
                             role="Engineering Manager"
                             company="Stripe"
@@ -305,7 +305,7 @@ export default function Landing() {
                         Ready to transform your team's productivity?
                     </h2>
                     <p className="text-xl text-blue-100 mb-8">
-                        Join 500+ teams already using ProductivityAI
+                        Join 500+ teams already using Teama AI
                     </p>
                     <Link
                         to="/signup"
@@ -329,7 +329,7 @@ export default function Landing() {
                                 <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
                                     <Zap className="text-white" size={16} />
                                 </div>
-                                <span className="text-white font-bold">ProductivityAI</span>
+                                <span className="text-white font-bold">Teama AI</span>
                             </div>
                             <p className="text-sm">
                                 AI-powered productivity intelligence for modern teams.
@@ -361,7 +361,7 @@ export default function Landing() {
                         </div>
                     </div>
                     <div className="border-t border-gray-800 pt-8 text-center text-sm">
-                        <p>&copy; 2025 ProductivityAI. All rights reserved.</p>
+                        <p>&copy; 2025 Teama AI. All rights reserved.</p>
                     </div>
                 </div>
             </footer>

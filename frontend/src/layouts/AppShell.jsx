@@ -46,7 +46,7 @@ export default function AppShell() {
             {/* Sidebar */}
             <aside className="w-64 bg-white border-r border-gray-200">
                 <div className="p-6">
-                    <h1 className="text-2xl font-bold text-gray-900">ProductivityAI</h1>
+                    <h1 className="text-2xl font-bold text-gray-900">Teama AI</h1>
                 </div>
 
                 <nav className="px-3">

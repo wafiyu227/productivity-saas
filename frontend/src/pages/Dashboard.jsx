@@ -179,7 +179,7 @@ export default function Dashboard() {
             alert('✅ Summary generated successfully!');
         } catch (error) {
             if (error.message.includes('not_in_channel')) {
-                alert('⚠️ The bot is not in this channel!\n\nTo fix:\n1. Go to the channel in Slack\n2. Type: /invite @Productivity Assistant\n3. Try again');
+                alert('⚠️ The bot is not in this channel!\\n\\nTo fix:\\n1. Go to the channel in Slack\\n2. Type: /invite @Teama Assistant\\n3. Try again');
             } else {
                 alert('Failed to generate summary: ' + error.message);
             }

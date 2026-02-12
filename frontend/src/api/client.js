@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://productivity-saas-tau.vercel.app';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://teama-ai.vercel.app';
 
 // Get current user from Supabase auth
 let currentUser = null;

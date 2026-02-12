@@ -151,7 +151,7 @@ const Onboarding = () => {
         <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-8 transition-all duration-300">
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome to SyncSphere</h1>
+                    <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome to Teama AI</h1>
                     <p className="text-slate-500">Let's set up your workspace</p>
                 </div>
 
