@@ -261,5 +261,23 @@ export const db = {
     }
 
     return { success: true, teamId: invitation.team_id };
+  },
+
+  async deleteUserAccount(userId) {
+    // 1. Delete integrations
+    await supabase.from('integrations').delete().eq('user_id', userId);
+
+    // 2. Delete user settings
+    await supabase.from('user_settings').delete().eq('user_id', userId);
+
+    // 3. Delete profile
+    await supabase.from('profiles').delete().eq('id', userId);
+
+    // 4. Delete user from Supabase Auth
+    // This requires the service role key which should be configured in process.env.SUPABASE_SERVICE_ROLE_KEY
+    const { error } = await supabase.auth.admin.deleteUser(userId);
+    if (error) throw error;
+
+    return { success: true };
   }
 };

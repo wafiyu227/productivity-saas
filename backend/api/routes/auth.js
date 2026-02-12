@@ -386,4 +386,21 @@ router.delete('/google/disconnect', async (req, res) => {
     }
 });
 
+// Delete account
+router.delete('/account', async (req, res) => {
+    const { userId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        await db.deleteUserAccount(userId);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Account deletion error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 export default router;

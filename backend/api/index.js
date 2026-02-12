@@ -62,7 +62,7 @@ app.get('/health', (req, res) => {
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    name: 'Productivity SaaS API',
+    name: 'Teama AI API',
     version: '1.0.0',
     health: '/health',
     endpoints: {

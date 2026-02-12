@@ -19,7 +19,7 @@ class EmailService {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          from: 'Productivity SaaS <noreply@productivity-saas.com>',
+          from: 'Teama AI <noreply@teama-ai.com>',
           to: userEmail,
           subject: `Daily Summary - ${new Date().toLocaleDateString()}`,
           html: emailHtml
@@ -47,16 +47,16 @@ class EmailService {
     }
 
     try {
-      const joinUrl = `${process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app'}/join?token=${invitation.token}`;
+      const joinUrl = `${process.env.FRONTEND_URL || 'https://teama-ai.vercel.app'}/join?token=${invitation.token}`;
 
       const emailHtml = `
         <!DOCTYPE html>
         <html>
           <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #111827; background-color: #f3f4f6; padding: 20px;">
             <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 40px; border-radius: 8px;">
-              <h1 style="margin-top: 0; color: #111827;">Join the team on SyncSphere</h1>
+              <h1 style="margin-top: 0; color: #111827;">Join the team on Teama AI</h1>
               <p style="font-size: 16px; color: #4b5563;">
-                <strong>${inviterName}</strong> has invited you to join their team on SyncSphere.
+                <strong>${inviterName}</strong> has invited you to join their team on Teama AI.
               </p>
               <div style="margin: 32px 0; text-align: center;">
                 <a href="${joinUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">
@@ -79,9 +79,9 @@ class EmailService {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          from: 'SyncSphere <noreply@productivity-saas.com>',
+          from: 'Teama AI <noreply@teama-ai.com>',
           to: email,
-          subject: `${inviterName} invited you to join a team on SyncSphere`,
+          subject: `${inviterName} invited you to join a team on Teama AI`,
           html: emailHtml
         })
       });
@@ -161,10 +161,10 @@ class EmailService {
 
             <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; margin-top: 32px;">
               <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 12px;">
-                <a href="https://productivity-saas.vercel.app/app/summaries">View all summaries →</a>
+                <a href="https://teama-ai.vercel.app/app/summaries">View all summaries →</a>
               </p>
               <p style="margin: 0; color: #9ca3af; font-size: 11px;">
-                Manage your notification preferences in <a href="https://productivity-saas.vercel.app/app/profile">Settings</a>
+                Manage your notification preferences in <a href="https://teama-ai.vercel.app/app/profile">Settings</a>
               </p>
             </div>
           </div>

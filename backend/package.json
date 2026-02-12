@@ -1,7 +1,7 @@
 {
     "name": "productivity-saas-backend",
     "version": "1.0.0",
-    "description": "AI-powered team productivity backend",
+    "description": "Teama AI - AI-powered team productivity backend",
     "main": "api/index.js",
     "type": "module",
     "scripts": {
