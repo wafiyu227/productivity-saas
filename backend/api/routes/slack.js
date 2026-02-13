@@ -9,13 +9,13 @@ const router = express.Router();
 // Get configured channels
 router.get('/channels', async (req, res) => {
   try {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
     }
 
-    const integration = await db.getIntegration(userId, 'slack');
+    const integration = await db.getIntegration(userId, 'slack', teamId);
 
     if (!integration) {
       return res.status(401).json({ error: 'Slack not connected' });
@@ -51,13 +51,13 @@ router.get('/channels', async (req, res) => {
 // Create new summary
 router.post('/summarize', express.json(), async (req, res) => {
   try {
-    const { channelId, hours = 24, userId } = req.body;
+    const { channelId, hours = 24, userId, teamId } = req.body;
 
     if (!userId || !channelId) {
       return res.status(400).json({ error: 'userId and channelId required' });
     }
 
-    const integration = await db.getIntegration(userId, 'slack');
+    const integration = await db.getIntegration(userId, 'slack', teamId);
 
     if (!integration) {
       return res.status(401).json({ error: 'Slack not connected' });
@@ -91,7 +91,9 @@ router.post('/summarize', express.json(), async (req, res) => {
 
     if (messages.length === 0) {
       return res.json({
-        summary: 'No messages found in this time period.',
+        count: 0,
+        message: 'No new messages found in this channel for the selected time period.',
+        summary: null,
         blockers: [],
         keyTopics: []
       });
@@ -102,6 +104,7 @@ router.post('/summarize', express.json(), async (req, res) => {
 
     // Save to DB
     const savedSummary = await db.saveSlackSummary({
+      user_id: userId,
       channel_id: channelId,
       channel_name: channelName,
       team_id: integration.team_id,

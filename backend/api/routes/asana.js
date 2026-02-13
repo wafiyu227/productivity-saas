@@ -34,13 +34,13 @@ async function getValidAccessToken(integration, userId) {
 // Get all projects for user
 router.get('/projects', async (req, res) => {
     try {
-        const { userId } = req.query;
+        const { userId, teamId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const integration = await db.getIntegration(userId, 'asana');
+        const integration = await db.getIntegration(userId, 'asana', teamId);
 
         if (!integration) {
             return res.status(401).json({ error: 'Asana not connected' });
@@ -95,14 +95,14 @@ router.get('/projects', async (req, res) => {
 // Get project health for a specific project
 router.get('/projects/:projectId/health', async (req, res) => {
     try {
-        const { userId } = req.query;
+        const { userId, teamId } = req.query;
         const { projectId } = req.params;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const integration = await db.getIntegration(userId, 'asana');
+        const integration = await db.getIntegration(userId, 'asana', teamId);
 
         if (!integration) {
             return res.status(401).json({ error: 'Asana not connected' });
@@ -134,13 +134,13 @@ router.get('/projects/:projectId/health', async (req, res) => {
 // Get team workload insights
 router.get('/workload', async (req, res) => {
     try {
-        const { userId } = req.query;
+        const { userId, teamId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const integration = await db.getIntegration(userId, 'asana');
+        const integration = await db.getIntegration(userId, 'asana', teamId);
 
         if (!integration) {
             return res.status(401).json({ error: 'Asana not connected' });
@@ -239,13 +239,13 @@ router.get('/workload', async (req, res) => {
 // Get deadline alerts (overdue and upcoming tasks)
 router.get('/deadlines', async (req, res) => {
     try {
-        const { userId } = req.query;
+        const { userId, teamId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const integration = await db.getIntegration(userId, 'asana');
+        const integration = await db.getIntegration(userId, 'asana', teamId);
 
         if (!integration) {
             return res.status(401).json({ error: 'Asana not connected' });
@@ -290,13 +290,13 @@ router.get('/deadlines', async (req, res) => {
 // Get all tasks with filtering
 router.get('/tasks', async (req, res) => {
     try {
-        const { userId, status, projectId } = req.query;
+        const { userId, teamId, status, projectId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const integration = await db.getIntegration(userId, 'asana');
+        const integration = await db.getIntegration(userId, 'asana', teamId);
 
         if (!integration) {
             return res.status(401).json({ error: 'Asana not connected' });

@@ -14,8 +14,8 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export const db = {
   async saveSlackSummary(data) {
-    // Ensure arrays are properly formatted for JSONB
     const summaryData = {
+      user_id: data.user_id,
       channel_id: data.channel_id,
       channel_name: data.channel_name,
       team_id: data.team_id,
@@ -26,8 +26,6 @@ export const db = {
       time_period_start: data.time_period_start,
       time_period_end: data.time_period_end
     };
-
-    console.log('Saving summary to database:', summaryData);
 
     const { data: result, error } = await supabase
       .from('slack_summaries')
@@ -40,15 +38,21 @@ export const db = {
       throw error;
     }
 
-    console.log('Summary saved successfully:', result);
     return result;
   },
 
-  async getSummaries(teamId, limit = 10) {
-    const { data, error } = await supabase
+  async getSummaries(teamId, userId = null, limit = 10) {
+    let query = supabase
       .from('slack_summaries')
-      .select('*')
-      .eq('team_id', teamId)
+      .select('*');
+
+    if (teamId) {
+      query = query.eq('team_id', teamId);
+    } else if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -56,48 +60,99 @@ export const db = {
     return data || [];
   },
 
-  async saveIntegration(userId, platform, tokens) {
+  // FIXED: saveIntegration with proper conflict resolution
+  async saveIntegration(userId, platform, tokens, scope = 'team') {
+    const integrationData = {
+      user_id: userId,
+      platform,
+      scope,
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken || null,
+      expires_at: tokens.expiresAt || null,
+      workspace_id: tokens.workspaceId || null,
+      workspace_name: tokens.workspaceName || null,
+      team_id_external: tokens.teamIdExternal || null,
+      team_name: tokens.teamName || null,
+      updated_at: new Date().toISOString()
+    };
+
+    // Add team_id only for team-scoped integrations
+    if (scope === 'team' && tokens.teamId) {
+      integrationData.team_id = tokens.teamId;
+    }
+
+    console.log('Saving integration:', integrationData);
+
+    // Use the composite unique constraint: (user_id, platform, scope)
     const { data, error } = await supabase
       .from('integrations')
-      .upsert({
-        user_id: userId,
-        platform,
-        access_token: tokens.accessToken,
-        refresh_token: tokens.refreshToken,
-        team_id: tokens.teamId,
-        team_name: tokens.teamName,
-        workspace_id: tokens.workspaceId,
-        workspace_name: tokens.workspaceName,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id,platform',
+      .upsert(integrationData, {
+        onConflict: 'user_id,platform,scope',
         ignoreDuplicates: false
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Integration save error:', error);
+      throw error;
+    }
+
     return data;
   },
 
-  async getIntegration(userId, platform) {
-    const { data, error } = await supabase
+  // FIXED: getIntegration with correct logic
+  async getIntegration(userId, platform, teamId = null) {
+    let query = supabase
       .from('integrations')
       .select('*')
-      .eq('user_id', userId)
-      .eq('platform', platform)
-      .single();
+      .eq('platform', platform);
 
-    if (error && error.code !== 'PGRST116') throw error;
+    // If teamId is provided, get team integration
+    if (teamId) {
+      query = query.eq('team_id', teamId).eq('scope', 'team');
+    } else {
+      // No teamId: try to get team integration for user's current team OR personal
+      // First try team scope for this user
+      const teamQuery = await supabase
+        .from('integrations')
+        .select('*, team_members!inner(user_id)')
+        .eq('platform', platform)
+        .eq('scope', 'team')
+        .eq('team_members.user_id', userId)
+        .maybeSingle();
+
+      if (teamQuery.data) {
+        return teamQuery.data;
+      }
+
+      // Fallback to personal scope
+      query = query.eq('user_id', userId).eq('scope', 'personal');
+    }
+
+    const { data, error } = await query.maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Get integration error:', error);
+      throw error;
+    }
+
     return data;
   },
 
-  async deleteIntegration(userId, platform) {
-    const { error } = await supabase
+  async deleteIntegration(userId, platform, teamId = null) {
+    let query = supabase
       .from('integrations')
       .delete()
-      .eq('user_id', userId)
       .eq('platform', platform);
+
+    if (teamId) {
+      query = query.eq('team_id', teamId);
+    } else {
+      query = query.eq('user_id', userId);
+    }
+
+    const { error } = await query;
 
     if (error) throw error;
     return true;
@@ -107,14 +162,23 @@ export const db = {
   async getProfile(userId) {
     const { data, error } = await supabase
       .from('profiles')
-      // Keep this focused on the profile record only to avoid
-      // permission issues when joining against related tables.
       .select('*')
       .eq('id', userId)
       .single();
 
     if (error && error.code !== 'PGRST116') throw error;
     return data;
+  },
+
+  async getUserTeams(userId) {
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('*, teams(*)')
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    if (error) throw error;
+    return data || [];
   },
 
   async upsertProfile(userId, profileData) {
@@ -144,9 +208,7 @@ export const db = {
 
     if (error) throw error;
 
-    // If update returned no rows, try upsert (profile might not exist yet)
     if (!data || data.length === 0) {
-      console.log(`Profile not found for update ${userId}, attempting upsert...`);
       return this.upsertProfile(userId, profileData);
     }
 
@@ -155,12 +217,13 @@ export const db = {
 
   // Team Methods
   async createTeam(userId, teamData) {
-    // 1. Create Team
     const { data, error: teamError } = await supabase
       .from('teams')
       .insert({
         name: teamData.name,
-        size_range: teamData.size_range
+        size_range: teamData.size_range,
+        description: teamData.description,
+        created_by: userId
       })
       .select();
 
@@ -171,27 +234,32 @@ export const db = {
 
     const team = data?.[0];
     if (!team) {
-      throw new Error('Failed to create team: No data returned. Check database permissions.');
+      throw new Error('Failed to create team: No data returned.');
     }
 
-    // 2. Link User to Team
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ team_id: team.id })
-      .eq('id', userId);
+    const { error: memberError } = await supabase
+      .from('team_members')
+      .insert({
+        team_id: team.id,
+        user_id: userId,
+        role: 'owner',
+        status: 'active'
+      });
 
-    if (profileError) {
-      console.error('Supabase Link User Error:', profileError);
-      throw profileError;
+    if (memberError) {
+      console.error('Supabase Link Member Error:', memberError);
+      throw memberError;
     }
+
+    await this.updateProfile(userId, { current_team_id: team.id });
 
     return team;
   },
 
   async getTeamMembers(teamId) {
     const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
+      .from('team_members')
+      .select('*, profiles!user_id(*)')
       .eq('team_id', teamId);
 
     if (error) throw error;
@@ -230,7 +298,6 @@ export const db = {
   },
 
   async acceptInvitation(token, userId) {
-    // 1. Verify invitation
     const { data: invitation, error: inviteError } = await supabase
       .from('team_invitations')
       .select('*')
@@ -242,39 +309,41 @@ export const db = {
       throw new Error('Invalid or expired invitation');
     }
 
-    // 2. Update invitation status
     const { error: updateError } = await supabase
       .from('team_invitations')
-      .update({ status: 'accepted' })
+      .update({
+        status: 'accepted',
+        accepted_at: new Date().toISOString()
+      })
       .eq('id', invitation.id);
 
     if (updateError) throw updateError;
 
-    // 3. Add user to team
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ team_id: invitation.team_id })
-      .eq('id', userId);
+    const { error: memberError } = await supabase
+      .from('team_members')
+      .insert({
+        team_id: invitation.team_id,
+        user_id: userId,
+        role: invitation.role || 'member',
+        status: 'active',
+        invited_by: invitation.invited_by,
+        joined_at: new Date().toISOString()
+      });
 
-    if (profileError) {
-      throw profileError;
+    if (memberError && memberError.code !== '23505') {
+      throw memberError;
     }
+
+    await this.updateProfile(userId, { current_team_id: invitation.team_id });
 
     return { success: true, teamId: invitation.team_id };
   },
 
   async deleteUserAccount(userId) {
-    // 1. Delete integrations
     await supabase.from('integrations').delete().eq('user_id', userId);
-
-    // 2. Delete user settings
     await supabase.from('user_settings').delete().eq('user_id', userId);
-
-    // 3. Delete profile
     await supabase.from('profiles').delete().eq('id', userId);
 
-    // 4. Delete user from Supabase Auth
-    // This requires the service role key which should be configured in process.env.SUPABASE_SERVICE_ROLE_KEY
     const { error } = await supabase.auth.admin.deleteUser(userId);
     if (error) throw error;
 

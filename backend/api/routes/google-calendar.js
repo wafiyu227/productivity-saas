@@ -18,8 +18,8 @@ async function getValidAccessToken(integration, userId) {
 }
 
 // Helper to handle token refresh on error
-async function handleServiceCall(userId, serviceCall) {
-    const integration = await db.getIntegration(userId, 'google_calendar');
+async function handleServiceCall(userId, teamId, serviceCall) {
+    const integration = await db.getIntegration(userId, 'google_calendar', teamId);
 
     if (!integration) {
         const error = new Error('Google Calendar not connected');
@@ -67,13 +67,13 @@ async function handleServiceCall(userId, serviceCall) {
 // Get upcoming events
 router.get('/events', async (req, res) => {
     try {
-        const { userId, days } = req.query;
+        const { userId, teamId, days } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const events = await handleServiceCall(userId, (accessToken) =>
+        const events = await handleServiceCall(userId, teamId, (accessToken) =>
             googleCalendarService.getUpcomingEvents(accessToken, days ? parseInt(days) : 7)
         );
 
@@ -90,14 +90,14 @@ router.get('/events', async (req, res) => {
 // Get single event details
 router.get('/events/:eventId', async (req, res) => {
     try {
-        const { userId } = req.query;
+        const { userId, teamId } = req.query;
         const { eventId } = req.params;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const event = await handleServiceCall(userId, (accessToken) =>
+        const event = await handleServiceCall(userId, teamId, (accessToken) =>
             googleCalendarService.getEventDetails(accessToken, eventId)
         );
 
@@ -114,13 +114,13 @@ router.get('/events/:eventId', async (req, res) => {
 // Get schedule analytics
 router.get('/analytics', async (req, res) => {
     try {
-        const { userId, days } = req.query;
+        const { userId, teamId, days } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const analytics = await handleServiceCall(userId, (accessToken) =>
+        const analytics = await handleServiceCall(userId, teamId, (accessToken) =>
             googleCalendarService.getScheduleAnalytics(accessToken, days ? parseInt(days) : 30)
         );
 
@@ -137,13 +137,13 @@ router.get('/analytics', async (req, res) => {
 // Get action items from meetings
 router.get('/action-items', async (req, res) => {
     try {
-        const { userId, days } = req.query;
+        const { userId, teamId, days } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const data = await handleServiceCall(userId, (accessToken) =>
+        const data = await handleServiceCall(userId, teamId, (accessToken) =>
             googleCalendarService.getMeetingsWithActionItems(accessToken, days ? parseInt(days) : 7)
         );
 

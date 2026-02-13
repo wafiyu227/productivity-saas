@@ -69,14 +69,14 @@ router.post('/resolve', express.json(), async (req, res) => {
 // Get blockers for a user
 router.get('/', async (req, res) => {
     try {
-        const { userId } = req.query;
+        const { userId, teamId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
         // Get user's integration
-        const integration = await db.getIntegration(userId, 'slack');
+        const integration = await db.getIntegration(userId, 'slack', teamId);
 
         if (!integration) {
             return res.json([]);

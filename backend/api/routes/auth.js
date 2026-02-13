@@ -16,15 +16,20 @@ const ASANA_CLIENT_ID = process.env.ASANA_CLIENT_ID;
 const ASANA_CLIENT_SECRET = process.env.ASANA_CLIENT_SECRET;
 const ASANA_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/asana/oauth/callback';
 
+// Google Calendar OAuth routes
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/google/oauth/callback';
+
 // Initiate OAuth flow
 router.get('/slack/connect', (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId, scope = 'team' } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
-    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
 
     const scopes = [
         'channels:history',
@@ -40,16 +45,74 @@ router.get('/slack/connect', (req, res) => {
     res.redirect(authUrl);
 });
 
-// Check integration status
+// Slack OAuth callback
+router.get('/slack/oauth/callback', async (req, res) => {
+    const { code, state, error } = req.query;
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
+
+    if (error) {
+        logger.error('Slack OAuth error:', error);
+        return res.redirect(`${FRONTEND_URL}/app/integrations?error=slack_auth_failed`);
+    }
+
+    if (!code || !state) {
+        return res.redirect(`${FRONTEND_URL}/app/integrations?error=missing_params`);
+    }
+
+    try {
+        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+
+        // Exchange code for access token
+        const tokenResponse = await fetch('https://slack.com/api/oauth.v2.access', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: new URLSearchParams({
+                code,
+                client_id: SLACK_CLIENT_ID,
+                client_secret: SLACK_CLIENT_SECRET,
+                redirect_uri: REDIRECT_URI
+            })
+        });
+
+        const tokenData = await tokenResponse.json();
+
+        if (!tokenData.ok) {
+            logger.error('Slack token exchange failed:', tokenData);
+            throw new Error(tokenData.error || 'Failed to exchange code for token');
+        }
+
+        // Save integration
+        await db.saveIntegration(userId, 'slack', {
+            accessToken: tokenData.access_token,
+            teamIdExternal: tokenData.team?.id,
+            teamName: tokenData.team?.name,
+            teamId, // Our internal teamId
+            botUserId: tokenData.bot_user_id,
+            scope: tokenData.scope
+        }, requestedScope || 'team');
+
+        logger.info('Slack integration saved', { userId, teamId });
+
+        // Redirect back
+        res.redirect(`${FRONTEND_URL}/app/integrations?success=slack_connected`);
+
+    } catch (error) {
+        logger.error('Slack OAuth callback error:', error);
+        res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed`);
+    }
+});
+
 router.get('/slack/status', async (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        const integration = await db.getIntegration(userId, 'slack');
+        const integration = await db.getIntegration(userId, 'slack', teamId);
 
         res.json({
             connected: !!integration,
@@ -61,16 +124,38 @@ router.get('/slack/status', async (req, res) => {
     }
 });
 
+router.get('/status', async (req, res) => {
+    const { userId, platform, teamId } = req.query;
+
+    if (!userId || !platform) {
+        return res.status(400).json({ error: 'userId and platform required' });
+    }
+
+    try {
+        const dbPlatform = platform === 'google' || platform === 'google/calendar' ? 'google_calendar' : platform;
+        const integration = await db.getIntegration(userId, dbPlatform, teamId);
+
+        res.json({
+            connected: !!integration,
+            platform: platform,
+            workspace: integration?.workspace_name || integration?.team_name || null
+        });
+    } catch (error) {
+        logger.error(`Status check error for ${platform}:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Disconnect Slack
 router.delete('/slack/disconnect', async (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await db.deleteIntegration(userId, 'slack');
+        await db.deleteIntegration(userId, 'slack', teamId);
         res.json({ success: true });
     } catch (error) {
         logger.error('Disconnect error:', error);
@@ -146,13 +231,13 @@ router.post('/settings', async (req, res) => {
 
 // Initiate Asana OAuth
 router.get('/asana/connect', (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId, scope = 'team' } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
-    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
 
     const authUrl = `https://app.asana.com/-/oauth_authorize?client_id=${ASANA_CLIENT_ID}&redirect_uri=${encodeURIComponent(ASANA_REDIRECT_URI)}&response_type=code&state=${state}`;
 
@@ -174,7 +259,7 @@ router.get('/asana/oauth/callback', async (req, res) => {
     }
 
     try {
-        const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://app.asana.com/-/oauth_token', {
@@ -212,10 +297,11 @@ router.get('/asana/oauth/callback', async (req, res) => {
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token,
             workspaceId: workspace?.gid,
-            workspaceName: workspace?.name
-        });
+            workspaceName: workspace?.name,
+            teamId // Our internal teamId
+        }, requestedScope || 'team');
 
-        logger.info('Asana integration saved', { userId, workspaceId: workspace?.gid });
+        logger.info('Asana integration saved', { userId, teamId });
 
         res.redirect(`${FRONTEND_URL}/app/integrations?success=asana_connected`);
 
@@ -227,14 +313,14 @@ router.get('/asana/oauth/callback', async (req, res) => {
 
 // Check Asana status
 router.get('/asana/status', async (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        const integration = await db.getIntegration(userId, 'asana');
+        const integration = await db.getIntegration(userId, 'asana', teamId);
 
         res.json({
             connected: !!integration,
@@ -248,14 +334,14 @@ router.get('/asana/status', async (req, res) => {
 
 // Disconnect Asana
 router.delete('/asana/disconnect', async (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await db.deleteIntegration(userId, 'asana');
+        await db.deleteIntegration(userId, 'asana', teamId);
         res.json({ success: true });
     } catch (error) {
         logger.error('Asana disconnect error:', error);
@@ -263,25 +349,26 @@ router.delete('/asana/disconnect', async (req, res) => {
     }
 });
 
-// Google Calendar OAuth routes
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/google/oauth/callback';
+// ============================================
+// GOOGLE CALENDAR OAUTH ROUTES
+// ============================================
 
-// Initiate Google OAuth
+// ✅ ADDED: Initiate Google OAuth (THIS WAS MISSING!)
 router.get('/google/connect', (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId, scope = 'team' } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
-    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
 
-    // Scopes for Google Calendar
+    // Scopes for Google Calendar and User Info
     const scopes = [
         'https://www.googleapis.com/auth/calendar.readonly',
-        'https://www.googleapis.com/auth/calendar.events.readonly'
+        'https://www.googleapis.com/auth/calendar.events.readonly',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile'
     ].join(' ');
 
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOGLE_REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent&state=${state}`;
@@ -304,7 +391,7 @@ router.get('/google/oauth/callback', async (req, res) => {
     }
 
     try {
-        const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -329,16 +416,24 @@ router.get('/google/oauth/callback', async (req, res) => {
 
         const tokenData = await tokenResponse.json();
 
+        // Get user info to use as workspace name
+        const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: {
+                'Authorization': `Bearer ${tokenData.access_token}`
+            }
+        });
+        const userData = await userResponse.json();
+
         // Save integration
         await db.saveIntegration(userId, 'google_calendar', {
             accessToken: tokenData.access_token,
-            refreshToken: tokenData.refresh_token, // Only returned on first consent or if prompt=consent
-            expiresIn: tokenData.expires_in,
-            scope: tokenData.scope,
-            tokenType: tokenData.token_type
-        });
+            refreshToken: tokenData.refresh_token,
+            expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
+            workspaceName: userData.email, // Store email as workspace name
+            teamId // Our internal teamId
+        }, requestedScope || 'team');
 
-        logger.info('Google Calendar integration saved', { userId });
+        logger.info('Google Calendar integration saved', { userId, teamId });
 
         res.redirect(`${FRONTEND_URL}/app/integrations?success=google_connected`);
 
@@ -349,19 +444,20 @@ router.get('/google/oauth/callback', async (req, res) => {
     }
 });
 
-// Check Google status
+// Check Google status (REMOVED DUPLICATE - kept only one)
 router.get('/google/status', async (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        const integration = await db.getIntegration(userId, 'google_calendar');
+        const integration = await db.getIntegration(userId, 'google_calendar', teamId);
 
         res.json({
-            connected: !!integration
+            connected: !!integration,
+            workspace: integration?.workspace_name || null
         });
     } catch (error) {
         logger.error('Google status check error:', error);
@@ -371,14 +467,14 @@ router.get('/google/status', async (req, res) => {
 
 // Disconnect Google
 router.delete('/google/disconnect', async (req, res) => {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await db.deleteIntegration(userId, 'google_calendar');
+        await db.deleteIntegration(userId, 'google_calendar', teamId);
         res.json({ success: true });
     } catch (error) {
         logger.error('Google disconnect error:', error);

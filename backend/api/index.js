@@ -12,6 +12,8 @@ import blockersRoutes from './routes/blockers.js';
 import asanaRoutes from './routes/asana.js';
 import googleCalendarRouter from './routes/google-calendar.js';
 import userRoutes from './routes/user.js';
+import teamsRoutes from './routes/teams.js';
+import invitationsRoutes from './routes/invitations.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
 
@@ -72,7 +74,9 @@ app.get('/', (req, res) => {
       asana: '/api/asana',
       summaries: '/api/summaries',
       googleCalendar: '/api/google-calendar',
-      user: '/api/user'
+      user: '/api/user',
+      teams: '/api/teams',
+      invitations: '/api/invitations'
     }
   });
 });
@@ -84,23 +88,27 @@ app.use('/api/blockers', blockersRoutes);
 app.use('/api/asana', asanaRoutes);
 app.use('/api/google-calendar', googleCalendarRouter);
 app.use('/api/user', userRoutes);
+app.use('/api/teams', teamsRoutes);
+app.use('/api/invitations', invitationsRoutes);
 
 // Summaries endpoint
 app.get('/api/summaries', async (req, res) => {
   try {
-    const { userId } = req.query;
+    const { userId, teamId } = req.query;
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
     }
 
-    const integration = await db.getIntegration(userId, 'slack');
+    // Try to get integration for the specific team if teamId is provided
+    const integration = await db.getIntegration(userId, 'slack', teamId);
 
     if (!integration) {
+      // If no integration found for this team/user, return empty
       return res.json([]);
     }
 
-    const summaries = await db.getSummaries(integration.team_id);
+    const summaries = await db.getSummaries(integration?.team_id, userId);
 
     res.json(summaries || []);
   } catch (error) {
