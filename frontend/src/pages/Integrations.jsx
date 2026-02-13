@@ -6,7 +6,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Integrations() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const navigate = useNavigate();
     const [slackStatus, setSlackStatus] = useState({ connected: false, loading: true });
     const [asanaStatus, setAsanaStatus] = useState({ connected: false, loading: true });
@@ -17,11 +17,11 @@ export default function Integrations() {
 
     useEffect(() => {
         if (user) {
-            checkSlackStatus();
-            checkAsanaStatus();
-            checkGoogleStatus();
+            checkStatus('slack');
+            checkStatus('asana');
+            checkStatus('google');
         }
-    }, [user]);
+    }, [user, profile?.current_team_id]);
 
     useEffect(() => {
         if (oauthProcessed) return;
@@ -62,105 +62,53 @@ export default function Integrations() {
                     action: 'dashboard'
                 });
                 if (user) {
-                    checkSlackStatus();
-                    checkAsanaStatus();
-                    checkGoogleStatus();
+                    checkStatus('slack');
+                    checkStatus('asana');
+                    checkStatus('google');
                 }
             }
             setSearchParams({});
         }
     }, []);
 
-    const checkSlackStatus = async () => {
+    const checkStatus = async (platform) => {
         if (!user) return;
         try {
-            const res = await fetch(`${API_URL}/api/auth/slack/status?userId=${user.id}`);
+            const teamId = profile?.current_team_id;
+            const res = await fetch(`${API_URL}/api/auth/status?userId=${user.id}&platform=${platform}&teamId=${teamId}`);
             const data = await res.json();
-            setSlackStatus({ ...data, loading: false });
+
+            if (platform === 'slack') setSlackStatus({ ...data, loading: false });
+            if (platform === 'asana') setAsanaStatus({ ...data, loading: false });
+            if (platform === 'google') setGoogleStatus({ ...data, loading: false });
         } catch (error) {
-            console.error('Failed to check Slack status:', error);
-            setSlackStatus({ connected: false, loading: false });
+            console.error(`Failed to check ${platform} status:`, error);
+            const fallback = { connected: false, loading: false };
+            if (platform === 'slack') setSlackStatus(fallback);
+            if (platform === 'asana') setAsanaStatus(fallback);
+            if (platform === 'google') setGoogleStatus(fallback);
         }
     };
 
-    const checkAsanaStatus = async () => {
+
+    const handleConnect = (platform, scope = 'team') => {
         if (!user) return;
+        const teamId = profile?.current_team_id;
+        window.location.href = `${API_URL}/api/auth/${platform}/connect?userId=${user.id}&teamId=${teamId}&scope=${scope}`;
+    };
+
+    const handleDisconnect = async (platform) => {
+        if (!user || !confirm(`Disconnect ${platform}?`)) return;
         try {
-            const res = await fetch(`${API_URL}/api/auth/asana/status?userId=${user.id}`);
-            const data = await res.json();
-            setAsanaStatus({ ...data, loading: false });
-        } catch (error) {
-            console.error('Failed to check Asana status:', error);
-            setAsanaStatus({ connected: false, loading: false });
-        }
-    };
-
-    const checkGoogleStatus = async () => {
-        if (!user) return;
-        try {
-            const res = await fetch(`${API_URL}/api/auth/google/status?userId=${user.id}`);
-            const data = await res.json();
-            setGoogleStatus({ ...data, loading: false });
-        } catch (error) {
-            console.error('Failed to check Google status:', error);
-            setGoogleStatus({ connected: false, loading: false });
-        }
-    };
-
-    const connectSlack = () => {
-        if (!user) return;
-        window.location.href = `${API_URL}/api/auth/slack/connect?userId=${user.id}`;
-    };
-
-    const connectAsana = () => {
-        if (!user) return;
-        window.location.href = `${API_URL}/api/auth/asana/connect?userId=${user.id}`;
-    };
-
-    const connectGoogle = () => {
-        if (!user) return;
-        window.location.href = `${API_URL}/api/auth/google/connect?userId=${user.id}`;
-    };
-
-    const disconnectSlack = async () => {
-        if (!user || !confirm('Disconnect Slack workspace?')) return;
-        try {
-            const res = await fetch(`${API_URL}/api/auth/slack/disconnect?userId=${user.id}`, {
+            const teamId = profile?.current_team_id;
+            const res = await fetch(`${API_URL}/api/auth/${platform}/disconnect?userId=${user.id}&teamId=${teamId}`, {
                 method: 'DELETE'
             });
             if (res.ok) {
-                setSlackStatus({ connected: false, loading: false, team: null });
+                checkStatus(platform);
             }
         } catch (error) {
-            console.error('Failed to disconnect:', error);
-        }
-    };
-
-    const disconnectAsana = async () => {
-        if (!user || !confirm('Disconnect Asana workspace?')) return;
-        try {
-            const res = await fetch(`${API_URL}/api/auth/asana/disconnect?userId=${user.id}`, {
-                method: 'DELETE'
-            });
-            if (res.ok) {
-                setAsanaStatus({ connected: false, loading: false, workspace: null });
-            }
-        } catch (error) {
-            console.error('Failed to disconnect:', error);
-        }
-    };
-
-    const disconnectGoogle = async () => {
-        if (!user || !confirm('Disconnect Google Calendar?')) return;
-        try {
-            const res = await fetch(`${API_URL}/api/auth/google/disconnect?userId=${user.id}`, {
-                method: 'DELETE'
-            });
-            if (res.ok) {
-                setGoogleStatus({ connected: false, loading: false });
-            }
-        } catch (error) {
-            console.error('Failed to disconnect:', error);
+            console.error(`Failed to disconnect ${platform}:`, error);
         }
     };
 
@@ -205,8 +153,8 @@ export default function Integrations() {
                             description="Connect your Slack workspace to generate AI summaries and detect blockers"
                             icon="https://upload.wikimedia.org/wikipedia/commons/d/d5/Slack_icon_2019.svg"
                             status={slackStatus}
-                            onConnect={connectSlack}
-                            onDisconnect={disconnectSlack}
+                            onConnect={() => handleConnect('slack')}
+                            onDisconnect={() => handleDisconnect('slack')}
                             features={[
                                 'AI-powered channel summaries',
                                 'Automatic blocker detection',
@@ -220,8 +168,8 @@ export default function Integrations() {
                             description="Track tasks and project progress with AI insights"
                             icon="https://upload.wikimedia.org/wikipedia/commons/3/3b/Asana_logo.svg"
                             status={asanaStatus}
-                            onConnect={connectAsana}
-                            onDisconnect={disconnectAsana}
+                            onConnect={() => handleConnect('asana')}
+                            onDisconnect={() => handleDisconnect('asana')}
                             features={[
                                 'Project health monitoring',
                                 'Task tracking & analysis',
@@ -248,8 +196,8 @@ export default function Integrations() {
                             description="Automatically summarize meetings and extract action items"
                             icon="https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg"
                             status={googleStatus}
-                            onConnect={connectGoogle}
-                            onDisconnect={disconnectGoogle}
+                            onConnect={() => handleConnect('google')}
+                            onDisconnect={() => handleDisconnect('google')}
                             features={[
                                 'Meeting summaries',
                                 'Action item extraction',

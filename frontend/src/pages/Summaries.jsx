@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 export default function Summaries() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const navigate = useNavigate();
     const [summaries, setSummaries] = useState([]);
     const [filteredSummaries, setFilteredSummaries] = useState([]);
@@ -17,8 +17,10 @@ export default function Summaries() {
     const [selectedChannel, setSelectedChannel] = useState('');
 
     useEffect(() => {
-        loadSummaries();
-    }, [user]);
+        if (user && profile) {
+            loadSummaries();
+        }
+    }, [user, profile?.current_team_id]);
 
     useEffect(() => {
         filterSummaries();
@@ -29,7 +31,7 @@ export default function Summaries() {
 
         try {
             setLoading(true);
-            const data = await api.getSummaries();
+            const data = await api.getSummaries(profile?.current_team_id);
             setSummaries(data || []);
         } catch (error) {
             console.error('Failed to load summaries:', error);

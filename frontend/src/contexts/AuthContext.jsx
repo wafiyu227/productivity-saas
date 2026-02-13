@@ -39,26 +39,18 @@ export function AuthProvider({ children }) {
 
     const fetchProfile = async (userId) => {
         try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user/profile?userId=${userId}`);
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user/me?userId=${userId}`);
             if (res.ok) {
                 const data = await res.json();
-                // Ensure we always set a non-null object so the UI
-                // can decide between onboarding vs dashboard states.
                 setProfile(data || {});
             } else if (res.status === 404) {
-                // No profile yet – treat as empty profile and let
-                // the app redirect the user into onboarding.
                 setProfile({});
             } else {
                 console.error('Error response fetching profile:', res.status);
-                // Fallback to an empty profile to avoid infinite loaders
-                // and allow onboarding flow to take over.
                 setProfile({});
             }
         } catch (error) {
             console.error('Error fetching profile:', error);
-            // Avoid leaving profile as null which would cause the
-            // app shell to show a perpetual "Loading workspace" state.
             setProfile({});
         } finally {
             setLoading(false);

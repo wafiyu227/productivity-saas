@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 
 export default function Meetings() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [meetings, setMeetings] = useState([]);
     const [calendarEvents, setCalendarEvents] = useState([]);
     const [analytics, setAnalytics] = useState(null);
@@ -14,10 +14,10 @@ export default function Meetings() {
     const [calendarConnected, setCalendarConnected] = useState(false);
 
     useEffect(() => {
-        if (user) {
+        if (user && profile) {
             fetchAllData();
         }
-    }, [user]);
+    }, [user, profile?.current_team_id]);
 
     const fetchAllData = async () => {
         setLoading(true);
@@ -36,7 +36,7 @@ export default function Meetings() {
 
     const fetchSlackSummaries = async () => {
         try {
-            const summaries = await api.getSummaries();
+            const summaries = await api.getSummaries(profile?.current_team_id);
             if (summaries && !summaries.error) {
                 const transformedMeetings = summaries.map(s => ({
                     id: s.id,
@@ -68,7 +68,7 @@ export default function Meetings() {
         try {
             // Check status first to avoid unnecessary calls
             // For now we'll just try to fetch events, if 401/error we know it's not connected
-            const eventsData = await api.getGoogleCalendarEvents();
+            const eventsData = await api.getGoogleCalendarEvents(profile?.current_team_id);
 
             if (eventsData.error) {
                 setCalendarConnected(false);
@@ -79,13 +79,13 @@ export default function Meetings() {
             setCalendarEvents(eventsData.events || []);
 
             // Fetch analytics
-            const analyticsData = await api.getGoogleCalendarAnalytics();
+            const analyticsData = await api.getGoogleCalendarAnalytics(profile?.current_team_id);
             if (!analyticsData.error) {
                 setAnalytics(analyticsData);
             }
 
             // Fetch action items
-            const actionItemsData = await api.getGoogleCalendarActionItems();
+            const actionItemsData = await api.getGoogleCalendarActionItems(profile?.current_team_id);
             if (!actionItemsData.error) {
                 setActionItems(actionItemsData.actionItems || []);
             }

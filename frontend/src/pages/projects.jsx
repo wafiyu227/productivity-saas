@@ -19,8 +19,10 @@ import {
     ChevronUp
 } from 'lucide-react';
 import { api } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 
 const Projects = () => {
+    const { user, profile } = useAuth();
     const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState(null);
     const [projectHealth, setProjectHealth] = useState(null);
@@ -35,8 +37,10 @@ const Projects = () => {
     const [taskFilter, setTaskFilter] = useState('all');
 
     useEffect(() => {
-        fetchAllData();
-    }, []);
+        if (user && profile) {
+            fetchAllData();
+        }
+    }, [user, profile?.current_team_id]);
 
     const fetchAllData = async () => {
         setLoading(true);
@@ -62,7 +66,7 @@ const Projects = () => {
 
     const fetchProjects = async () => {
         try {
-            const data = await api.getAsanaProjects();
+            const data = await api.getAsanaProjects(profile?.current_team_id);
             if (data.error) throw new Error(data.error);
             setProjects(data.projects || []);
         } catch (err) {
@@ -73,7 +77,7 @@ const Projects = () => {
 
     const fetchWorkload = async () => {
         try {
-            const data = await api.getAsanaWorkload();
+            const data = await api.getAsanaWorkload(profile?.current_team_id);
             if (data.error) {
                 console.error('Error fetching workload:', data.error);
                 setWorkload([]);
@@ -89,7 +93,7 @@ const Projects = () => {
 
     const fetchDeadlines = async () => {
         try {
-            const data = await api.getAsanaDeadlines();
+            const data = await api.getAsanaDeadlines(profile?.current_team_id);
             if (data.error) {
                 console.error('Error fetching deadlines:', data.error);
                 setDeadlines(null);
@@ -104,7 +108,7 @@ const Projects = () => {
 
     const fetchProjectHealth = async (projectId) => {
         try {
-            const data = await api.getAsanaProjectHealth(projectId);
+            const data = await api.getAsanaProjectHealth(projectId, profile?.current_team_id);
             setProjectHealth(data);
             setSelectedProject(projects.find(p => p.gid === projectId));
         } catch (err) {

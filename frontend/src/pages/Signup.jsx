@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Signup() {
+    const [searchParams] = useSearchParams();
+    const redirect = searchParams.get('redirect');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -19,7 +21,7 @@ export default function Signup() {
             const { error } = await signUp(email, password);
             if (error) throw error;
             alert('Check your email to confirm your account!');
-            navigate('/login');
+            navigate('/login' + (redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''));
         } catch (err) {
             setError(err.message);
         } finally {

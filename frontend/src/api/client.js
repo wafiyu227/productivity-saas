@@ -33,10 +33,10 @@ const getUserId = () => {
 
 export const api = {
     // ==================== SLACK API ====================
-    async getChannels() {
+    async getChannels(teamId = null) {
         const userId = getUserId();
 
-        console.log('getChannels - userId:', userId);
+        console.log('getChannels - userId:', userId, 'teamId:', teamId);
 
         if (!userId) {
             const error = 'Not authenticated - no user ID';
@@ -44,7 +44,8 @@ export const api = {
             return { channels: [], error };
         }
 
-        const url = `${API_BASE_URL}/api/slack/channels?userId=${userId}`;
+        let url = `${API_BASE_URL}/api/slack/channels?userId=${userId}`;
+        if (teamId) url += `&teamId=${teamId}`;
         console.log('Fetching channels from:', url);
 
         try {
@@ -65,20 +66,20 @@ export const api = {
         }
     },
 
-    async createSummary(channelId, hours = 24) {
+    async createSummary(channelId, hours = 24, teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
             throw new Error('Not authenticated - cannot create summary');
         }
 
-        console.log('Creating summary for channel:', channelId, 'userId:', userId);
+        console.log('Creating summary for channel:', channelId, 'userId:', userId, 'teamId:', teamId);
 
         try {
             const res = await fetch(`${API_BASE_URL}/api/slack/summarize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ channelId, hours, userId })
+                body: JSON.stringify({ channelId, hours, userId, teamId })
             });
 
             console.log('Summary response status:', res.status);
@@ -98,17 +99,21 @@ export const api = {
         }
     },
 
-    async getSummaries() {
+    async getSummaries(teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
             throw new Error('Not authenticated - cannot fetch summaries');
         }
 
-        console.log('Fetching summaries for user:', userId);
+        console.log('Fetching summaries for user:', userId, 'team:', teamId);
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/summaries?userId=${userId}`);
+            const url = new URL(`${API_BASE_URL}/api/summaries`);
+            url.searchParams.append('userId', userId);
+            if (teamId) url.searchParams.append('teamId', teamId);
+
+            const res = await fetch(url.toString());
 
             if (!res.ok) {
                 const data = await res.json();
@@ -126,7 +131,7 @@ export const api = {
     },
 
     // ==================== ASANA API ====================
-    async getAsanaProjects() {
+    async getAsanaProjects(teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
@@ -135,11 +140,14 @@ export const api = {
             return { projects: [], error };
         }
 
-        const url = `${API_BASE_URL}/api/asana/projects?userId=${userId}`;
-        console.log('Fetching Asana projects from:', url);
+        const url = new URL(`${API_BASE_URL}/api/asana/projects`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        console.log('Fetching Asana projects from:', url.toString());
 
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             console.log('Asana projects response status:', res.status);
 
             if (!res.ok) {
@@ -157,7 +165,7 @@ export const api = {
         }
     },
 
-    async getAsanaProjectHealth(projectId) {
+    async getAsanaProjectHealth(projectId, teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
@@ -168,11 +176,14 @@ export const api = {
             throw new Error('Project ID is required');
         }
 
-        const url = `${API_BASE_URL}/api/asana/projects/${projectId}/health?userId=${userId}`;
-        console.log('Fetching project health from:', url);
+        const url = new URL(`${API_BASE_URL}/api/asana/projects/${projectId}/health`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        console.log('Fetching project health from:', url.toString());
 
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             console.log('Project health response status:', res.status);
 
             if (!res.ok) {
@@ -190,7 +201,7 @@ export const api = {
         }
     },
 
-    async getAsanaWorkload() {
+    async getAsanaWorkload(teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
@@ -199,11 +210,14 @@ export const api = {
             return { workload: [], error };
         }
 
-        const url = `${API_BASE_URL}/api/asana/workload?userId=${userId}`;
-        console.log('Fetching Asana workload from:', url);
+        const url = new URL(`${API_BASE_URL}/api/asana/workload`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        console.log('Fetching Asana workload from:', url.toString());
 
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             console.log('Asana workload response status:', res.status);
 
             if (!res.ok) {
@@ -221,7 +235,7 @@ export const api = {
         }
     },
 
-    async getAsanaWorkspaces() {
+    async getAsanaWorkspaces(teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
@@ -230,11 +244,13 @@ export const api = {
             return { workspaces: [], error };
         }
 
-        const url = `${API_BASE_URL}/api/asana/workspaces?userId=${userId}`;
-        console.log('Fetching Asana workspaces from:', url);
+        const url = new URL(`${API_BASE_URL}/api/asana/workspaces`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+        console.log('Fetching Asana workspaces from:', url.toString());
 
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             console.log('Asana workspaces response status:', res.status);
 
             if (!res.ok) {
@@ -252,7 +268,7 @@ export const api = {
         }
     },
 
-    async getAsanaDeadlines() {
+    async getAsanaDeadlines(teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
@@ -261,11 +277,13 @@ export const api = {
             return { error };
         }
 
-        const url = `${API_BASE_URL}/api/asana/deadlines?userId=${userId}`;
-        console.log('Fetching Asana deadlines from:', url);
+        const url = new URL(`${API_BASE_URL}/api/asana/deadlines`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+        console.log('Fetching Asana deadlines from:', url.toString());
 
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             console.log('Asana deadlines response status:', res.status);
 
             if (!res.ok) {
@@ -283,7 +301,7 @@ export const api = {
         }
     },
 
-    async getAsanaTasks(filters = {}) {
+    async getAsanaTasks(filters = {}, teamId = null) {
         const userId = getUserId();
 
         if (!userId) {
@@ -293,6 +311,7 @@ export const api = {
         }
 
         const params = new URLSearchParams({ userId });
+        if (teamId) params.append('teamId', teamId);
         if (filters.status) params.append('status', filters.status);
         if (filters.projectId) params.append('projectId', filters.projectId);
 
@@ -318,13 +337,17 @@ export const api = {
         }
     },
 
-    async getGoogleCalendarEvents(days = 7) {
+    async getGoogleCalendarEvents(teamId = null, days = 7) {
         const userId = getUserId();
         if (!userId) return { error: 'Not authenticated' };
 
-        const url = `${API_BASE_URL}/api/google-calendar/events?userId=${userId}&days=${days}`;
+        const url = new URL(`${API_BASE_URL}/api/google-calendar/events`);
+        url.searchParams.append('userId', userId);
+        url.searchParams.append('days', days);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             if (!res.ok) {
                 const data = await res.json();
                 return { error: data.error, needsReauth: data.needsReauth };
@@ -335,13 +358,17 @@ export const api = {
         }
     },
 
-    async getGoogleCalendarAnalytics(days = 30) {
+    async getGoogleCalendarAnalytics(teamId = null, days = 30) {
         const userId = getUserId();
         if (!userId) return { error: 'Not authenticated' };
 
-        const url = `${API_BASE_URL}/api/google-calendar/analytics?userId=${userId}&days=${days}`;
+        const url = new URL(`${API_BASE_URL}/api/google-calendar/analytics`);
+        url.searchParams.append('userId', userId);
+        url.searchParams.append('days', days);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             if (!res.ok) {
                 const data = await res.json();
                 return { error: data.error, needsReauth: data.needsReauth };
@@ -352,13 +379,17 @@ export const api = {
         }
     },
 
-    async getGoogleCalendarActionItems(days = 7) {
+    async getGoogleCalendarActionItems(teamId = null, days = 7) {
         const userId = getUserId();
         if (!userId) return { error: 'Not authenticated' };
 
-        const url = `${API_BASE_URL}/api/google-calendar/action-items?userId=${userId}&days=${days}`;
+        const url = new URL(`${API_BASE_URL}/api/google-calendar/action-items`);
+        url.searchParams.append('userId', userId);
+        url.searchParams.append('days', days);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
         try {
-            const res = await fetch(url);
+            const res = await fetch(url.toString());
             if (!res.ok) {
                 const data = await res.json();
                 return { error: data.error, needsReauth: data.needsReauth };

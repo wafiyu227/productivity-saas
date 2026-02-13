@@ -15,6 +15,10 @@ import Integrations from './pages/Integrations';
 import Analytics from './pages/Analytics';
 import Projects from './pages/Projects';
 import Team from './pages/Team';
+import OnboardingWelcome from './pages/onboarding/OnboardingWelcome';
+import OnboardingInvite from './pages/onboarding/OnboardingInvite';
+import OnboardingComplete from './pages/onboarding/OnboardingComplete';
+import OnboardingMemberWelcome from './pages/onboarding/OnboardingMemberWelcome';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -34,7 +38,12 @@ function App() {
             <ProtectedRoute>
               <Onboarding />
             </ProtectedRoute>
-          } />
+          }>
+            <Route path="welcome" element={<OnboardingWelcome />} />
+            <Route path="invite-team" element={<OnboardingInvite />} />
+            <Route path="complete" element={<OnboardingComplete />} />
+            <Route path="member-welcome" element={<OnboardingMemberWelcome />} />
+          </Route>
 
           <Route path="/app" element={
             <ProtectedRoute>

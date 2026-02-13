@@ -10,7 +10,7 @@ import {
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Dashboard() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const navigate = useNavigate();
     const [channels, setChannels] = useState([]);
     const [summaries, setSummaries] = useState([]);
@@ -37,20 +37,20 @@ export default function Dashboard() {
     }, []);
 
     useEffect(() => {
-        if (user) {
+        if (user && profile) {
             loadChannels();
             loadSummaries();
             loadActivities();
             loadBlockerStats();
             loadAsanaStats();
         }
-    }, [user]);
+    }, [user, profile?.current_team_id]);
 
     const loadChannels = async () => {
         if (!user) return;
 
         try {
-            const data = await api.getChannels();
+            const data = await api.getChannels(profile?.current_team_id);
             setChannels(data.channels || []);
         } catch (error) {
             console.error('Failed to load channels:', error);
@@ -62,7 +62,7 @@ export default function Dashboard() {
         if (!user) return;
 
         try {
-            const data = await api.getSummaries();
+            const data = await api.getSummaries(profile?.current_team_id);
             setSummaries(data || []);
         } catch (error) {
             console.error('Failed to load summaries:', error);
@@ -73,7 +73,13 @@ export default function Dashboard() {
         if (!user) return;
 
         try {
-            const res = await fetch(`${API_URL}/api/blockers?userId=${user.id}`);
+            const url = new URL(`${API_URL}/api/blockers`);
+            url.searchParams.append('userId', user.id);
+            if (profile?.current_team_id) {
+                url.searchParams.append('teamId', profile.current_team_id);
+            }
+
+            const res = await fetch(url.toString());
             const summariesWithBlockers = await res.json();
 
             let activeCount = 0;
@@ -108,9 +114,10 @@ export default function Dashboard() {
         if (!user) return;
 
         try {
+            const teamId = profile?.current_team_id;
             const [projectsData, deadlinesData] = await Promise.all([
-                api.getAsanaProjects().catch(() => ({ projects: [] })),
-                api.getAsanaDeadlines().catch(() => ({ totalAtRisk: 0 }))
+                api.getAsanaProjects(teamId).catch(() => ({ projects: [] })),
+                api.getAsanaDeadlines(teamId).catch(() => ({ totalAtRisk: 0 }))
             ]);
 
             setAsanaStats({
@@ -128,7 +135,7 @@ export default function Dashboard() {
         if (!user) return;
 
         try {
-            const data = await api.getSummaries();
+            const data = await api.getSummaries(profile?.current_team_id);
             const activityList = [];
 
             data?.forEach(summary => {
@@ -171,12 +178,18 @@ export default function Dashboard() {
 
         setLoading(true);
         try {
-            const result = await api.createSummary(selectedChannel, 24);
-            await loadSummaries();
-            await loadActivities();
-            await loadBlockerStats();
+            const result = await api.createSummary(selectedChannel, 24, profile?.current_team_id);
+
+            if (result.count === 0) {
+                alert('ℹ️ No new messages found in this channel over the last 24 hours to summarize.');
+            } else {
+                alert('✅ Summary generated successfully!');
+                await loadSummaries();
+                await loadActivities();
+                await loadBlockerStats();
+            }
+
             setSelectedChannel('');
-            alert('✅ Summary generated successfully!');
         } catch (error) {
             if (error.message.includes('not_in_channel')) {
                 alert('⚠️ The bot is not in this channel!\\n\\nTo fix:\\n1. Go to the channel in Slack\\n2. Type: /invite @Teama Assistant\\n3. Try again');

@@ -77,7 +77,7 @@ const JoinTeam = () => {
                             <ArrowRight className="w-4 h-4" />
                         </button>
                         <button
-                            onClick={() => navigate('/signup')}
+                            onClick={() => navigate('/signup?redirect=' + encodeURIComponent(`/join?token=${token}`))}
                             className="w-full bg-white text-slate-700 font-semibold py-3 px-6 rounded-xl border border-slate-200 hover:bg-slate-50 transition-all"
                         >
                             Create Account

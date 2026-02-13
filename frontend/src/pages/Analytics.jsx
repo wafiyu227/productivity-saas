@@ -8,23 +8,23 @@ import {
 } from 'lucide-react';
 
 export default function Analytics() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [summaries, setSummaries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState('7days');
     const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
-        if (user) {
+        if (user && profile) {
             loadAnalytics();
         }
-    }, [user, timeRange]);
+    }, [user, profile?.current_team_id, timeRange]);
 
     const loadAnalytics = async () => {
         if (!user) return;
         setLoading(true);
         try {
-            const data = await api.getSummaries();
+            const data = await api.getSummaries(profile?.current_team_id);
             setSummaries(data || []);
         } catch (error) {
             console.error('Failed to load analytics:', error);
@@ -80,8 +80,8 @@ export default function Analytics() {
                                 key={option.value}
                                 onClick={() => setTimeRange(option.value)}
                                 className={`px-4 py-2 rounded-lg font-medium transition-all ${timeRange === option.value
-                                        ? 'bg-blue-600 text-white shadow-lg'
-                                        : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-300'
+                                    ? 'bg-blue-600 text-white shadow-lg'
+                                    : 'bg-white text-gray-700 border border-gray-200 hover:border-blue-300'
                                     }`}
                             >
                                 {option.label}

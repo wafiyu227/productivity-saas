@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
+    const [searchParams] = useSearchParams();
+    const redirect = searchParams.get('redirect');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -18,7 +20,7 @@ export default function Login() {
         try {
             const { error } = await signIn(email, password);
             if (error) throw error;
-            navigate('/app');
+            navigate(redirect || '/app');
         } catch (err) {
             setError(err.message);
         } finally {

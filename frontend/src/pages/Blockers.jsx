@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function Blockers() {
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [blockers, setBlockers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
@@ -13,15 +13,21 @@ export default function Blockers() {
     const [resolving, setResolving] = useState(null);
 
     useEffect(() => {
-        if (user) {
+        if (user && profile) {
             fetchBlockers();
         }
-    }, [user]);
+    }, [user, profile?.current_team_id]);
 
     const fetchBlockers = async () => {
         try {
             setLoading(true);
-            const res = await fetch(`${API_URL}/api/summaries?userId=${user.id}`);
+            const url = new URL(`${API_URL}/api/summaries`);
+            url.searchParams.append('userId', user.id);
+            if (profile?.current_team_id) {
+                url.searchParams.append('teamId', profile.current_team_id);
+            }
+
+            const res = await fetch(url.toString());
             const summaries = await res.json();
 
             // Extract blockers from summaries
