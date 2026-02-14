@@ -1,4 +1,4 @@
-# 🚀 Productivity SaaS - AI-Powered Team Assistant
+# 🚀 Teama AI - AI-Powered Team Assistant
 
 A scalable SaaS MVP that integrates with Slack and Asana to provide intelligent summaries, detect blockers, and visualize team productivity—built entirely on free-tier tools.
 
