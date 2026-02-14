@@ -11,12 +11,12 @@ export default function AppShell() {
 
     useEffect(() => {
         if (profile) {
-            if (!profile.full_name || !profile.current_team_id) {
+            if (!profile.full_name && !profile.current_team_id) {
                 console.warn('Redirecting to onboarding. Missing data:', {
                     hasName: !!profile.full_name,
                     hasTeam: !!profile.current_team_id
                 });
-                navigate('/onboarding');
+                navigate('/onboarding/team-setup');
             }
         }
     }, [profile, navigate]);
@@ -39,7 +39,7 @@ export default function AppShell() {
     }
 
     // Double check constraints before rendering content
-    if (!profile.full_name || !profile.current_team_id) {
+    if (!profile.full_name && !profile.current_team_id) {
         return null; // Will trigger redirect in useEffect
     }
 
@@ -110,8 +110,8 @@ function NavLink({ to, icon, children }) {
         <Link
             to={to}
             className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all font-medium ${isActive
-                    ? 'bg-blue-50 text-blue-600'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
         >
             <span className={isActive ? 'text-blue-600' : 'text-slate-400'}>{icon}</span>

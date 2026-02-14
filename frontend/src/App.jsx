@@ -4,8 +4,6 @@ import AppShell from './layouts/AppShell';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
-import JoinTeam from './pages/JoinTeam';
-import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Summaries from './pages/Summaries';
 import Blockers from './pages/Blockers';
@@ -15,10 +13,15 @@ import Integrations from './pages/Integrations';
 import Analytics from './pages/Analytics';
 import Projects from './pages/Projects';
 import Team from './pages/Team';
-import OnboardingWelcome from './pages/onboarding/OnboardingWelcome';
-import OnboardingInvite from './pages/onboarding/OnboardingInvite';
+import TeamSetup from './pages/onboarding/TeamSetup';
+import ConnectTools from './pages/onboarding/ConnectTools';
+import InviteTeam from './pages/onboarding/InviteTeam';
 import OnboardingComplete from './pages/onboarding/OnboardingComplete';
-import OnboardingMemberWelcome from './pages/onboarding/OnboardingMemberWelcome';
+import WelcomeMember from './pages/onboarding/WelcomeMember';
+import JoinTeam from './pages/auth/JoinTeam';
+import About from './pages/company/About';
+import Blog from './pages/company/Blog';
+import Contact from './pages/company/Contact';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -31,19 +34,18 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/contact" element={<Contact />} />
           <Route path="/join" element={<JoinTeam />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/onboarding" element={
-            <ProtectedRoute>
-              <Onboarding />
-            </ProtectedRoute>
-          }>
-            <Route path="welcome" element={<OnboardingWelcome />} />
-            <Route path="invite-team" element={<OnboardingInvite />} />
-            <Route path="complete" element={<OnboardingComplete />} />
-            <Route path="member-welcome" element={<OnboardingMemberWelcome />} />
-          </Route>
+          <Route path="/onboarding" element={<Navigate to="/onboarding/team-setup" replace />} />
+          <Route path="/onboarding/team-setup" element={<ProtectedRoute><TeamSetup /></ProtectedRoute>} />
+          <Route path="/onboarding/connect-tools" element={<ProtectedRoute><ConnectTools /></ProtectedRoute>} />
+          <Route path="/onboarding/invite-team" element={<ProtectedRoute><InviteTeam /></ProtectedRoute>} />
+          <Route path="/onboarding/complete" element={<ProtectedRoute><OnboardingComplete /></ProtectedRoute>} />
+          <Route path="/onboarding/welcome-member" element={<ProtectedRoute><WelcomeMember /></ProtectedRoute>} />
 
           <Route path="/app" element={
             <ProtectedRoute>

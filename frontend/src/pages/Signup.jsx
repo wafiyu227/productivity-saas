@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 export default function Signup() {
     const [searchParams] = useSearchParams();
     const redirect = searchParams.get('redirect');
+    const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -18,10 +19,11 @@ export default function Signup() {
         setLoading(true);
 
         try {
-            const { error } = await signUp(email, password);
+            const { error } = await signUp(email, password, fullName);
             if (error) throw error;
-            alert('Check your email to confirm your account!');
-            navigate('/login' + (redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''));
+
+            // Redirect to team setup onboarding
+            navigate('/onboarding/team-setup');
         } catch (err) {
             setError(err.message);
         } finally {
@@ -43,6 +45,20 @@ export default function Signup() {
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Full Name
+                        </label>
+                        <input
+                            type="text"
+                            value={fullName}
+                            onChange={(e) => setFullName(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            required
+                            placeholder="John Doe"
+                        />
+                    </div>
+
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                             Email
