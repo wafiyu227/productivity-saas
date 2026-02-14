@@ -1,3 +1,6 @@
+// UPDATED: backend/routes/teams.js
+// Replace your teams.js with this version
+
 import express from 'express';
 import { db } from '../services/supabase-client.js';
 import emailService from '../services/email-service.js';
@@ -36,16 +39,50 @@ router.post('/', async (req, res) => {
 // Get team details
 router.get('/:id', async (req, res) => {
     const { id } = req.params;
+
+    logger.info('Fetching team details:', { teamId: id });
+
     try {
         const { data, error } = await db.supabase
             .from('teams')
             .select('*')
             .eq('id', id)
             .single();
-        if (error) throw error;
+
+        if (error) {
+            logger.error('Supabase error fetching team:', {
+                code: error.code,
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                teamId: id
+            });
+
+            // If it's an RLS error, log it clearly
+            if (error.code === '42501' || error.code === 'PGRST301') {
+                logger.error('RLS POLICY BLOCKING ACCESS - User cannot view this team');
+                return res.status(403).json({
+                    error: 'Access denied - you are not a member of this team',
+                    code: 'RLS_POLICY_VIOLATION'
+                });
+            }
+
+            throw error;
+        }
+
+        if (!data) {
+            logger.warn('Team not found:', { teamId: id });
+            return res.status(404).json({ error: 'Team not found' });
+        }
+
+        logger.info('Team fetched successfully:', { teamId: id, teamName: data.name });
         res.json(data);
     } catch (error) {
-        logger.error('Get team error:', error);
+        logger.error('Get team error:', {
+            message: error.message,
+            stack: error.stack,
+            teamId: id
+        });
         res.status(500).json({ error: error.message });
     }
 });
@@ -53,11 +90,68 @@ router.get('/:id', async (req, res) => {
 // Get team members
 router.get('/:id/members', async (req, res) => {
     const { id } = req.params;
+
+    logger.info('Fetching team members:', { teamId: id });
+
     try {
         const members = await db.getTeamMembers(id);
+        logger.info('Team members fetched:', { teamId: id, count: members.length });
         res.json(members);
     } catch (error) {
         logger.error('Get team members error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ✅ NEW: Get team invitations
+router.get('/:id/invitations', async (req, res) => {
+    const { id: teamId } = req.params;
+    const { userId } = req.query;
+
+    logger.info('Fetching team invitations:', { teamId, userId });
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        // Verify user is a member of the team (and preferably admin/owner)
+        const { data: member } = await db.supabase
+            .from('team_members')
+            .select('role')
+            .eq('team_id', teamId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!member) {
+            logger.warn('User not a team member:', { teamId, userId });
+            return res.status(403).json({ error: 'Not a team member' });
+        }
+
+        // Get invitations (check if table exists first)
+        const { data: invitations, error } = await db.supabase
+            .from('team_invitations')
+            .select('*')
+            .eq('team_id', teamId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            // If table doesn't exist yet, return empty array
+            if (error.code === '42P01') {
+                logger.warn('team_invitations table does not exist yet');
+                return res.json([]);
+            }
+            throw error;
+        }
+
+        logger.info('Team invitations fetched:', { teamId, count: invitations?.length || 0 });
+        res.json(invitations || []);
+    } catch (error) {
+        logger.error('Get team invitations error:', {
+            message: error.message,
+            teamId,
+            userId
+        });
         res.status(500).json({ error: error.message });
     }
 });

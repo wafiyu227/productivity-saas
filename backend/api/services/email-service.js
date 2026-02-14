@@ -1,104 +1,160 @@
+import { Resend } from 'resend';
 import logger from '../utils/logger.js';
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
 
 class EmailService {
-  async sendDailyDigest(userEmail, summaries) {
-    if (!RESEND_API_KEY) {
-      logger.warn('RESEND_API_KEY not configured, skipping email');
-      return { success: false, error: 'Email service not configured' };
-    }
-
+  async sendTeamInvitation(invitation, teamName, inviterName) {
     try {
-      const emailHtml = this.generateDigestHTML(summaries);
+      const inviteUrl = `${FRONTEND_URL}/join?token=${invitation.token}`;
 
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: 'Teama AI <noreply@teama-ai.com>',
-          to: userEmail,
-          subject: `Daily Summary - ${new Date().toLocaleDateString()}`,
-          html: emailHtml
-        })
+      const { data, error } = await resend.emails.send({
+        from: 'Teama AI <noreply@teama.ai>',
+        to: [invitation.email],
+        subject: `You're invited to join ${teamName} on Teama AI`,
+        html: this.getInvitationEmailTemplate(teamName, inviterName, inviteUrl, invitation.expires_at)
       });
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Resend API error: ${error}`);
+      if (error) {
+        logger.error('Email send error:', error);
+        throw error;
       }
 
-      const result = await response.json();
-      logger.info('Daily digest sent', { userEmail, summaryCount: summaries.length });
-      return { success: true, messageId: result.id };
+      logger.info('Invitation email sent', { email: invitation.email, teamName });
+      return data;
+    } catch (error) {
+      logger.error('Failed to send invitation email:', error);
+      throw error;
+    }
+  }
+
+  async sendWelcomeEmail(userEmail, userName, teamName) {
+    try {
+      const { data, error } = await resend.emails.send({
+        from: 'Teama AI <noreply@teama.ai>',
+        to: [userEmail],
+        subject: `Welcome to ${teamName}!`,
+        html: this.getWelcomeEmailTemplate(userName, teamName)
+      });
+
+      if (error) {
+        logger.error('Welcome email send error:', error);
+        throw error;
+      }
+
+      return data;
+    } catch (error) {
+      logger.error('Failed to send welcome email:', error);
+      // Don't throw - welcome email is nice-to-have
+    }
+  }
+
+  async sendDailyDigest(userEmail, summaries) {
+    try {
+      const { data, error } = await resend.emails.send({
+        from: 'Teama AI <noreply@teama.ai>',
+        to: [userEmail],
+        subject: `Daily Summary - ${new Date().toLocaleDateString()}`,
+        html: this.generateDigestHTML(summaries)
+      });
+
+      if (error) throw error;
+      return { success: true, messageId: data.id };
     } catch (error) {
       logger.error('Failed to send daily digest', { userEmail, error: error.message });
       return { success: false, error: error.message };
     }
   }
 
-  async sendInvitation(email, invitation, inviterName) {
-    if (!RESEND_API_KEY) {
-      logger.warn('RESEND_API_KEY not configured, skipping invitation email');
-      return { success: false, error: 'Email service not configured' };
-    }
+  getInvitationEmailTemplate(teamName, inviterName, inviteUrl, expiresAt) {
+    const expiryDate = new Date(expiresAt).toLocaleDateString();
 
-    try {
-      const joinUrl = `${process.env.FRONTEND_URL || 'https://teama-ai.vercel.app'}/join?token=${invitation.token}`;
-
-      const emailHtml = `
-        <!DOCTYPE html>
-        <html>
-          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #111827; background-color: #f3f4f6; padding: 20px;">
-            <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 40px; border-radius: 8px;">
-              <h1 style="margin-top: 0; color: #111827;">Join the team on Teama AI</h1>
-              <p style="font-size: 16px; color: #4b5563;">
-                <strong>${inviterName}</strong> has invited you to join their team on Teama AI.
-              </p>
-              <div style="margin: 32px 0; text-align: center;">
-                <a href="${joinUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">
-                  Accept Invitation
-                </a>
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { background: #f9fafb; padding: 30px; }
+            .button { display: inline-block; background: #667eea; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: 600; margin: 20px 0; }
+            .features { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .feature { margin: 10px 0; }
+            .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>You're Invited to Join ${teamName}</h1>
+            </div>
+            <div class="content">
+              <p>Hi there!</p>
+              
+              <p><strong>${inviterName}</strong> has invited you to join <strong>${teamName}</strong> on Teama AI.</p>
+              
+              <div class="features">
+                <p><strong>With Teama AI, your team can:</strong></p>
+                <div class="feature">✓ Get AI-powered Slack channel summaries</div>
+                <div class="feature">✓ Track project health and team workload</div>
+                <div class="feature">✓ Identify blockers automatically</div>
+                <div class="feature">✓ Stay aligned with AI insights</div>
               </div>
-              <p style="font-size: 14px; color: #6b7280;">
-                Or copy and paste this link into your browser:<br>
-                <a href="${joinUrl}" style="color: #2563eb;">${joinUrl}</a>
+              
+              <p style="text-align: center;">
+                <a href="${inviteUrl}" class="button">Accept Invitation & Join Team</a>
+              </p>
+              
+              <p style="font-size: 14px; color: #666;">
+                This invitation expires on <strong>${expiryDate}</strong>.
+              </p>
+              
+              <p style="font-size: 14px; color: #666;">
+                If you can't click the button, copy and paste this link into your browser:<br>
+                <a href="${inviteUrl}">${inviteUrl}</a>
               </p>
             </div>
-          </body>
-        </html>
-      `;
+            <div class="footer">
+              <p>Questions? Reply to this email or visit help.teama.ai</p>
+              <p>© 2026 Teama AI. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  }
 
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: 'Teama AI <noreply@teama-ai.com>',
-          to: email,
-          subject: `${inviterName} invited you to join a team on Teama AI`,
-          html: emailHtml
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Resend API error: ${error}`);
-      }
-
-      const result = await response.json();
-      logger.info('Invitation sent', { email, messageId: result.id });
-      return { success: true, messageId: result.id };
-    } catch (error) {
-      logger.error('Failed to send invitation', { email, error: error.message });
-      // Don't throw, just return failure so api doesn't crash
-      return { success: false, error: error.message };
-    }
+  getWelcomeEmailTemplate(userName, teamName) {
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { background: #f9fafb; padding: 30px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Welcome to ${teamName}! 🎉</h1>
+            </div>
+            <div class="content">
+              <p>Hi ${userName}!</p>
+              <p>You've successfully joined <strong>${teamName}</strong> on Teama AI.</p>
+              <p>Your team admin has already set up the workspace, so you're ready to start collaborating!</p>
+              <p><a href="${FRONTEND_URL}/app" style="color: #667eea;">Go to Dashboard →</a></p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
   }
 
   generateDigestHTML(summaries) {
@@ -161,10 +217,10 @@ class EmailService {
 
             <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; margin-top: 32px;">
               <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 12px;">
-                <a href="https://teama-ai.vercel.app/app/summaries">View all summaries →</a>
+                <a href="${FRONTEND_URL}/app/summaries">View all summaries →</a>
               </p>
               <p style="margin: 0; color: #9ca3af; font-size: 11px;">
-                Manage your notification preferences in <a href="https://teama-ai.vercel.app/app/profile">Settings</a>
+                Manage your notification preferences in <a href="${FRONTEND_URL}/app/profile">Settings</a>
               </p>
             </div>
           </div>

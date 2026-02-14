@@ -13,6 +13,7 @@ if (!supabaseUrl || !supabaseKey) {
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export const db = {
+  supabase,
   async saveSlackSummary(data) {
     const summaryData = {
       user_id: data.user_id,
@@ -216,7 +217,11 @@ export const db = {
   },
 
   // Team Methods
+  // ✅ UPDATED createTeam METHOD
+  // Replace this method in backend/services/supabase-client.js
+
   async createTeam(userId, teamData) {
+    // 1. Create Team
     const { data, error: teamError } = await supabase
       .from('teams')
       .insert({
@@ -237,13 +242,15 @@ export const db = {
       throw new Error('Failed to create team: No data returned.');
     }
 
+    // 2. Link User to Team (via team_members junction table)
     const { error: memberError } = await supabase
       .from('team_members')
       .insert({
         team_id: team.id,
         user_id: userId,
         role: 'owner',
-        status: 'active'
+        status: 'active',
+        joined_via: 'creator'
       });
 
     if (memberError) {
@@ -251,7 +258,21 @@ export const db = {
       throw memberError;
     }
 
-    await this.updateProfile(userId, { current_team_id: team.id });
+    // 3. ✅ FIX: Update current_team_id in profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        current_team_id: team.id,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+
+    if (profileError) {
+      console.error('Failed to update profile with current_team_id:', profileError);
+      // Don't throw - team is created successfully, this is just UX
+    } else {
+      console.log('✓ Profile updated with current_team_id:', team.id);
+    }
 
     return team;
   },
