@@ -1,38 +1,66 @@
+// FIXED: backend/services/email-service.js
+// Replace your entire email-service.js with this
+
 import { Resend } from 'resend';
+import 'dotenv/config';
 import logger from '../utils/logger.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
 
 class EmailService {
+  constructor() {
+    // ✅ FIX: Use Resend's test domain until you verify your custom domain
+    // Change to 'Teama AI <noreply@teama.ai>' after domain verification
+    this.fromEmail = 'Teama AI <onboarding@resend.dev>';
+  }
+
   async sendTeamInvitation(invitation, teamName, inviterName) {
     try {
+      logger.info('Attempting to send invitation email', {
+        to: invitation.email,
+        teamName,
+        inviterName,
+        token: invitation.token?.substring(0, 10) + '...'
+      });
+
       const inviteUrl = `${FRONTEND_URL}/join?token=${invitation.token}`;
 
       const { data, error } = await resend.emails.send({
-        from: 'Teama AI <noreply@teama.ai>',
+        from: this.fromEmail,
         to: [invitation.email],
         subject: `You're invited to join ${teamName} on Teama AI`,
         html: this.getInvitationEmailTemplate(teamName, inviterName, inviteUrl, invitation.expires_at)
       });
 
       if (error) {
-        logger.error('Email send error:', error);
+        logger.error('Resend API error:', error);
         throw error;
       }
 
-      logger.info('Invitation email sent', { email: invitation.email, teamName });
+      logger.info('✅ Invitation email sent successfully', {
+        email: invitation.email,
+        teamName,
+        messageId: data?.id
+      });
+
       return data;
     } catch (error) {
-      logger.error('Failed to send invitation email:', error);
+      logger.error('Failed to send invitation email:', {
+        error: error.message,
+        stack: error.stack,
+        email: invitation.email
+      });
       throw error;
     }
   }
 
   async sendWelcomeEmail(userEmail, userName, teamName) {
     try {
+      logger.info('Sending welcome email', { userEmail, userName, teamName });
+
       const { data, error } = await resend.emails.send({
-        from: 'Teama AI <noreply@teama.ai>',
+        from: this.fromEmail,
         to: [userEmail],
         subject: `Welcome to ${teamName}!`,
         html: this.getWelcomeEmailTemplate(userName, teamName)
@@ -43,6 +71,7 @@ class EmailService {
         throw error;
       }
 
+      logger.info('✅ Welcome email sent', { userEmail, messageId: data?.id });
       return data;
     } catch (error) {
       logger.error('Failed to send welcome email:', error);
@@ -53,7 +82,7 @@ class EmailService {
   async sendDailyDigest(userEmail, summaries) {
     try {
       const { data, error } = await resend.emails.send({
-        from: 'Teama AI <noreply@teama.ai>',
+        from: this.fromEmail,
         to: [userEmail],
         subject: `Daily Summary - ${new Date().toLocaleDateString()}`,
         html: this.generateDigestHTML(summaries)

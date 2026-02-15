@@ -156,6 +156,9 @@ router.get('/:id/invitations', async (req, res) => {
     }
 });
 
+// FIXED: backend/routes/teams.js - Invite endpoint
+// Replace your invite endpoint with this
+
 // Invite member
 router.post('/:id/invite', async (req, res) => {
     const { id: teamId } = req.params;
@@ -166,9 +169,21 @@ router.post('/:id/invite', async (req, res) => {
     }
 
     try {
+        // Get team info FIRST (needed for email)
+        const { data: team } = await db.supabase
+            .from('teams')
+            .select('name')
+            .eq('id', teamId)
+            .single();
+
+        if (!team) {
+            return res.status(404).json({ error: 'Team not found' });
+        }
+
+        // Create invitation
         const invitation = await db.createInvitation(teamId, userId, email);
 
-        // Update role if specified (schema v2 supports role in invitations)
+        // Update role if specified
         if (role) {
             await db.supabase
                 .from('team_invitations')
@@ -177,10 +192,22 @@ router.post('/:id/invite', async (req, res) => {
             invitation.role = role;
         }
 
+        // Get inviter profile
         const inviterProfile = await db.getProfile(userId);
         const inviterName = inviterProfile?.full_name || 'A teammate';
 
-        await emailService.sendInvitation(email, invitation, inviterName);
+        // ✅ FIX: Call correct method with correct parameters
+        await emailService.sendTeamInvitation(
+            invitation,        // First parameter: invitation object
+            team.name,         // Second parameter: team name
+            inviterName        // Third parameter: inviter name
+        );
+
+        logger.info('Invitation sent successfully', {
+            email,
+            teamId,
+            teamName: team.name
+        });
 
         res.json(invitation);
     } catch (error) {
