@@ -340,7 +340,6 @@ export default function Landing() {
                             <ul className="space-y-2 text-sm">
                                 <li><a href="#features" className="hover:text-white transition">Features</a></li>
                                 <li><a href="#pricing" className="hover:text-white transition">Pricing</a></li>
-                                <li><a href="#" className="hover:text-white transition">Integrations</a></li>
                             </ul>
                         </div>
                         <div>
@@ -354,9 +353,9 @@ export default function Landing() {
                         <div>
                             <h4 className="text-white font-semibold mb-4">Legal</h4>
                             <ul className="space-y-2 text-sm">
-                                <li><a href="#" className="hover:text-white transition">Privacy</a></li>
-                                <li><a href="#" className="hover:text-white transition">Terms</a></li>
-                                <li><a href="#" className="hover:text-white transition">Security</a></li>
+                                <li><a href="/privacy" className="hover:text-white transition">Privacy</a></li>
+                                <li><a href="/terms" className="hover:text-white transition">Terms</a></li>
+                                <li><a href="security" className="hover:text-white transition">Security</a></li>
                             </ul>
                         </div>
                     </div>

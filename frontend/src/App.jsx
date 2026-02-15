@@ -22,6 +22,9 @@ import JoinTeam from './pages/auth/JoinTeam';
 import About from './pages/company/About';
 import Blog from './pages/company/Blog';
 import Contact from './pages/company/Contact';
+import Privacy from './pages/legal/Privacy';
+import Terms from './pages/legal/Terms';
+import Security from './pages/legal/Security';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -37,6 +40,9 @@ function App() {
           <Route path="/about" element={<About />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/security" element={<Security />} />
           <Route path="/join" element={<JoinTeam />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />

@@ -1,5 +1,5 @@
-// UPDATED: frontend/src/contexts/AuthContext.jsx
-// Replace your AuthContext with this version
+// FIXED: frontend/src/contexts/AuthContext.jsx
+// Handles stale sessions when user is deleted from database
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -49,33 +49,57 @@ export function AuthProvider({ children }) {
 
     const fetchProfile = async (userId) => {
         try {
+            console.log('Fetching profile for user:', userId);
             const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user/me?userId=${userId}`);
 
             if (res.ok) {
                 const data = await res.json();
+                console.log('Profile data:', data);
                 setProfile(data || {});
 
-                // ✅ FIX: Check if user needs onboarding
-                // If user exists but has no team, redirect to team setup
-                if (data && !data.current_team_id && (!data.teams || data.teams.length === 0)) {
+                // Check if user needs onboarding
+                if (data && data.userId && !data.current_team_id && (!data.teams || data.teams.length === 0)) {
                     console.log('User has no team, redirecting to team setup');
-                    // Only redirect if we're not already on an onboarding page
                     const currentPath = window.location.pathname;
                     if (!currentPath.includes('/onboarding') && !currentPath.includes('/join')) {
                         navigate('/onboarding/team-setup');
                     }
                 }
             } else if (res.status === 404) {
-                // Profile doesn't exist yet - this is a new user
-                setProfile({});
-                navigate('/onboarding/team-setup');
+                // ✅ FIX: Profile doesn't exist - could be deleted user with stale session
+                console.warn('Profile not found (404) - checking if this is a stale session');
+
+                // Check if we have an active auth session
+                const { data: { session } } = await supabase.auth.getSession();
+
+                if (session) {
+                    // We have a session but no profile - user was likely deleted
+                    // Sign out to clear the stale session
+                    console.log('Stale session detected - signing out');
+                    await supabase.auth.signOut();
+                    setUser(null);
+                    setProfile(null);
+                    navigate('/login');
+                } else {
+                    // No session - just redirect to login
+                    setProfile({});
+                    navigate('/login');
+                }
             } else {
                 console.error('Error response fetching profile:', res.status);
                 setProfile({});
             }
         } catch (error) {
             console.error('Error fetching profile:', error);
-            setProfile({});
+
+            // ✅ FIX: On network error, check if session is valid
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                console.log('Network error but session exists - allowing retry');
+                setProfile({});
+            } else {
+                navigate('/login');
+            }
         } finally {
             setLoading(false);
         }
@@ -83,6 +107,7 @@ export function AuthProvider({ children }) {
 
     const signUp = async (email, password, fullName) => {
         try {
+            // 1. Create Supabase auth user
             const { data, error } = await supabase.auth.signUp({
                 email,
                 password,
@@ -95,19 +120,30 @@ export function AuthProvider({ children }) {
 
             if (error) throw error;
 
-            // Create/Update profile (without current_team_id - will be set when team is created)
+            // 2. ✅ Create profile directly in Supabase (with better error handling)
             if (data.user) {
-                await supabase
+                console.log('Creating profile for user:', data.user.id);
+
+                const { error: profileError } = await supabase
                     .from('profiles')
-                    .upsert({
+                    .insert({
                         id: data.user.id,
                         full_name: fullName,
                         email: email
-                    }, { onConflict: 'id' });
+                    });
+
+                if (profileError) {
+                    console.error('❌ Failed to create profile:', profileError);
+                    // Don't fail signup, but log the error
+                    alert('Account created but profile setup incomplete. Please contact support.');
+                } else {
+                    console.log('✅ Profile created successfully');
+                }
             }
 
             return { user: data.user, error: null };
         } catch (error) {
+            console.error('Signup error:', error);
             return { user: null, error };
         }
     };
@@ -116,8 +152,12 @@ export function AuthProvider({ children }) {
         return supabase.auth.signInWithPassword({ email, password });
     };
 
-    const signOut = () => {
-        return supabase.auth.signOut();
+    const signOut = async () => {
+        // ✅ Clear everything on sign out
+        setUser(null);
+        setProfile(null);
+        await supabase.auth.signOut();
+        navigate('/login');
     };
 
     const refreshProfile = async () => {
