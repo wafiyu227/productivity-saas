@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users } from 'lucide-react';
-import TeamSwitcher from '../components/TeamSwitcher';
+import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2 } from 'lucide-react';
 
 export default function AppShell() {
     const { user, profile, signOut } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+
+    const team = profile?.teams?.[0]?.teams || null;
 
     useEffect(() => {
         if (profile) {
@@ -51,7 +52,18 @@ export default function AppShell() {
                     <h1 className="text-2xl font-bold text-slate-900 mb-1">Teama AI</h1>
                 </div>
 
-                <TeamSwitcher />
+                {/* Static Team Display */}
+                <div className="px-3 mb-6">
+                    <div className="flex items-center gap-3 p-2">
+                        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0">
+                            <Building2 size={18} />
+                        </div>
+                        <div className="text-left overflow-hidden">
+                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your Team</p>
+                            <p className="text-sm font-bold text-slate-900 truncate">{team?.name || 'No Team'}</p>
+                        </div>
+                    </div>
+                </div>
 
                 <nav className="flex-1 px-3 space-y-1">
                     <NavLink to="/app/dashboard" icon={<LayoutDashboard size={20} />}>

@@ -40,6 +40,49 @@ export default function Summaries() {
         }
     };
 
+    const handleDeleteSummary = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this summary?')) return;
+
+        try {
+            await api.deleteSummary(id);
+            // Real-time update: remove from state
+            setSummaries(prev => prev.filter(s => s.id !== id));
+        } catch (error) {
+            console.error('Delete summary error:', error);
+            alert('Failed to delete summary: ' + error.message);
+        }
+    };
+
+    const handleExport = () => {
+        if (filteredSummaries.length === 0) return;
+
+        // Create CSV content
+        const headers = ['Date', 'Channel', 'Messages', 'Summary', 'Blockers'];
+        const rows = filteredSummaries.map(s => [
+            new Date(s.created_at).toLocaleDateString(),
+            `#${s.channel_name}`,
+            s.message_count,
+            `"${s.summary.replace(/"/g, '""')}"`, // Escape quotes for CSV
+            `"${(s.blockers || s.key_topics || []).join(', ').replace(/"/g, '""')}"`
+        ]);
+
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(r => r.join(','))
+        ].join('\n');
+
+        // Download file
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `teama-summaries-${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const filterSummaries = () => {
         let filtered = summaries;
 
@@ -122,7 +165,11 @@ export default function Summaries() {
                             </div>
 
                             {/* Export Button */}
-                            <button className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            <button
+                                onClick={handleExport}
+                                disabled={filteredSummaries.length === 0}
+                                className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
                                 <Download size={20} />
                                 Export
                             </button>
@@ -141,7 +188,11 @@ export default function Summaries() {
                     ) : (
                         <div className="space-y-4">
                             {filteredSummaries.map((summary) => (
-                                <SummaryRow key={summary.id} summary={summary} />
+                                <SummaryRow
+                                    key={summary.id}
+                                    summary={summary}
+                                    onDelete={handleDeleteSummary}
+                                />
                             ))}
                         </div>
                     )}
@@ -151,7 +202,7 @@ export default function Summaries() {
     );
 }
 
-function SummaryRow({ summary }) {
+function SummaryRow({ summary, onDelete }) {
     const channelName = summary.channel_name || 'unknown';
     const summaryText = summary.summary || '';
     const blockers = summary.blockers || summary.key_topics || [];
@@ -179,7 +230,11 @@ function SummaryRow({ summary }) {
                         <p className="text-gray-700 leading-relaxed">{summaryText}</p>
                     </div>
                 </div>
-                <button className="text-red-400 hover:text-red-600 transition">
+                <button
+                    onClick={() => onDelete(summary.id)}
+                    className="text-red-400 hover:text-red-600 transition p-2 hover:bg-red-50 rounded-lg"
+                    title="Delete summary"
+                >
                     <Trash2 size={20} />
                 </button>
             </div>

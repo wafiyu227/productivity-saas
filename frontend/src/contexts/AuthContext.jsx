@@ -66,23 +66,24 @@ export function AuthProvider({ children }) {
                     }
                 }
             } else if (res.status === 404) {
-                // ✅ FIX: Profile doesn't exist - could be deleted user with stale session
-                console.warn('Profile not found (404) - checking if this is a stale session');
+                // ✅ FIX: Profile doesn't exist - don't sign out immediately if it's a new user
+                console.warn('Profile not found (404)');
 
-                // Check if we have an active auth session
                 const { data: { session } } = await supabase.auth.getSession();
 
                 if (session) {
-                    // We have a session but no profile - user was likely deleted
-                    // Sign out to clear the stale session
-                    console.log('Stale session detected - signing out');
-                    await supabase.auth.signOut();
-                    setUser(null);
-                    setProfile(null);
-                    navigate('/login');
+                    console.log('User session exists but no profile yet. Setting empty profile shell.');
+                    setProfile({ id: userId, is_new_user: true });
+
+                    // Redirect to onboarding if not already there
+                    const currentPath = window.location.pathname;
+                    if (!currentPath.includes('/onboarding') && !currentPath.includes('/join')) {
+                        console.log('Redirecting to onboarding...');
+                        navigate('/onboarding/team-setup');
+                    }
                 } else {
-                    // No session - just redirect to login
-                    setProfile({});
+                    console.log('No session, redirecting to login');
+                    setProfile(null);
                     navigate('/login');
                 }
             } else {
@@ -122,22 +123,24 @@ export function AuthProvider({ children }) {
 
             // 2. ✅ Create profile directly in Supabase (with better error handling)
             if (data.user) {
-                console.log('Creating profile for user:', data.user.id);
+                console.log('Creating/Updating profile for user:', data.user.id);
 
+                // Use upsert to avoid 409 Conflict
                 const { error: profileError } = await supabase
                     .from('profiles')
-                    .insert({
+                    .upsert({
                         id: data.user.id,
                         full_name: fullName,
-                        email: email
-                    });
+                        email: email,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
 
                 if (profileError) {
-                    console.error('❌ Failed to create profile:', profileError);
+                    console.error('❌ Failed to create/update profile:', profileError);
                     // Don't fail signup, but log the error
-                    alert('Account created but profile setup incomplete. Please contact support.');
+                    alert('Account created but profile setup is pending. Please refresh or try logging in.');
                 } else {
-                    console.log('✅ Profile created successfully');
+                    console.log('✅ Profile upserted successfully');
                 }
             }
 

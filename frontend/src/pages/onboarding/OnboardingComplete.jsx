@@ -1,8 +1,15 @@
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle, ArrowRight } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function OnboardingComplete() {
     const navigate = useNavigate();
+    const { refreshProfile } = useAuth();
+
+    const handleGoToDashboard = async () => {
+        await refreshProfile();
+        navigate('/app/dashboard');
+    };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
@@ -42,7 +49,7 @@ export default function OnboardingComplete() {
                 </div>
 
                 <button
-                    onClick={() => navigate('/app/dashboard')}
+                    onClick={handleGoToDashboard}
                     className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition flex items-center justify-center gap-2"
                 >
                     Go to Dashboard

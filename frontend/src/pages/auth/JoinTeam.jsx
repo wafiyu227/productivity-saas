@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Loader, CheckCircle, AlertCircle, UserPlus } from 'lucide-react';
+import { Loader, CheckCircle, AlertCircle, UserPlus, LogOut } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -9,13 +9,15 @@ export default function JoinTeam() {
     const [searchParams] = useSearchParams();
     const token = searchParams.get('token');
     const navigate = useNavigate();
-    const { user, signUp, signIn } = useAuth();
+    const { user, signUp, signIn, signOut } = useAuth();
 
     const [invitation, setInvitation] = useState(null);
     const [loading, setLoading] = useState(true);
     const [joining, setJoining] = useState(false);
     const [error, setError] = useState(null);
     const [mode, setMode] = useState('signup'); // 'signup' or 'signin'
+    const [emailMismatch, setEmailMismatch] = useState(false);
+    const acceptAttempted = useRef(false);
     const [formData, setFormData] = useState({
         full_name: '',
         email: '',
@@ -32,9 +34,19 @@ export default function JoinTeam() {
     }, [token]);
 
     useEffect(() => {
-        // If user is already logged in, show join confirmation
-        if (user && invitation) {
-            handleAcceptInvitation();
+        // If user is already logged in AND invitation is loaded, check email match
+        if (user && invitation && !acceptAttempted.current) {
+            const userEmail = user.email?.toLowerCase();
+            const inviteEmail = invitation.email?.toLowerCase();
+
+            if (userEmail !== inviteEmail) {
+                // Logged in as wrong user — don't auto-accept
+                setEmailMismatch(true);
+            } else {
+                // Email matches — auto-accept
+                acceptAttempted.current = true;
+                handleAcceptInvitation();
+            }
         }
     }, [user, invitation]);
 
@@ -93,6 +105,13 @@ export default function JoinTeam() {
         }
     };
 
+    const handleSignOutAndRetry = async () => {
+        setEmailMismatch(false);
+        acceptAttempted.current = false;
+        await signOut();
+        // After sign out, user becomes null and the signup/signin form will show
+    };
+
     const handleAcceptInvitation = async (userId = user?.id) => {
         if (!userId) return;
 
@@ -148,7 +167,40 @@ export default function JoinTeam() {
         );
     }
 
-    // If user is logged in, show join confirmation
+    // Logged in as WRONG user (email doesn't match invitation)
+    if (user && emailMismatch) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
+                <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+                    <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <AlertCircle className="text-yellow-600" size={48} />
+                    </div>
+                    <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                        Wrong Account
+                    </h1>
+                    <p className="text-gray-600 mb-2">
+                        This invitation was sent to <strong>{invitation?.email}</strong>
+                    </p>
+                    <p className="text-gray-600 mb-2">
+                        but you're currently signed in as <strong>{user.email}</strong>.
+                    </p>
+                    <p className="text-sm text-gray-500 mb-8">
+                        Please sign out and then sign in or create an account with the invited email address.
+                    </p>
+
+                    <button
+                        onClick={handleSignOutAndRetry}
+                        className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition flex items-center justify-center gap-2"
+                    >
+                        <LogOut size={18} />
+                        Sign Out & Continue
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Logged in as the CORRECT user — show join confirmation
     if (user) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
@@ -202,8 +254,8 @@ export default function JoinTeam() {
                     <button
                         onClick={() => setMode('signup')}
                         className={`flex-1 py-2 rounded-md font-medium transition ${mode === 'signup'
-                                ? 'bg-white text-purple-600 shadow-sm'
-                                : 'text-gray-600 hover:text-gray-900'
+                            ? 'bg-white text-purple-600 shadow-sm'
+                            : 'text-gray-600 hover:text-gray-900'
                             }`}
                     >
                         Sign Up
@@ -211,8 +263,8 @@ export default function JoinTeam() {
                     <button
                         onClick={() => setMode('signin')}
                         className={`flex-1 py-2 rounded-md font-medium transition ${mode === 'signin'
-                                ? 'bg-white text-purple-600 shadow-sm'
-                                : 'text-gray-600 hover:text-gray-900'
+                            ? 'bg-white text-purple-600 shadow-sm'
+                            : 'text-gray-600 hover:text-gray-900'
                             }`}
                     >
                         Sign In

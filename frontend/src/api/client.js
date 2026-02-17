@@ -398,5 +398,21 @@ export const api = {
         } catch (error) {
             return { error: error.message };
         }
+    },
+
+    async deleteSummary(summaryId) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+
+        const res = await fetch(`${API_BASE_URL}/api/summaries/${summaryId}?userId=${userId}`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Failed to delete summary');
+        }
+
+        return await res.json();
     }
 };

@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function TeamSetup() {
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
@@ -34,6 +34,9 @@ export default function TeamSetup() {
 
             // Store team ID for next step
             sessionStorage.setItem('onboarding_team_id', team.id);
+
+            // Refresh profile so AuthContext has the new team data
+            await refreshProfile();
 
             navigate('/onboarding/connect-tools');
         } catch (error) {
