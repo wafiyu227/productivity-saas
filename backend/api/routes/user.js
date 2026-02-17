@@ -14,6 +14,12 @@ router.get('/me', async (req, res) => {
 
     try {
         const profile = await db.getProfile(userId);
+
+        if (!profile) {
+            logger.warn('Profile not found for user:', userId);
+            return res.status(404).json({ error: 'Profile not found', userId });
+        }
+
         const teams = await db.getUserTeams(userId);
 
         res.json({
@@ -39,31 +45,6 @@ router.put('/me', async (req, res) => {
         res.json(profile);
     } catch (error) {
         logger.error('Update profile error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Switch current team
-router.put('/current-team', async (req, res) => {
-    const { userId, teamId } = req.body;
-
-    if (!userId || !teamId) {
-        return res.status(400).json({ error: 'userId and teamId required' });
-    }
-
-    try {
-        // Verify user is a member of the team
-        const userTeams = await db.getUserTeams(userId);
-        const isMember = userTeams.some(t => t.team_id === teamId);
-
-        if (!isMember) {
-            return res.status(403).json({ error: 'User is not a member of this team' });
-        }
-
-        const profile = await db.updateProfile(userId, { current_team_id: teamId });
-        res.json(profile);
-    } catch (error) {
-        logger.error('Switch team error:', error);
         res.status(500).json({ error: error.message });
     }
 });

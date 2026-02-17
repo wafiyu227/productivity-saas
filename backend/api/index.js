@@ -117,6 +117,23 @@ app.get('/api/summaries', async (req, res) => {
   }
 });
 
+app.delete('/api/summaries/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query; // Or req.body if moving to POST/PUT style, but DELETE usually uses query params or headers
+
+    if (!id || !userId) {
+      return res.status(400).json({ error: 'id and userId required' });
+    }
+
+    await db.deleteSummary(id, userId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Failed to delete summary:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 404 handler - MUST return JSON, not HTML
 app.use((req, res) => {
   logger.warn('404:', req.url);

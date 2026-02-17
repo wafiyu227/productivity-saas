@@ -340,6 +340,7 @@ router.get('/team/:teamId', async (req, res) => {
             .from('team_invitations')
             .select('*')
             .eq('team_id', teamId)
+            .eq('status', 'pending')
             .order('created_at', { ascending: false });
 
         if (error) throw error;

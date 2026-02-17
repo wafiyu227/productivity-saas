@@ -221,8 +221,10 @@ export const db = {
   // Replace this method in backend/services/supabase-client.js
 
   async createTeam(userId, teamData) {
+    console.log('Starting team creation for user:', userId);
+
     // 1. Create Team
-    const { data, error: teamError } = await supabase
+    const { data: teams, error: teamError } = await supabase
       .from('teams')
       .insert({
         name: teamData.name,
@@ -237,10 +239,13 @@ export const db = {
       throw teamError;
     }
 
-    const team = data?.[0];
+    const team = teams?.[0];
     if (!team) {
-      throw new Error('Failed to create team: No data returned.');
+      console.error('No team data returned after insert. Data:', teams);
+      throw new Error('Failed to create team: No data returned. This might be due to RLS policies.');
     }
+
+    console.log('✓ Team created:', team.id);
 
     // 2. Link User to Team (via team_members junction table)
     const { error: memberError } = await supabase
@@ -258,20 +263,24 @@ export const db = {
       throw memberError;
     }
 
-    // 3. ✅ FIX: Update current_team_id in profile
+    console.log('✓ User linked to team as owner');
+
+    // 3. Update current_team_id and legacy team_id in profile
     const { error: profileError } = await supabase
       .from('profiles')
       .update({
         current_team_id: team.id,
+        team_id: team.id, // Keep legacy field in sync
+        onboarding_step: 'connect-tools',
         updated_at: new Date().toISOString()
       })
       .eq('id', userId);
 
     if (profileError) {
-      console.error('Failed to update profile with current_team_id:', profileError);
-      // Don't throw - team is created successfully, this is just UX
+      console.error('Failed to update profile with team info:', profileError);
+      // Don't throw - team and membership are created successfully
     } else {
-      console.log('✓ Profile updated with current_team_id:', team.id);
+      console.log('✓ Profile updated with team info');
     }
 
     return team;
@@ -368,6 +377,19 @@ export const db = {
     const { error } = await supabase.auth.admin.deleteUser(userId);
     if (error) throw error;
 
+    return { success: true };
+  },
+
+  async deleteSummary(summaryId, userId) {
+    // Delete the summary. We check userId to ensure the user has permission.
+    // In slack_summaries table, we have user_id.
+    const { error } = await supabase
+      .from('slack_summaries')
+      .delete()
+      .eq('id', summaryId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
     return { success: true };
   }
 };
