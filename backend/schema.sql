@@ -23,6 +23,7 @@ create table if not exists public.team_invitations (
   email text not null,
   token text not null unique,
   status text default 'pending' check (status in ('pending', 'accepted', 'expired')),
+  platform TEXT NOT NULL CHECK (platform IN ('slack', 'asana', 'google', 'jira', 'trello', 'github')),
   invited_by uuid references auth.users(id),
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );

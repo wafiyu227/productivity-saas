@@ -499,4 +499,150 @@ router.delete('/account', async (req, res) => {
     }
 });
 
+
+// ============================================
+// GITHUB OAUTH ROUTES
+// ============================================
+
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const GITHUB_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/github/oauth/callback';
+
+// Initiate GitHub OAuth
+router.get('/github/connect', (req, res) => {
+    const { userId, teamId, scope = 'team' } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
+
+    // Scopes: https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps
+    // read:user - for profile info
+    // user:email - for email
+    // repo - for private repos (optional, start with less?)
+    // read:org - for org membership
+    const scopes = [
+        'read:user',
+        'user:email',
+        'repo'
+    ].join(' ');
+
+    const authUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(GITHUB_REDIRECT_URI)}&scope=${encodeURIComponent(scopes)}&state=${state}`;
+
+    res.redirect(authUrl);
+});
+
+// GitHub OAuth callback
+router.get('/github/oauth/callback', async (req, res) => {
+    const { code, state, error } = req.query;
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
+
+    if (error) {
+        logger.error('GitHub OAuth error:', error);
+        return res.redirect(`${FRONTEND_URL}/app/integrations?error=github_auth_failed`);
+    }
+
+    if (!code || !state) {
+        return res.redirect(`${FRONTEND_URL}/app/integrations?error=missing_params`);
+    }
+
+    try {
+        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+
+        // Exchange code for access token
+        const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                client_id: GITHUB_CLIENT_ID,
+                client_secret: GITHUB_CLIENT_SECRET,
+                code,
+                redirect_uri: GITHUB_REDIRECT_URI
+            })
+        });
+
+        const tokenData = await tokenResponse.json();
+
+        if (tokenData.error) {
+            logger.error('GitHub token exchange failed:', tokenData);
+            throw new Error(tokenData.error_description || 'Failed to exchange code for token');
+        }
+
+        // Get user info
+        const userResponse = await fetch('https://api.github.com/user', {
+            headers: {
+                'Authorization': `Bearer ${tokenData.access_token}`
+            }
+        });
+
+        if (!userResponse.ok) {
+            throw new Error('Failed to fetch user info');
+        }
+
+        const userData = await userResponse.json();
+
+        // Save integration
+        await db.saveIntegration(userId, 'github', {
+            accessToken: tokenData.access_token,
+            refreshToken: tokenData.refresh_token, // GitHub tokens might not have refresh tokens by default depending on app type
+            expiresAt: tokenData.expires_in ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString() : null,
+            workspaceName: userData.login, // Use username as workspace/account name
+            workspaceId: userData.id.toString(),
+            teamId // Our internal teamId
+        }, requestedScope || 'team');
+
+        logger.info('GitHub integration saved', { userId, teamId });
+
+        res.redirect(`${FRONTEND_URL}/app/integrations?success=github_connected`);
+
+    } catch (error) {
+        logger.error('GitHub OAuth callback error:', error);
+        const errorMessage = error.message || 'Unknown error';
+        res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`);
+    }
+});
+
+// Check GitHub status
+router.get('/github/status', async (req, res) => {
+    const { userId, teamId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        const integration = await db.getIntegration(userId, 'github', teamId);
+
+        res.json({
+            connected: !!integration,
+            workspace: integration?.workspace_name || null
+        });
+    } catch (error) {
+        logger.error('GitHub status check error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Disconnect GitHub
+router.delete('/github/disconnect', async (req, res) => {
+    const { userId, teamId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        await db.deleteIntegration(userId, 'github', teamId);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('GitHub disconnect error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 export default router;

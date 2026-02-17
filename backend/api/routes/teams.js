@@ -133,6 +133,7 @@ router.get('/:id/invitations', async (req, res) => {
             .from('team_invitations')
             .select('*')
             .eq('team_id', teamId)
+            .eq('status', 'pending') // ✅ Added filter
             .order('created_at', { ascending: false });
 
         if (error) {
