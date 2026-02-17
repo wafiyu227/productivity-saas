@@ -10,6 +10,8 @@ import Blockers from './pages/Blockers';
 import Meetings from './pages/Meetings';
 import Profile from './pages/Profile';
 import Integrations from './pages/Integrations';
+import Code from './pages/Code';
+import Repositories from './pages/Repositories';
 import Analytics from './pages/Analytics';
 import Projects from './pages/Projects';
 import Team from './pages/Team';
@@ -67,7 +69,9 @@ function App() {
             <Route path="profile" element={<Profile />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="projects" element={<Projects />} />
+            <Route path="code" element={<Code />} />
             <Route path="team" element={<Team />} />
+            <Route path="code/repos" element={<Repositories />} />
           </Route>
         </Routes>
       </AuthProvider>

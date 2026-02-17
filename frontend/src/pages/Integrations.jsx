@@ -11,6 +11,7 @@ export default function Integrations() {
     const [slackStatus, setSlackStatus] = useState({ connected: false, loading: true });
     const [asanaStatus, setAsanaStatus] = useState({ connected: false, loading: true });
     const [googleStatus, setGoogleStatus] = useState({ connected: false, loading: true });
+    const [githubStatus, setGithubStatus] = useState({ connected: false, loading: true });
     const [notification, setNotification] = useState(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const [oauthProcessed, setOauthProcessed] = useState(false);
@@ -20,6 +21,7 @@ export default function Integrations() {
             checkStatus('slack');
             checkStatus('asana');
             checkStatus('google');
+            checkStatus('github');
         }
     }, [user, profile?.current_team_id]);
 
@@ -54,7 +56,8 @@ export default function Integrations() {
                 const successMessages = {
                     'slack_connected': 'Slack workspace connected successfully!',
                     'asana_connected': 'Asana workspace connected successfully!',
-                    'google_connected': 'Google Calendar connected successfully!'
+                    'google_connected': 'Google Calendar connected successfully!',
+                    'github_connected': 'GitHub account connected successfully!'
                 };
                 setNotification({
                     type: 'success',
@@ -65,6 +68,7 @@ export default function Integrations() {
                     checkStatus('slack');
                     checkStatus('asana');
                     checkStatus('google');
+                    checkStatus('github');
                 }
             }
             setSearchParams({});
@@ -81,12 +85,14 @@ export default function Integrations() {
             if (platform === 'slack') setSlackStatus({ ...data, loading: false });
             if (platform === 'asana') setAsanaStatus({ ...data, loading: false });
             if (platform === 'google') setGoogleStatus({ ...data, loading: false });
+            if (platform === 'github') setGithubStatus({ ...data, loading: false });
         } catch (error) {
             console.error(`Failed to check ${platform} status:`, error);
             const fallback = { connected: false, loading: false };
             if (platform === 'slack') setSlackStatus(fallback);
             if (platform === 'asana') setAsanaStatus(fallback);
             if (platform === 'google') setGoogleStatus(fallback);
+            if (platform === 'github') setGithubStatus(fallback);
         }
     };
 
@@ -182,7 +188,9 @@ export default function Integrations() {
                             name="GitHub"
                             description="Monitor code activity, PRs, and developer productivity"
                             icon="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-                            status={{ connected: false, loading: false, comingSoon: true }}
+                            status={githubStatus}
+                            onConnect={() => handleConnect('github')}
+                            onDisconnect={() => handleDisconnect('github')}
                             features={[
                                 'PR review tracking',
                                 'Commit analysis',

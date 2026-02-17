@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2 } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2, Code } from 'lucide-react';
 
 export default function AppShell() {
     const { user, profile, signOut } = useAuth();
@@ -68,6 +68,9 @@ export default function AppShell() {
                 <nav className="flex-1 px-3 space-y-1">
                     <NavLink to="/app/dashboard" icon={<LayoutDashboard size={20} />}>
                         Dashboard
+                    </NavLink>
+                    <NavLink to="/app/code" icon={<Code size={20} />}>
+                        Code
                     </NavLink>
                     <NavLink to="/app/summaries" icon={<Calendar size={20} />}>
                         Summaries
