@@ -15,6 +15,7 @@ import githubRoutes from './routes/github.js';
 import userRoutes from './routes/user.js';
 import teamsRoutes from './routes/teams.js';
 import invitationsRoutes from './routes/invitations.js';
+import emailRoutes from './routes/email.js';
 import logger from './utils/logger.js';
 import { db } from './services/supabase-client.js';
 
@@ -77,7 +78,8 @@ app.get('/', (req, res) => {
       googleCalendar: '/api/google-calendar',
       user: '/api/user',
       teams: '/api/teams',
-      invitations: '/api/invitations'
+      invitations: '/api/invitations',
+      email: '/api/email'
     }
   });
 });
@@ -92,11 +94,16 @@ app.use('/api/github', githubRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/invitations', invitationsRoutes);
+app.use('/api/email', emailRoutes);
 
 // Summaries endpoint
 app.get('/api/summaries', async (req, res) => {
   try {
     const { userId, teamId } = req.query;
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(requestedLimit, 500)
+      : 100;
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
@@ -110,7 +117,7 @@ app.get('/api/summaries', async (req, res) => {
       return res.json([]);
     }
 
-    const summaries = await db.getSummaries(integration?.team_id, userId);
+    const summaries = await db.getSummaries(integration?.team_id, userId, limit);
 
     res.json(summaries || []);
   } catch (error) {

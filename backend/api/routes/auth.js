@@ -188,7 +188,7 @@ router.get('/settings', async (req, res) => {
             email_notifications: true,
             slack_notifications: true,
             blocker_alerts: false,
-            daily_digest: true,
+            daily_digest: false,
             appearance: 'light',
             created_at: new Date().toISOString()
         };
