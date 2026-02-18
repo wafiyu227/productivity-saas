@@ -1,11 +1,10 @@
-import { Calendar, Clock, Users, Video, Plus, MessageSquare, BarChart2, CheckSquare, RefreshCw, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, Users, Video, CheckSquare, RefreshCw } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 
 export default function Meetings() {
     const { user, profile } = useAuth();
-    const [meetings, setMeetings] = useState([]);
     const [calendarEvents, setCalendarEvents] = useState([]);
     const [analytics, setAnalytics] = useState(null);
     const [actionItems, setActionItems] = useState([]);
@@ -15,56 +14,18 @@ export default function Meetings() {
 
     useEffect(() => {
         if (user && profile) {
-            fetchAllData();
+            fetchCalendarData();
         }
     }, [user, profile?.current_team_id]);
 
-    const fetchAllData = async () => {
-        setLoading(true);
-        await Promise.all([
-            fetchSlackSummaries(),
-            fetchCalendarData()
-        ]);
-        setLoading(false);
-    };
-
     const handleRefresh = async () => {
         setRefreshing(true);
-        await fetchAllData();
+        await fetchCalendarData();
         setRefreshing(false);
     };
 
-    const fetchSlackSummaries = async () => {
-        try {
-            const summaries = await api.getSummaries(profile?.current_team_id);
-            if (summaries && !summaries.error) {
-                const transformedMeetings = summaries.map(s => ({
-                    id: s.id,
-                    title: `#${s.channel_name} Discussion`,
-                    channelName: s.channel_name,
-                    date: new Date(s.created_at).toLocaleDateString('en-US', {
-                        weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                    }),
-                    time: new Date(s.created_at).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }),
-                    summary: s.summary,
-                    keyTopics: s.key_topics || [],
-                    blockers: s.blockers || [],
-                    messageCount: s.message_count || 0
-                }));
-                setMeetings(transformedMeetings);
-            }
-        } catch (error) {
-            console.error('Failed to fetch summaries:', error);
-        }
-    };
-
     const fetchCalendarData = async () => {
+        setLoading(true);
         try {
             // Check status first to avoid unnecessary calls
             // For now we'll just try to fetch events, if 401/error we know it's not connected
@@ -72,6 +33,7 @@ export default function Meetings() {
 
             if (eventsData.error) {
                 setCalendarConnected(false);
+                setLoading(false);
                 return;
             }
 
@@ -93,6 +55,8 @@ export default function Meetings() {
         } catch (error) {
             console.error('Failed to fetch calendar data:', error);
             setCalendarConnected(false);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -104,10 +68,10 @@ export default function Meetings() {
                     <div className="flex items-center justify-between mb-8">
                         <div>
                             <h1 className="text-4xl font-bold text-gray-900 mb-2">
-                                Team Discussions & Schedule
+                                Team Schedule & Analytics
                             </h1>
                             <p className="text-lg text-gray-600">
-                                AI-powered summaries of your meetings and Slack discussions
+                                Monitor your team's meeting load and track action items
                             </p>
                         </div>
                         <button
@@ -125,7 +89,7 @@ export default function Meetings() {
                                 <Calendar className="w-6 h-6 text-blue-600" />
                                 <div>
                                     <p className="text-blue-900 font-medium">Connect Google Calendar</p>
-                                    <p className="text-blue-700 text-sm">Get AI meeting summaries and schedule analytics</p>
+                                    <p className="text-blue-700 text-sm">Get insight into your team's meeting load and identify focus time.</p>
                                 </div>
                             </div>
                             <a href="/app/integrations" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium">
@@ -145,7 +109,9 @@ export default function Meetings() {
                             </div>
                             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                                 <div className="flex items-center gap-2 text-gray-500 mb-1">
-                                    <BarChart2 size={16} />
+                                    <div className="w-4 h-4 rounded-full bg-blue-100 flex items-center justify-center">
+                                        <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                                    </div>
                                     <span className="text-sm">Avg Duration</span>
                                 </div>
                                 <p className="text-2xl font-bold text-gray-900">{analytics.avgMeetingLength}m</p>
@@ -182,7 +148,7 @@ export default function Meetings() {
                                 </div>
                             ) : calendarEvents.length === 0 ? (
                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                                    <p className="text-gray-500">No upcoming meetings scheduled</p>
+                                    <p className="text-gray-500">No upcoming meetings scheduled for the next 7 days.</p>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
@@ -238,28 +204,36 @@ export default function Meetings() {
                             )}
                         </div>
 
-                        {/* Right Column: Action Items & Slack */}
+                        {/* Right Column: Action Items */}
                         <div className="space-y-8">
                             {/* Action Items */}
                             {calendarConnected && (
-                                <div>
+                                <div className="sticky top-8">
                                     <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
                                         <CheckSquare className="w-5 h-5 text-green-600" />
                                         Action Items
                                     </h2>
+                                    <p className="text-sm text-gray-500 mb-3">
+                                        Tasks extracted from your calendar event descriptions (e.g., "TODO: Review deck")
+                                    </p>
                                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                                         {actionItems.length === 0 ? (
-                                            <p className="text-gray-500 text-sm text-center py-4">No action items detected from recent meetings</p>
+                                            <div className="text-center py-8">
+                                                <p className="text-gray-500 text-sm">No action items found.</p>
+                                                <p className="text-xs text-gray-400 mt-2">Add "TODO:" or "Action:" to your meeting descriptions.</p>
+                                            </div>
                                         ) : (
                                             <ul className="space-y-3">
                                                 {actionItems.map((item, i) => (
-                                                    <li key={i} className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg transition">
-                                                        <div className="w-5 h-5 rounded border border-gray-300 flex items-center justify-center mt-0.5 bg-white">
-                                                            <div className="w-3 h-3 rounded-sm bg-transparent"></div>
+                                                    <li key={i} className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg transition group">
+                                                        <div className="w-5 h-5 rounded border border-gray-300 flex items-center justify-center mt-0.5 bg-white group-hover:border-blue-400 transition">
+                                                            <div className="w-3 h-3 rounded-sm bg-transparent group-hover:bg-blue-100 transition"></div>
                                                         </div>
                                                         <div>
-                                                            <p className="text-gray-800 text-sm">{item.text}</p>
-                                                            <p className="text-xs text-gray-500 mt-1">From: {item.source}</p>
+                                                            <p className="text-gray-800 text-sm font-medium">{item.text}</p>
+                                                            <p className="text-xs text-gray-500 mt-1">
+                                                                From: <span className="text-blue-600">{item.source}</span>
+                                                            </p>
                                                         </div>
                                                     </li>
                                                 ))}
@@ -268,30 +242,6 @@ export default function Meetings() {
                                     </div>
                                 </div>
                             )}
-
-                            {/* Recent Slack Discussions */}
-                            <div>
-                                <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                    <MessageSquare className="w-5 h-5 text-purple-600" />
-                                    Recent Discussions
-                                </h2>
-                                <div className="space-y-4">
-                                    {meetings.slice(0, 3).map(meeting => (
-                                        <div key={meeting.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <h3 className="font-bold text-gray-900 text-sm">{meeting.channelName}</h3>
-                                                <span className="text-xs text-gray-500">{meeting.time}</span>
-                                            </div>
-                                            <p className="text-sm text-gray-600 line-clamp-2">{meeting.summary}</p>
-                                        </div>
-                                    ))}
-                                    {meetings.length === 0 && (
-                                        <div className="text-center py-8 bg-white rounded-xl border border-gray-100">
-                                            <p className="text-gray-500 text-sm">No recent discussions</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>

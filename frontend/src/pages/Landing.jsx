@@ -243,10 +243,10 @@ export default function Landing() {
                 <div className="container mx-auto max-w-6xl">
                     <div className="text-center mb-16">
                         <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-                            Simple, transparent pricing
+                            Simple, flat-rate pricing
                         </h2>
                         <p className="text-xl text-gray-600">
-                            Start free, upgrade when you're ready
+                            No per-seat fees. Unlimited users on all paid plans.
                         </p>
                     </div>
 
@@ -254,12 +254,13 @@ export default function Landing() {
                         <PricingCard
                             name="Free"
                             price="$0"
-                            description="Perfect for trying out"
+                            description="For small teams & testing"
                             features={[
-                                '1 Slack workspace',
-                                '10 summaries/month',
-                                'Basic analytics',
-                                'Email support'
+                                '1 team (up to 3 members)',
+                                '5 AI summaries per day',
+                                'Slack integration only',
+                                '7-day history',
+                                'Community support'
                             ]}
                             cta="Start Free"
                             highlighted={false}
@@ -269,27 +270,29 @@ export default function Landing() {
                             price="$29"
                             description="For growing teams"
                             features={[
-                                'Unlimited workspaces',
-                                'Unlimited summaries',
-                                'Advanced analytics',
-                                'Priority support',
-                                'Custom integrations',
-                                'API access'
+                                '1 team (up to 15 members)',
+                                'Unlimited AI summaries',
+                                'Slack + Asana + Google Calendar',
+                                'Blocker detection',
+                                'Project health monitoring',
+                                '90-day history',
+                                'Email support'
                             ]}
                             cta="Start Free Trial"
                             highlighted={true}
                         />
                         <PricingCard
-                            name="Enterprise"
-                            price="Custom"
-                            description="For large organizations"
+                            name="Business"
+                            price="$79"
+                            description="For scaling organizations"
                             features={[
+                                '1 team (unlimited members)',
                                 'Everything in Pro',
-                                'Dedicated support',
-                                'Custom AI training',
-                                'SLA guarantee',
-                                'On-premise option',
-                                'Volume discounts'
+                                'Daily digest emails',
+                                'Advanced analytics',
+                                'Workload insights',
+                                'Priority support',
+                                'Custom onboarding'
                             ]}
                             cta="Contact Sales"
                             highlighted={false}
