@@ -27,6 +27,7 @@ import Contact from './pages/company/Contact';
 import Privacy from './pages/legal/Privacy';
 import Terms from './pages/legal/Terms';
 import Security from './pages/legal/Security';
+import DemoWorkspace from './pages/DemoWorkspace';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -45,6 +46,7 @@ function App() {
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/security" element={<Security />} />
+          <Route path="/demo" element={<DemoWorkspace />} />
           <Route path="/join" element={<JoinTeam />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />

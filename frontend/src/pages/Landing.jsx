@@ -5,6 +5,13 @@ import {
 } from 'lucide-react';
 
 export default function Landing() {
+    const handleSmoothScroll = (event, sectionId) => {
+        event.preventDefault();
+        const section = document.getElementById(sectionId);
+        if (!section) return;
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
     return (
         <div className="min-h-screen bg-white">
             {/* Navigation */}
@@ -18,10 +25,10 @@ export default function Landing() {
                             <span className="text-xl font-bold text-gray-900">Teama AI</span>
                         </div>
                         <div className="hidden md:flex items-center gap-8">
-                            <a href="#features" className="text-gray-600 hover:text-gray-900 transition">Features</a>
-                            <a href="#how-it-works" className="text-gray-600 hover:text-gray-900 transition">How it Works</a>
-                            <a href="#testimonials" className="text-gray-600 hover:text-gray-900 transition">Testimonials</a>
-                            <a href="#pricing" className="text-gray-600 hover:text-gray-900 transition">Pricing</a>
+                            <a href="#features" onClick={(event) => handleSmoothScroll(event, 'features')} className="text-gray-600 hover:text-gray-900 transition">Features</a>
+                            <a href="#how-it-works" onClick={(event) => handleSmoothScroll(event, 'how-it-works')} className="text-gray-600 hover:text-gray-900 transition">How it Works</a>
+                            <a href="#testimonials" onClick={(event) => handleSmoothScroll(event, 'testimonials')} className="text-gray-600 hover:text-gray-900 transition">Testimonials</a>
+                            <a href="#pricing" onClick={(event) => handleSmoothScroll(event, 'pricing')} className="text-gray-600 hover:text-gray-900 transition">Pricing</a>
                         </div>
                         <div className="flex items-center gap-4">
                             <Link to="/login" className="text-gray-600 hover:text-gray-900 transition">
@@ -66,10 +73,10 @@ export default function Landing() {
                                 <ArrowRight size={20} />
                             </Link>
                             <a
-                                href="#demo"
+                                href="/demo"
                                 className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-900 text-lg rounded-lg hover:border-gray-300 hover:shadow-lg transition-all"
                             >
-                                Watch Demo
+                                Try Interactive Demo
                             </a>
                         </div>
                         <div className="flex items-center justify-center gap-8 text-sm text-gray-600 flex-wrap">
@@ -116,7 +123,7 @@ export default function Landing() {
             </section>
 
             {/* Features Section */}
-            <section id="features" className="py-24 px-6">
+            <section id="features" className="py-24 px-6 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
                     <div className="text-center mb-16">
                         <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
@@ -169,7 +176,7 @@ export default function Landing() {
             </section>
 
             {/* How It Works */}
-            <section id="how-it-works" className="py-24 px-6 bg-gradient-to-br from-blue-50 to-purple-50">
+            <section id="how-it-works" className="py-24 px-6 bg-gradient-to-br from-blue-50 to-purple-50 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
                     <div className="text-center mb-16">
                         <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
@@ -201,7 +208,7 @@ export default function Landing() {
             </section>
 
             {/* Testimonials */}
-            <section id="testimonials" className="py-24 px-6">
+            <section id="testimonials" className="py-24 px-6 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
                     <div className="text-center mb-16">
                         <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
@@ -239,7 +246,7 @@ export default function Landing() {
             </section>
 
             {/* Pricing */}
-            <section id="pricing" className="py-24 px-6 bg-gray-50">
+            <section id="pricing" className="py-24 px-6 bg-gray-50 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
                     <div className="text-center mb-16">
                         <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
@@ -254,27 +261,29 @@ export default function Landing() {
                         <PricingCard
                             name="Free"
                             price="$0"
-                            description="For small teams & testing"
+                            description="For small teams getting started"
                             features={[
-                                '1 team (up to 3 members)',
-                                '5 AI summaries per day',
+                                '1 team (up to 10 members)',
+                                '200 AI summaries per month',
                                 'Slack integration only',
-                                '7-day history',
+                                '30-day history',
+                                'Basic blocker detection',
+                                'Basic analytics',
                                 'Community support'
                             ]}
                             cta="Start Free"
                             highlighted={false}
                         />
                         <PricingCard
-                            name="Pro"
-                            price="$29"
+                            name="Starter"
+                            price="$19"
                             description="For growing teams"
                             features={[
-                                '1 team (up to 15 members)',
-                                'Unlimited AI summaries',
+                                '1 team (up to 25 members)',
+                                '2,000 AI summaries per month',
                                 'Slack + Asana + Google Calendar',
                                 'Blocker detection',
-                                'Project health monitoring',
+                                'Daily digest + blocker alerts',
                                 '90-day history',
                                 'Email support'
                             ]}
@@ -282,15 +291,18 @@ export default function Landing() {
                             highlighted={true}
                         />
                         <PricingCard
-                            name="Business"
-                            price="$79"
+                            name="Growth"
+                            price="$69"
                             description="For scaling organizations"
                             features={[
-                                '1 team (unlimited members)',
-                                'Everything in Pro',
+                                '1 team (up to 100 members)',
+                                '10,000 AI summaries per month',
+                                'Everything in Starter',
                                 'Daily digest emails',
                                 'Advanced analytics',
+                                'Export reports',
                                 'Workload insights',
+                                '1-year history',
                                 'Priority support',
                                 'Custom onboarding'
                             ]}

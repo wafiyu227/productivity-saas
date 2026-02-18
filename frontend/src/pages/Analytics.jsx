@@ -1,11 +1,34 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { api } from '../api/client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    TrendingUp, MessageSquare, AlertTriangle, Users, Clock,
-    BarChart3, PieChart, RefreshCw, ArrowUpRight, ArrowDownRight,
-    Calendar, Filter
+    AlertTriangle,
+    ArrowDownRight,
+    ArrowUpRight,
+    BarChart3,
+    CheckCircle,
+    Clock,
+    MessageSquare,
+    RefreshCw,
+    Users
 } from 'lucide-react';
+import {
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Cell,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis
+} from 'recharts';
+import { api } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+
+const CHART_COLORS = ['#2563EB', '#06B6D4', '#0EA5E9', '#6366F1', '#14B8A6', '#0284C7'];
 
 export default function Analytics() {
     const { user, profile } = useAuth();
@@ -13,53 +36,111 @@ export default function Analytics() {
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState('7days');
     const [refreshing, setRefreshing] = useState(false);
+    const [lastUpdated, setLastUpdated] = useState(null);
 
-    useEffect(() => {
-        if (user && profile) {
-            loadAnalytics();
-        }
-    }, [user, profile?.current_team_id, timeRange]);
-
-    const loadAnalytics = async () => {
+    const loadAnalytics = useCallback(async ({ showLoader = true } = {}) => {
         if (!user) return;
-        setLoading(true);
+
+        if (showLoader) setLoading(true);
         try {
-            const data = await api.getSummaries(profile?.current_team_id);
-            setSummaries(data || []);
+            const data = await api.getSummaries(profile?.current_team_id, { limit: 500 });
+            setSummaries(Array.isArray(data) ? data : []);
+            setLastUpdated(new Date());
         } catch (error) {
             console.error('Failed to load analytics:', error);
         } finally {
-            setLoading(false);
+            if (showLoader) setLoading(false);
         }
-    };
+    }, [user, profile?.current_team_id]);
+
+    useEffect(() => {
+        if (user && profile) {
+            loadAnalytics({ showLoader: true });
+        }
+    }, [user, profile, loadAnalytics]);
+
+    useEffect(() => {
+        if (!user) return undefined;
+
+        const filters = [];
+        if (profile?.current_team_id) {
+            filters.push(`team_id=eq.${profile.current_team_id}`);
+        } else {
+            filters.push(`user_id=eq.${user.id}`);
+        }
+
+        const channels = filters.map((filter, index) => (
+            supabase
+                .channel(`analytics-live-${user.id}-${index}-${Date.now()}`)
+                .on('postgres_changes', {
+                    event: '*',
+                    schema: 'public',
+                    table: 'slack_summaries',
+                    filter
+                }, () => {
+                    loadAnalytics({ showLoader: false });
+                })
+                .subscribe()
+        ));
+
+        return () => {
+            channels.forEach((channel) => {
+                supabase.removeChannel(channel);
+            });
+        };
+    }, [user, user?.id, profile?.current_team_id, loadAnalytics]);
 
     const handleRefresh = async () => {
         setRefreshing(true);
-        await loadAnalytics();
+        await loadAnalytics({ showLoader: false });
         setRefreshing(false);
     };
 
-    // Calculate analytics
-    const analytics = calculateAnalytics(summaries, timeRange);
+    const filteredSummaries = useMemo(
+        () => filterSummariesByRange(summaries, timeRange),
+        [summaries, timeRange]
+    );
+
+    const analytics = useMemo(
+        () => calculateAnalytics(summaries, timeRange),
+        [summaries, timeRange]
+    );
+    const activityData = useMemo(
+        () => buildActivityData(filteredSummaries, timeRange),
+        [filteredSummaries, timeRange]
+    );
+    const channelData = useMemo(
+        () => buildChannelData(filteredSummaries),
+        [filteredSummaries]
+    );
+    const blockerData = useMemo(
+        () => buildBlockerData(filteredSummaries),
+        [filteredSummaries]
+    );
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
             <div className="p-8">
                 <div className="max-w-7xl mx-auto">
-                    {/* Header */}
                     <div className="mb-8 flex items-center justify-between">
                         <div>
                             <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
                                 Analytics & Insights
                             </h1>
                             <p className="text-lg text-gray-600">
-                                Real-time team productivity and collaboration metrics
+                                Live team productivity and collaboration metrics
                             </p>
+                            {lastUpdated && (
+                                <p className="text-sm text-gray-500 mt-1">
+                                    Updated {lastUpdated.toLocaleTimeString()}
+                                </p>
+                            )}
                         </div>
                         <button
                             onClick={handleRefresh}
                             disabled={refreshing}
                             className="p-3 rounded-lg bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition"
+                            title="Refresh analytics"
                         >
                             <RefreshCw
                                 size={20}
@@ -68,14 +149,13 @@ export default function Analytics() {
                         </button>
                     </div>
 
-                    {/* Time Range Filter */}
                     <div className="mb-8 flex gap-2">
                         {[
                             { label: 'Today', value: '1day' },
                             { label: '7 Days', value: '7days' },
                             { label: '30 Days', value: '30days' },
                             { label: 'All Time', value: 'all' }
-                        ].map(option => (
+                        ].map((option) => (
                             <button
                                 key={option.value}
                                 onClick={() => setTimeRange(option.value)}
@@ -93,7 +173,6 @@ export default function Analytics() {
                         <LoadingState />
                     ) : (
                         <>
-                            {/* Key Metrics Grid */}
                             <div className="grid md:grid-cols-4 gap-6 mb-8">
                                 <MetricCard
                                     title="Total Messages"
@@ -116,8 +195,8 @@ export default function Analytics() {
                                     value={analytics.channelCount}
                                     change={analytics.channelChange}
                                     trend={analytics.channelChange >= 0 ? 'up' : 'down'}
-                                    icon={<Users className="text-purple-600" size={24} />}
-                                    color="purple"
+                                    icon={<Users className="text-indigo-600" size={24} />}
+                                    color="indigo"
                                 />
                                 <MetricCard
                                     title="Summaries"
@@ -129,31 +208,26 @@ export default function Analytics() {
                                 />
                             </div>
 
-                            {/* Charts Grid */}
                             <div className="grid lg:grid-cols-3 gap-8 mb-8">
-                                {/* Activity Timeline */}
                                 <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                                     <h2 className="text-xl font-bold text-gray-900 mb-6">Activity Over Time</h2>
-                                    <ActivityChart summaries={summaries} />
+                                    <ActivityChart data={activityData} />
                                 </div>
 
-                                {/* Channel Distribution */}
                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                                     <h2 className="text-xl font-bold text-gray-900 mb-6">Top Channels</h2>
-                                    <ChannelDistribution summaries={summaries} />
+                                    <ChannelDistribution data={channelData} />
                                 </div>
                             </div>
 
-                            {/* Blockers Analysis */}
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
-                                <h2 className="text-xl font-bold text-gray-900 mb-6">Blockers Summary</h2>
-                                <BlockersAnalysis summaries={summaries} />
+                                <h2 className="text-xl font-bold text-gray-900 mb-6">Top Active Blockers</h2>
+                                <BlockersAnalysis data={blockerData} />
                             </div>
 
-                            {/* Team Performance */}
                             <div className="grid md:grid-cols-2 gap-8">
                                 <PerformanceMetrics analytics={analytics} />
-                                <EngagementMetrics summaries={summaries} />
+                                <EngagementMetrics analytics={analytics} />
                             </div>
                         </>
                     )}
@@ -168,7 +242,7 @@ function MetricCard({ title, value, change, trend, icon, color }) {
         blue: 'bg-blue-50 border-blue-200',
         red: 'bg-red-50 border-red-200',
         green: 'bg-green-50 border-green-200',
-        purple: 'bg-purple-50 border-purple-200'
+        indigo: 'bg-indigo-50 border-indigo-200'
     };
 
     const trendColor = trend === 'up' ? 'text-green-600' : 'text-red-600';
@@ -177,9 +251,7 @@ function MetricCard({ title, value, change, trend, icon, color }) {
     return (
         <div className={`rounded-2xl border p-6 ${colorClasses[color]}`}>
             <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-white rounded-xl">
-                    {icon}
-                </div>
+                <div className="p-3 bg-white rounded-xl">{icon}</div>
                 <div className={`flex items-center gap-1 ${trendColor} text-sm font-semibold`}>
                     <TrendIcon size={16} />
                     {Math.abs(change)}%
@@ -191,157 +263,128 @@ function MetricCard({ title, value, change, trend, icon, color }) {
     );
 }
 
-function ActivityChart({ summaries }) {
-    // Group summaries by date
-    const dateGroups = {};
-    summaries.forEach(summary => {
-        const date = new Date(summary.created_at).toLocaleDateString();
-        dateGroups[date] = (dateGroups[date] || 0) + 1;
-    });
-
-    const dates = Object.keys(dateGroups).sort().slice(-7);
-    const maxValue = Math.max(...dates.map(d => dateGroups[d]), 1);
+function ActivityChart({ data }) {
+    if (!data.length) {
+        return <EmptyState message="No activity data available" />;
+    }
 
     return (
-        <div className="flex items-end gap-2 h-64 justify-between">
-            {dates.length === 0 ? (
-                <div className="w-full flex items-center justify-center text-gray-500">
-                    No data available
-                </div>
-            ) : (
-                dates.map(date => (
-                    <div key={date} className="flex-1 flex flex-col items-center gap-2">
-                        <div className="relative h-40 w-full flex items-end justify-center">
-                            <div
-                                className="w-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg transition-all hover:from-blue-700 hover:to-blue-500"
-                                style={{
-                                    height: `${(dateGroups[date] / maxValue) * 100}%`,
-                                    minHeight: dateGroups[date] > 0 ? '8px' : '0px'
-                                }}
-                            />
-                        </div>
-                        <p className="text-xs text-gray-600 text-center">{new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
-                        <p className="text-xs font-semibold text-gray-900">{dateGroups[date]}</p>
-                    </div>
-                ))
-            )}
+        <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                    <defs>
+                        <linearGradient id="activityFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#2563EB" stopOpacity={0.35} />
+                            <stop offset="95%" stopColor="#2563EB" stopOpacity={0.05} />
+                        </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                    <XAxis dataKey="label" tick={{ fill: '#475569', fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fill: '#475569', fontSize: 12 }} />
+                    <Tooltip />
+                    <Area
+                        type="monotone"
+                        dataKey="summaries"
+                        stroke="#2563EB"
+                        strokeWidth={3}
+                        fill="url(#activityFill)"
+                    />
+                </AreaChart>
+            </ResponsiveContainer>
         </div>
     );
 }
 
-function ChannelDistribution({ summaries }) {
-    const channelCounts = {};
-    summaries.forEach(summary => {
-        const channel = summary.channel_name || 'unknown';
-        channelCounts[channel] = (channelCounts[channel] || 0) + 1;
-    });
-
-    const topChannels = Object.entries(channelCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5);
-
-    const total = topChannels.reduce((sum, [_, count]) => sum + count, 0);
+function ChannelDistribution({ data }) {
+    if (!data.length) {
+        return <EmptyState message="No channel data available" />;
+    }
 
     return (
-        <div className="space-y-4">
-            {topChannels.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No channel data available</p>
-            ) : (
-                topChannels.map(([channel, count], idx) => (
-                    <div key={idx}>
-                        <div className="flex items-center justify-between mb-2">
-                            <p className="text-sm font-medium text-gray-900">#{channel}</p>
-                            <p className="text-sm font-semibold text-gray-600">{count}</p>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                            <div
-                                className="bg-gradient-to-r from-blue-600 to-blue-400 h-full transition-all"
-                                style={{ width: `${(count / total) * 100}%` }}
-                            />
-                        </div>
+        <div className="space-y-6">
+            <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                        <Pie
+                            data={data}
+                            dataKey="count"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={72}
+                        >
+                            {data.map((entry, index) => (
+                                <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                            ))}
+                        </Pie>
+                        <Tooltip />
+                    </PieChart>
+                </ResponsiveContainer>
+            </div>
+            <div className="space-y-2">
+                {data.map((entry) => (
+                    <div key={entry.name} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700">#{entry.name}</span>
+                        <span className="font-semibold text-gray-900">
+                            {entry.count} ({entry.share}%)
+                        </span>
                     </div>
-                ))
-            )}
+                ))}
+            </div>
         </div>
     );
 }
 
-function BlockersAnalysis({ summaries }) {
-    const blockerMap = {};
-    const channelBlockers = {};
-
-    summaries.forEach(summary => {
-        const blockers = summary.blockers || [];
-        const channel = summary.channel_name || 'unknown';
-
-        if (!channelBlockers[channel]) {
-            channelBlockers[channel] = [];
-        }
-
-        Array.isArray(blockers) && blockers.forEach(blocker => {
-            blockerMap[blocker] = (blockerMap[blocker] || 0) + 1;
-            channelBlockers[channel].push(blocker);
-        });
-    });
-
-    const topBlockers = Object.entries(blockerMap)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
+function BlockersAnalysis({ data }) {
+    if (!data.length) {
+        return (
+            <div className="text-center py-8 text-gray-600">
+                <CheckCircle size={32} className="mx-auto mb-2 text-green-500" />
+                <p>No blockers detected in this range.</p>
+            </div>
+        );
+    }
 
     return (
-        <div>
-            {topBlockers.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                    <CheckCircle size={32} className="mx-auto mb-2 text-green-500" />
-                    <p>No blockers detected! Great job! 🎉</p>
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    {topBlockers.map(([blocker, count], idx) => (
-                        <div key={idx} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-red-200 hover:bg-red-50 transition">
-                            <div className="p-2 bg-red-100 rounded-lg">
-                                <AlertTriangle size={16} className="text-red-600" />
-                            </div>
-                            <div className="flex-1">
-                                <p className="font-medium text-gray-900">{blocker}</p>
-                                <p className="text-sm text-gray-500">{count} occurrence{count > 1 ? 's' : ''}</p>
-                            </div>
-                            <span className="px-3 py-1 bg-red-100 text-red-700 font-semibold text-sm rounded-lg">
-                                {count}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
+        <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 16, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                    <XAxis type="number" allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#DC2626" radius={[0, 6, 6, 0]} />
+                </BarChart>
+            </ResponsiveContainer>
         </div>
     );
 }
 
 function PerformanceMetrics({ analytics }) {
-    const metrics = [
+    const metricRows = [
         {
-            label: 'Avg Messages per Channel',
-            value: (analytics.totalMessages / Math.max(analytics.channelCount, 1)).toFixed(1),
+            label: 'Avg Messages per Summary',
+            value: analytics.avgMessagesPerSummary.toFixed(1),
             icon: MessageSquare,
-            color: 'blue'
+            badgeClass: 'bg-blue-50 text-blue-700'
         },
         {
-            label: 'Resolution Rate',
-            value: '100%',
-            icon: CheckCircle,
-            color: 'green'
-        },
-        {
-            label: 'Average Response Time',
-            value: '2.4h',
-            icon: Clock,
-            color: 'purple'
+            label: 'Blockers per Summary',
+            value: analytics.avgTotalBlockersPerSummary.toFixed(2),
+            icon: AlertTriangle,
+            badgeClass: 'bg-red-50 text-red-700'
         },
         {
             label: 'Active Channels',
-            value: analytics.channelCount,
+            value: analytics.channelCount.toString(),
             icon: Users,
-            color: 'indigo'
+            badgeClass: 'bg-indigo-50 text-indigo-700'
+        },
+        {
+            label: 'Resolution Rate',
+            value: `${analytics.resolutionRate}%`,
+            icon: CheckCircle,
+            badgeClass: 'bg-green-50 text-green-700'
         }
     ];
 
@@ -349,17 +392,17 @@ function PerformanceMetrics({ analytics }) {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-6">Team Performance</h2>
             <div className="space-y-4">
-                {metrics.map((metric, idx) => {
-                    const IconComponent = metric.icon;
+                {metricRows.map((row) => {
+                    const IconComponent = row.icon;
                     return (
-                        <div key={idx} className="flex items-center justify-between p-4 rounded-lg border border-gray-100 hover:border-gray-200 transition">
+                        <div key={row.label} className="flex items-center justify-between p-4 rounded-lg border border-gray-100">
                             <div className="flex items-center gap-3">
-                                <div className={`p-3 rounded-lg bg-${metric.color}-50`}>
-                                    <IconComponent className={`text-${metric.color}-600`} size={20} />
+                                <div className={`p-2 rounded-lg ${row.badgeClass}`}>
+                                    <IconComponent size={18} />
                                 </div>
-                                <p className="text-gray-700 font-medium">{metric.label}</p>
+                                <p className="text-gray-700 font-medium">{row.label}</p>
                             </div>
-                            <p className="text-2xl font-bold text-gray-900">{metric.value}</p>
+                            <p className="text-2xl font-bold text-gray-900">{row.value}</p>
                         </div>
                     );
                 })}
@@ -368,32 +411,23 @@ function PerformanceMetrics({ analytics }) {
     );
 }
 
-function EngagementMetrics({ summaries }) {
-    const days = Math.ceil(
-        (new Date() - new Date(summaries[summaries.length - 1]?.created_at || new Date())) / (1000 * 60 * 60 * 24)
-    ) || 1;
-    const avgSummariesPerDay = (summaries.length / days).toFixed(1);
-
-    const metrics = [
+function EngagementMetrics({ analytics }) {
+    const cards = [
         {
             label: 'Summaries Generated',
-            value: summaries.length,
-            trend: '+12%'
+            value: analytics.summaryCount
         },
         {
-            label: 'Avg per Day',
-            value: avgSummariesPerDay,
-            trend: '+5%'
+            label: 'Resolved Blockers',
+            value: analytics.resolvedBlockers
         },
         {
-            label: 'Team Activity',
-            value: '87%',
-            trend: '+8%'
+            label: 'Avg per Active Day',
+            value: analytics.avgSummariesPerActiveDay
         },
         {
-            label: 'Collaboration Score',
-            value: '9.2',
-            trend: '+3%'
+            label: 'Open Blockers',
+            value: analytics.activeBlockers
         }
     ];
 
@@ -401,11 +435,10 @@ function EngagementMetrics({ summaries }) {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-6">Team Engagement</h2>
             <div className="grid grid-cols-2 gap-4">
-                {metrics.map((metric, idx) => (
-                    <div key={idx} className="p-4 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition">
+                {cards.map((metric) => (
+                    <div key={metric.label} className="p-4 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition">
                         <p className="text-sm text-gray-600 mb-2">{metric.label}</p>
-                        <p className="text-2xl font-bold text-gray-900 mb-1">{metric.value}</p>
-                        <p className="text-xs text-green-600 font-semibold">{metric.trend} from last period</p>
+                        <p className="text-2xl font-bold text-gray-900">{metric.value}</p>
                     </div>
                 ))}
             </div>
@@ -417,69 +450,187 @@ function LoadingState() {
     return (
         <div className="flex items-center justify-center h-96">
             <div className="text-center">
-                <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
                 <p className="text-gray-600">Loading analytics...</p>
             </div>
         </div>
     );
 }
 
-function calculateAnalytics(summaries, timeRange) {
-    const now = new Date();
-    let filtered = summaries;
+function EmptyState({ message }) {
+    return (
+        <div className="h-full min-h-56 flex items-center justify-center text-gray-500">
+            {message}
+        </div>
+    );
+}
 
-    // Filter by time range
-    if (timeRange !== 'all') {
-        const daysMap = { '1day': 1, '7days': 7, '30days': 30 };
-        const days = daysMap[timeRange] || 7;
-        const cutoff = new Date(now - days * 24 * 60 * 60 * 1000);
-        filtered = summaries.filter(s => new Date(s.created_at) >= cutoff);
-    }
+function filterSummariesByRange(summaries, timeRange) {
+    if (timeRange === 'all') return summaries;
 
-    // Calculate metrics
-    const totalMessages = filtered.reduce((sum, s) => sum + (s.message_count || 0), 0);
-    const activeBlockers = filtered.reduce((sum, s) => {
-        const blockers = s.blockers || [];
-        return sum + (Array.isArray(blockers) ? blockers.length : 0);
-    }, 0);
-    const channelCount = new Set(filtered.map(s => s.channel_id)).size;
-    const summaryCount = filtered.length;
+    const dayMap = { '1day': 1, '7days': 7, '30days': 30 };
+    const days = dayMap[timeRange] || 7;
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
 
-    // Calculate changes (vs previous period)
-    let prevTotalMessages = 0, prevBlockers = 0, prevChannels = 0, prevSummaries = 0;
-    const daysMap = { '1day': 1, '7days': 7, '30days': 30 };
-    const days = daysMap[timeRange] || 7;
-    const prevCutoff = new Date(now - days * 2 * 24 * 60 * 60 * 1000);
-    const currCutoff = new Date(now - days * 24 * 60 * 60 * 1000);
-
-    const prevPeriod = summaries.filter(s => {
-        const date = new Date(s.created_at);
-        return date >= prevCutoff && date < currCutoff;
+    return summaries.filter((summary) => {
+        const timestamp = new Date(summary.created_at).getTime();
+        return Number.isFinite(timestamp) && timestamp >= cutoff;
     });
+}
 
-    prevTotalMessages = prevPeriod.reduce((sum, s) => sum + (s.message_count || 0), 0);
-    prevBlockers = prevPeriod.reduce((sum, s) => {
-        const blockers = s.blockers || [];
-        return sum + (Array.isArray(blockers) ? blockers.length : 0);
-    }, 0);
-    prevChannels = new Set(prevPeriod.map(s => s.channel_id)).size;
-    prevSummaries = prevPeriod.length;
+function calculateAnalytics(summaries, timeRange) {
+    const currentPeriod = filterSummariesByRange(summaries, timeRange);
+    const previousPeriod = getPreviousPeriodSummaries(summaries, timeRange);
 
-    const messageChange = prevTotalMessages > 0 ? Math.round(((totalMessages - prevTotalMessages) / prevTotalMessages) * 100) : 0;
-    const blockerChange = prevBlockers > 0 ? Math.round(((activeBlockers - prevBlockers) / prevBlockers) * 100) : 0;
-    const channelChange = prevChannels > 0 ? Math.round(((channelCount - prevChannels) / prevChannels) * 100) : 0;
-    const summaryChange = prevSummaries > 0 ? Math.round(((summaryCount - prevSummaries) / prevSummaries) * 100) : 0;
+    const currentMessages = sumMessages(currentPeriod);
+    const currentBlockers = countBlockers(currentPeriod);
+    const currentChannels = new Set(currentPeriod.map((summary) => summary.channel_id)).size;
+    const currentSummaries = currentPeriod.length;
+
+    const previousMessages = sumMessages(previousPeriod);
+    const previousBlockers = countBlockers(previousPeriod);
+    const previousChannels = new Set(previousPeriod.map((summary) => summary.channel_id)).size;
+    const previousSummaries = previousPeriod.length;
+
+    const activeDays = new Set(
+        currentPeriod.map((summary) => new Date(summary.created_at).toISOString().split('T')[0])
+    ).size;
+
+    const avgMessagesPerSummary = currentSummaries > 0 ? currentMessages / currentSummaries : 0;
+    const totalCurrentBlockers = currentBlockers.active + currentBlockers.resolved;
+    const avgTotalBlockersPerSummary = currentSummaries > 0 ? totalCurrentBlockers / currentSummaries : 0;
+    const resolutionRate = totalCurrentBlockers > 0
+        ? Math.round((currentBlockers.resolved / totalCurrentBlockers) * 100)
+        : 0;
 
     return {
-        totalMessages,
-        activeBlockers,
-        channelCount,
-        summaryCount,
-        messageChange,
-        blockerChange,
-        channelChange,
-        summaryChange
+        totalMessages: currentMessages,
+        activeBlockers: currentBlockers.active,
+        resolvedBlockers: currentBlockers.resolved,
+        channelCount: currentChannels,
+        summaryCount: currentSummaries,
+        messageChange: calculateChange(currentMessages, previousMessages),
+        blockerChange: calculateChange(currentBlockers.active, previousBlockers.active),
+        channelChange: calculateChange(currentChannels, previousChannels),
+        summaryChange: calculateChange(currentSummaries, previousSummaries),
+        avgMessagesPerSummary,
+        avgTotalBlockersPerSummary,
+        resolutionRate,
+        activeDays,
+        avgSummariesPerActiveDay: activeDays > 0 ? (currentSummaries / activeDays).toFixed(1) : '0.0'
     };
 }
 
-import { CheckCircle } from 'lucide-react';
+function getPreviousPeriodSummaries(summaries, timeRange) {
+    if (timeRange === 'all') return [];
+
+    const dayMap = { '1day': 1, '7days': 7, '30days': 30 };
+    const days = dayMap[timeRange] || 7;
+    const now = Date.now();
+    const currentStart = now - (days * 24 * 60 * 60 * 1000);
+    const previousStart = now - (days * 2 * 24 * 60 * 60 * 1000);
+
+    return summaries.filter((summary) => {
+        const timestamp = new Date(summary.created_at).getTime();
+        return Number.isFinite(timestamp) && timestamp >= previousStart && timestamp < currentStart;
+    });
+}
+
+function buildActivityData(summaries, timeRange) {
+    const grouped = {};
+
+    summaries.forEach((summary) => {
+        const date = new Date(summary.created_at);
+        if (Number.isNaN(date.getTime())) return;
+        const key = date.toISOString().split('T')[0];
+        grouped[key] = (grouped[key] || 0) + 1;
+    });
+
+    const maxPoints = timeRange === 'all' ? 30 : 14;
+    return Object.entries(grouped)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(-maxPoints)
+        .map(([date, count]) => ({
+            label: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            summaries: count
+        }));
+}
+
+function buildChannelData(summaries) {
+    const counts = {};
+    summaries.forEach((summary) => {
+        const name = summary.channel_name || 'unknown';
+        counts[name] = (counts[name] || 0) + 1;
+    });
+
+    const rows = Object.entries(counts)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 6);
+
+    const total = rows.reduce((sum, row) => sum + row.count, 0) || 1;
+    return rows.map((row) => ({
+        ...row,
+        share: Math.round((row.count / total) * 100)
+    }));
+}
+
+function buildBlockerData(summaries) {
+    const counts = {};
+    summaries.forEach((summary) => {
+        const blockers = normalizeList(summary.blockers);
+        blockers.forEach((blocker, index) => {
+            if (getBlockerStatus(summary, index) !== 'active') return;
+            const trimmed = blocker.trim();
+            if (!trimmed) return;
+            counts[trimmed] = (counts[trimmed] || 0) + 1;
+        });
+    });
+
+    return Object.entries(counts)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8);
+}
+
+function normalizeList(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+        try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
+}
+
+function sumMessages(summaries) {
+    return summaries.reduce((total, summary) => total + (summary.message_count || 0), 0);
+}
+
+function countBlockers(summaries) {
+    return summaries.reduce((acc, summary) => {
+        const blockers = normalizeList(summary.blockers);
+        blockers.forEach((_, index) => {
+            if (getBlockerStatus(summary, index) === 'resolved') {
+                acc.resolved += 1;
+            } else {
+                acc.active += 1;
+            }
+        });
+        return acc;
+    }, { active: 0, resolved: 0 });
+}
+
+function getBlockerStatus(summary, blockIndex) {
+    const blockerStatus = normalizeList(summary.blocker_status);
+    const status = blockerStatus?.[blockIndex]?.status;
+    return status === 'resolved' ? 'resolved' : 'active';
+}
+
+function calculateChange(current, previous) {
+    if (!previous) return 0;
+    return Math.round(((current - previous) / previous) * 100);
+}

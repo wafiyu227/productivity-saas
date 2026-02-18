@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2, Code } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2, Code, BarChart3 } from 'lucide-react';
 
 export default function AppShell() {
     const { user, profile, signOut } = useAuth();
     const navigate = useNavigate();
-    const location = useLocation();
 
     const team = profile?.teams?.[0]?.teams || null;
 
@@ -77,6 +76,9 @@ export default function AppShell() {
                     </NavLink>
                     <NavLink to="/app/blockers" icon={<AlertCircle size={20} />}>
                         Blockers
+                    </NavLink>
+                    <NavLink to="/app/analytics" icon={<BarChart3 size={20} />}>
+                        Analytics
                     </NavLink>
                     <NavLink to="/app/meetings" icon={<Calendar size={20} />}>
                         Meetings

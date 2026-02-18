@@ -1,46 +1,81 @@
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Calendar, Shield, Bell, Palette, Key, LogOut, Trash2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { User, Mail, Calendar, Shield, Bell, Palette, Key, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { applyAppearancePreference, saveAppearancePreference } from '../lib/appearance';
 
 const API_URL = import.meta.env.VITE_API_URL;
+const DEFAULT_SETTINGS = {
+    email_notifications: true,
+    slack_notifications: true,
+    blocker_alerts: false,
+    daily_digest: false,
+    appearance: 'light'
+};
 
 export default function Profile() {
     const { user, signOut, supabase } = useAuth();
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saved, setSaved] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
+    const [digestSending, setDigestSending] = useState(false);
+    const [digestCooldown, setDigestCooldown] = useState(false);
+    const [digestFeedback, setDigestFeedback] = useState('');
 
-    useEffect(() => {
-        if (user) {
-            fetchSettings();
-        }
-    }, [user]);
+    const sanitizeSettings = useCallback((raw) => ({
+        email_notifications: raw?.email_notifications ?? DEFAULT_SETTINGS.email_notifications,
+        slack_notifications: raw?.slack_notifications ?? DEFAULT_SETTINGS.slack_notifications,
+        blocker_alerts: raw?.blocker_alerts ?? DEFAULT_SETTINGS.blocker_alerts,
+        daily_digest: raw?.daily_digest ?? DEFAULT_SETTINGS.daily_digest,
+        appearance: raw?.appearance ?? DEFAULT_SETTINGS.appearance
+    }), []);
 
-    const fetchSettings = async () => {
+    const fetchSettings = useCallback(async () => {
+        if (!user) return;
+
         try {
             setLoading(true);
             const res = await fetch(`${API_URL}/api/auth/settings?userId=${user.id}`);
-            const data = await res.json();
-            setSettings(data);
+            const data = res.ok ? await res.json() : DEFAULT_SETTINGS;
+            const safeSettings = sanitizeSettings(data);
+            setSettings(safeSettings);
+            applyAppearancePreference(safeSettings.appearance);
         } catch (error) {
             console.error('Failed to fetch settings:', error);
-            // Set defaults on error
-            setSettings({
-                email_notifications: true,
-                slack_notifications: true,
-                blocker_alerts: false,
-                daily_digest: true,
-                appearance: 'light'
-            });
+            setSettings(DEFAULT_SETTINGS);
+            applyAppearancePreference(DEFAULT_SETTINGS.appearance);
         } finally {
             setLoading(false);
         }
-    };
+    }, [user, sanitizeSettings]);
+
+    useEffect(() => {
+        fetchSettings();
+    }, [fetchSettings]);
 
     const updateSettings = async (key, value) => {
+        if (!settings || !user) return;
+
         const updatedSettings = { ...settings, [key]: value };
+
+        // Keep digest + email settings consistent.
+        if (key === 'email_notifications' && value === false) {
+            updatedSettings.daily_digest = false;
+        }
+        if (key === 'daily_digest' && value === true) {
+            updatedSettings.email_notifications = true;
+        }
+
+        const previousSettings = settings;
         setSettings(updatedSettings);
         setSaved(false);
+        setSaveError('');
+        setSaving(true);
+
+        if (key === 'appearance') {
+            saveAppearancePreference(value);
+        }
 
         try {
             const res = await fetch(`${API_URL}/api/auth/settings`, {
@@ -52,16 +87,30 @@ export default function Profile() {
                 })
             });
 
-            if (res.ok) {
-                setSaved(true);
-                setTimeout(() => setSaved(false), 2000);
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to save settings');
             }
+
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
         } catch (error) {
             console.error('Failed to save settings:', error);
+            setSettings(previousSettings);
+            if (key === 'appearance') {
+                applyAppearancePreference(previousSettings.appearance);
+            }
+            setSaveError(error.message || 'Failed to save settings');
+        } finally {
+            setSaving(false);
         }
     };
 
     const sendTestDigest = async () => {
+        if (digestSending || digestCooldown) return;
+
+        setDigestSending(true);
+        setDigestFeedback('');
         try {
             const res = await fetch(`${API_URL}/api/email/daily-digest`, {
                 method: 'POST',
@@ -70,12 +119,20 @@ export default function Profile() {
             });
 
             const data = await res.json();
-            if (res.ok) {
-                setSaved(true);
-                setTimeout(() => setSaved(false), 2000);
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to send test digest');
             }
+
+            setDigestFeedback('Test digest sent successfully.');
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+            setDigestCooldown(true);
+            setTimeout(() => setDigestCooldown(false), 8000);
         } catch (error) {
             console.error('Failed to send test digest:', error);
+            setDigestFeedback(error.message || 'Failed to send test digest');
+        } finally {
+            setDigestSending(false);
         }
     };
 
@@ -120,17 +177,21 @@ export default function Profile() {
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50">
             <div className="p-8">
                 <div className="max-w-4xl mx-auto">
-                    {/* Header */}
                     <div className="flex items-center justify-between mb-8">
                         <h1 className="text-4xl font-bold text-gray-900">Profile Settings</h1>
-                        {saved && (
+                        {saved && !saving && (
                             <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium">
-                                ✓ Saved
+                                Saved
                             </div>
                         )}
                     </div>
 
-                    {/* Profile Card */}
+                    {saveError && (
+                        <div className="mb-6 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+                            {saveError}
+                        </div>
+                    )}
+
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 mb-6">
                         <div className="flex items-center gap-6 mb-8">
                             <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
@@ -152,10 +213,9 @@ export default function Profile() {
                         </div>
                     </div>
 
-                    {/* Settings Sections */}
                     {loading ? (
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
                             <p className="text-gray-600">Loading settings...</p>
                         </div>
                     ) : (
@@ -183,21 +243,27 @@ export default function Profile() {
                                 <ToggleSetting
                                     label="Daily digest email"
                                     enabled={settings?.daily_digest}
+                                    disabled={!settings?.email_notifications}
                                     onChange={(val) => updateSettings('daily_digest', val)}
                                 />
+                                {!settings?.email_notifications && (
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Enable Email notifications to receive digest emails.
+                                    </p>
+                                )}
                             </SettingsSection>
 
                             <SettingsSection
                                 icon={<Palette className="text-purple-600" size={24} />}
                                 title="Appearance"
-                                description="Customize your dashboard experience"
+                                description="Choose light, dark, or follow system preference"
                             >
                                 <div className="flex gap-4">
                                     <button
                                         onClick={() => updateSettings('appearance', 'light')}
                                         className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'light'
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                     >
                                         Light
@@ -205,8 +271,8 @@ export default function Profile() {
                                     <button
                                         onClick={() => updateSettings('appearance', 'dark')}
                                         className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'dark'
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                     >
                                         Dark
@@ -214,8 +280,8 @@ export default function Profile() {
                                     <button
                                         onClick={() => updateSettings('appearance', 'auto')}
                                         className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'auto'
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                     >
                                         Auto
@@ -266,13 +332,24 @@ export default function Profile() {
                             >
                                 <button
                                     onClick={sendTestDigest}
-                                    className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition text-sm font-medium"
+                                    disabled={!settings?.email_notifications || !settings?.daily_digest || digestSending || digestCooldown}
+                                    className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    Send Test Digest Email
+                                    {digestSending ? 'Sending...' : digestCooldown ? 'Sent - wait a few seconds' : 'Send Test Digest Email'}
                                 </button>
                                 <p className="text-sm text-gray-600 mt-3">
                                     Send a preview of your daily digest to test email delivery
                                 </p>
+                                {digestFeedback && (
+                                    <p className={`text-sm mt-2 ${digestFeedback.toLowerCase().includes('success') ? 'text-green-600' : 'text-red-600'}`}>
+                                        {digestFeedback}
+                                    </p>
+                                )}
+                                {(!settings?.email_notifications || !settings?.daily_digest) && (
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        Turn on both Email notifications and Daily digest email to test.
+                                    </p>
+                                )}
                             </SettingsSection>
                         </div>
                     )}
@@ -301,13 +378,14 @@ function SettingsSection({ icon, title, description, children }) {
     );
 }
 
-function ToggleSetting({ label, enabled, onChange }) {
+function ToggleSetting({ label, enabled, onChange, disabled = false }) {
     return (
         <div className="flex items-center justify-between py-3">
-            <span className="text-gray-700">{label}</span>
+            <span className={`text-gray-700 ${disabled ? 'opacity-60' : ''}`}>{label}</span>
             <button
+                disabled={disabled}
                 onClick={() => onChange?.(!enabled)}
-                className={`w-12 h-6 rounded-full transition ${enabled ? 'bg-blue-600' : 'bg-gray-300'
+                className={`w-12 h-6 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed ${enabled ? 'bg-blue-600' : 'bg-gray-300'
                     }`}
             >
                 <div
@@ -315,15 +393,6 @@ function ToggleSetting({ label, enabled, onChange }) {
                         }`}
                 />
             </button>
-        </div>
-    );
-}
-
-function InfoRow({ label, value }) {
-    return (
-        <div className="flex justify-between py-2">
-            <span className="text-gray-600">{label}</span>
-            <span className="text-gray-900 font-medium">{value}</span>
         </div>
     );
 }

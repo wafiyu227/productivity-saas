@@ -99,8 +99,9 @@ export const api = {
         }
     },
 
-    async getSummaries(teamId = null) {
+    async getSummaries(teamId = null, options = {}) {
         const userId = getUserId();
+        const { limit } = options;
 
         if (!userId) {
             throw new Error('Not authenticated - cannot fetch summaries');
@@ -112,6 +113,9 @@ export const api = {
             const url = new URL(`${API_BASE_URL}/api/summaries`);
             url.searchParams.append('userId', userId);
             if (teamId) url.searchParams.append('teamId', teamId);
+            if (Number.isFinite(limit) && limit > 0) {
+                url.searchParams.append('limit', Math.floor(limit).toString());
+            }
 
             const res = await fetch(url.toString());
 

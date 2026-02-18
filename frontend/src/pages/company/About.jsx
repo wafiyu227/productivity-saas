@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Target, Zap, Heart, Award, TrendingUp } from 'lucide-react';
+import { Users, Target, Zap, Heart, Linkedin, Twitter } from 'lucide-react';
 
 const About = () => {
     const values = [
@@ -32,32 +32,14 @@ const About = () => {
         { number: "45%", label: "Time Saved Weekly" }
     ];
 
-    const team = [
-        {
-            name: "Sarah Chen",
-            role: "Co-Founder & CEO",
-            image: "https://api.dicebear.com/7.x/avataaars/svg?seed=sarah",
-            bio: "Previously led product at Asana. MIT CS grad."
-        },
-        {
-            name: "Marcus Rodriguez",
-            role: "Co-Founder & CTO",
-            image: "https://api.dicebear.com/7.x/avataaars/svg?seed=marcus",
-            bio: "Ex-Google engineer. Built ML systems at scale."
-        },
-        {
-            name: "Emily Watson",
-            role: "Head of Design",
-            image: "https://api.dicebear.com/7.x/avataaars/svg?seed=emily",
-            bio: "Design lead from Figma. Stanford Design Program."
-        },
-        {
-            name: "David Park",
-            role: "Head of Engineering",
-            image: "https://api.dicebear.com/7.x/avataaars/svg?seed=david",
-            bio: "Previously at Stripe. Built developer tools for 10+ years."
-        }
-    ];
+    const founder = {
+        name: "Ibrahim Wafiyudeen",
+        role: "Solo Builder",
+        image: "/founder.jpeg",
+        twitter: "https://x.com/wafiyudeen5448",
+        linkedin: "https://www.linkedin.com/in/ibrahim-wafiyudeen-b07135344/",
+        bio: "Building Teama AI end-to-end with a focus on practical productivity, clear insights, and sustainable growth."
+    };
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
@@ -114,13 +96,12 @@ const About = () => {
                         </div>
                     </div>
                     <div className="relative">
-                        <div className="aspect-square bg-gradient-to-br from-purple-100 to-blue-100 rounded-3xl shadow-2xl overflow-hidden">
-                            <div className="absolute inset-0 flex items-center justify-center">
-                                <TrendingUp className="w-32 h-32 text-purple-300" />
-                            </div>
-                        </div>
-                        <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-xl flex items-center justify-center">
-                            <Award className="w-16 h-16 text-white" />
+                        <div className="aspect-square rounded-3xl shadow-2xl overflow-hidden">
+                            <img
+                                src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80"
+                                alt="Professional planning work and productivity goals"
+                                className="w-full h-full object-cover"
+                            />
                         </div>
                     </div>
                 </div>
@@ -149,30 +130,48 @@ const About = () => {
                 </div>
             </div>
 
-            {/* Team Section */}
+            {/* Founder Section */}
             <div className="max-w-6xl mx-auto px-8 py-24">
                 <div className="text-center mb-16">
-                    <h2 className="text-3xl font-bold text-slate-900 mb-4">Meet the Team</h2>
+                    <h2 className="text-3xl font-bold text-slate-900 mb-4">Meet the Founder</h2>
                     <p className="text-xl text-slate-600 max-w-2xl mx-auto">
-                        We're a small team with big ambitions, backed by experience from the best product companies
+                        Teama AI is currently built by one person, with a focus on shipping useful features fast.
                     </p>
                 </div>
-                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-                    {team.map((member, index) => (
-                        <div key={index} className="text-center group">
-                            <div className="mb-4 relative">
-                                <img
-                                    src={member.image}
-                                    alt={member.name}
-                                    className="w-32 h-32 rounded-2xl mx-auto shadow-lg group-hover:shadow-2xl transition-shadow border-4 border-white"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-br from-purple-600/0 to-blue-600/0 group-hover:from-purple-600/10 group-hover:to-blue-600/10 rounded-2xl transition-all"></div>
-                            </div>
-                            <h3 className="font-bold text-slate-900 mb-1">{member.name}</h3>
-                            <p className="text-sm text-purple-600 font-medium mb-2">{member.role}</p>
-                            <p className="text-sm text-slate-500">{member.bio}</p>
+                <div className="max-w-md mx-auto">
+                    <div className="text-center group">
+                        <div className="mb-4 relative">
+                            <img
+                                src={founder.image}
+                                alt={founder.name}
+                                className="w-32 h-32 rounded-2xl mx-auto shadow-lg group-hover:shadow-2xl transition-shadow border-4 border-white"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-br from-purple-600/0 to-blue-600/0 group-hover:from-purple-600/10 group-hover:to-blue-600/10 rounded-2xl transition-all" />
                         </div>
-                    ))}
+                        <h3 className="font-bold text-slate-900 mb-1">{founder.name}</h3>
+                        <p className="text-sm text-purple-600 font-medium mb-2">{founder.role}</p>
+                        <p className="text-sm text-slate-500">{founder.bio}</p>
+                        <div className="mt-4 flex items-center justify-center gap-3">
+                            <a
+                                href={founder.twitter}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-sm"
+                            >
+                                <Twitter size={14} />
+                                X
+                            </a>
+                            <a
+                                href={founder.linkedin}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-sm"
+                            >
+                                <Linkedin size={14} />
+                                LinkedIn
+                            </a>
+                        </div>
+                    </div>
                 </div>
             </div>
 

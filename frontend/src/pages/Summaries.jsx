@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { supabase } from '../lib/supabase';
 import {
     MessageSquare, AlertTriangle, Clock, Sparkles, ArrowLeft,
     Search, Filter, Download, Trash2
@@ -16,29 +17,70 @@ export default function Summaries() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedChannel, setSelectedChannel] = useState('');
 
-    useEffect(() => {
-        if (user && profile) {
-            loadSummaries();
-        }
-    }, [user, profile?.current_team_id]);
-
-    useEffect(() => {
-        filterSummaries();
-    }, [summaries, searchTerm, selectedChannel]);
-
-    const loadSummaries = async () => {
+    const loadSummaries = useCallback(async () => {
         if (!user) return;
 
         try {
             setLoading(true);
-            const data = await api.getSummaries(profile?.current_team_id);
+            const data = await api.getSummaries(profile?.current_team_id, { limit: 200 });
             setSummaries(data || []);
         } catch (error) {
             console.error('Failed to load summaries:', error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [user, profile?.current_team_id]);
+
+    useEffect(() => {
+        if (user && profile) {
+            loadSummaries();
+        }
+    }, [user, profile, loadSummaries]);
+
+    const filterSummaries = useCallback(() => {
+        let filtered = summaries;
+
+        if (searchTerm) {
+            filtered = filtered.filter(s =>
+                s.summary?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                s.channel_name?.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+        }
+
+        if (selectedChannel) {
+            filtered = filtered.filter(s => s.channel_id === selectedChannel);
+        }
+
+        setFilteredSummaries(filtered);
+    }, [summaries, searchTerm, selectedChannel]);
+
+    useEffect(() => {
+        filterSummaries();
+    }, [filterSummaries]);
+
+    useEffect(() => {
+        if (!user) return undefined;
+
+        const filter = profile?.current_team_id
+            ? `team_id=eq.${profile.current_team_id}`
+            : `user_id=eq.${user.id}`;
+
+        const channel = supabase
+            .channel(`summaries-live-${user.id}-${Date.now()}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'slack_summaries',
+                filter
+            }, () => {
+                loadSummaries();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        }
+    }, [user, profile?.current_team_id, loadSummaries]);
 
     const handleDeleteSummary = async (id) => {
         if (!window.confirm('Are you sure you want to delete this summary?')) return;
@@ -81,23 +123,6 @@ export default function Summaries() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-    };
-
-    const filterSummaries = () => {
-        let filtered = summaries;
-
-        if (searchTerm) {
-            filtered = filtered.filter(s =>
-                s.summary?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                s.channel_name?.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-        }
-
-        if (selectedChannel) {
-            filtered = filtered.filter(s => s.channel_id === selectedChannel);
-        }
-
-        setFilteredSummaries(filtered);
     };
 
     const channels = [...new Set(summaries.map(s => s.channel_name))];

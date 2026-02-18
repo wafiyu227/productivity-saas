@@ -83,6 +83,12 @@ export default function Login() {
                         Sign up
                     </Link>
                 </p>
+                <p className="mt-3 text-center text-gray-600">
+                    Want to explore first?{' '}
+                    <Link to="/demo" className="text-blue-600 hover:underline">
+                        Try Demo
+                    </Link>
+                </p>
             </div>
         </div>
     );

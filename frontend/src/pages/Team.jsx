@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { UserPlus, Mail, Copy, Check, Users, AlertCircle } from 'lucide-react';
+import { Mail, Copy, Check, Users, AlertCircle } from 'lucide-react';
 
 const Team = () => {
     const { user, profile, refreshProfile } = useAuth(); // ✅ Added refreshProfile
@@ -195,19 +195,12 @@ const Team = () => {
 
     return (
         <div className="p-8 max-w-6xl mx-auto">
-            <div className="mb-8 flex justify-between items-end">
+            <div className="mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 mb-2">{team.name}</h1>
                     <p className="text-gray-600">{members.length} Members {team.size_range && `• ${team.size_range}`}</p>
                 </div>
-                <button
-                    onClick={() => document.getElementById('invite-form')?.scrollIntoView({ behavior: 'smooth' })}
-                    className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                    <UserPlus size={18} />
-                    Invite Member
-                </button>
-            </div>
+                </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Members List */}
@@ -342,3 +335,4 @@ const Team = () => {
 };
 
 export default Team;
+
