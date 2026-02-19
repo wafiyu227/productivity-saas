@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export default function Meetings() {
     const { user, profile } = useAuth();
     const [calendarEvents, setCalendarEvents] = useState([]);
@@ -10,7 +12,9 @@ export default function Meetings() {
     const [actionItems, setActionItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [calendarConnected, setCalendarConnected] = useState(false);
+    const [calendarConnected, setCalendarConnected] = useState(null);
+    const [connectionChecked, setConnectionChecked] = useState(false);
+    const [dataError, setDataError] = useState('');
 
     useEffect(() => {
         if (user && profile) {
@@ -24,37 +28,74 @@ export default function Meetings() {
         setRefreshing(false);
     };
 
+    const checkCalendarStatus = async () => {
+        if (!user) return { connected: false };
+
+        const teamId = profile?.current_team_id;
+        const url = new URL(`${API_URL}/api/auth/status`);
+        url.searchParams.append('userId', user.id);
+        url.searchParams.append('platform', 'google');
+        if (teamId) {
+            url.searchParams.append('teamId', teamId);
+        }
+        const res = await fetch(url.toString());
+
+        if (!res.ok) {
+            throw new Error(`Status check failed (${res.status})`);
+        }
+
+        return await res.json();
+    };
+
     const fetchCalendarData = async () => {
         setLoading(true);
+        setDataError('');
         try {
-            // Check status first to avoid unnecessary calls
-            // For now we'll just try to fetch events, if 401/error we know it's not connected
-            const eventsData = await api.getGoogleCalendarEvents(profile?.current_team_id);
+            const status = await checkCalendarStatus();
+            setConnectionChecked(true);
 
-            if (eventsData.error) {
+            if (!status.connected) {
                 setCalendarConnected(false);
-                setLoading(false);
+                setCalendarEvents([]);
+                setAnalytics(null);
+                setActionItems([]);
                 return;
             }
 
             setCalendarConnected(true);
+            const teamId = profile?.current_team_id;
+            const [eventsData, analyticsData, actionItemsData] = await Promise.all([
+                api.getGoogleCalendarEvents(teamId),
+                api.getGoogleCalendarAnalytics(teamId),
+                api.getGoogleCalendarActionItems(teamId)
+            ]);
+
+            if (eventsData.error) {
+                if (eventsData.needsReauth) {
+                    setCalendarConnected(false);
+                    setCalendarEvents([]);
+                    setAnalytics(null);
+                    setActionItems([]);
+                } else {
+                    setDataError('Calendar is connected, but we could not load meeting data right now. Please refresh.');
+                }
+                return;
+            }
+
             setCalendarEvents(eventsData.events || []);
 
-            // Fetch analytics
-            const analyticsData = await api.getGoogleCalendarAnalytics(profile?.current_team_id);
             if (!analyticsData.error) {
                 setAnalytics(analyticsData);
             }
 
-            // Fetch action items
-            const actionItemsData = await api.getGoogleCalendarActionItems(profile?.current_team_id);
             if (!actionItemsData.error) {
                 setActionItems(actionItemsData.actionItems || []);
             }
 
         } catch (error) {
             console.error('Failed to fetch calendar data:', error);
-            setCalendarConnected(false);
+            setConnectionChecked(true);
+            setDataError('Could not verify calendar status. Check your connection and refresh.');
         } finally {
             setLoading(false);
         }
@@ -83,7 +124,7 @@ export default function Meetings() {
                         </button>
                     </div>
 
-                    {!calendarConnected && (
+                    {connectionChecked && !loading && calendarConnected === false && (
                         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-8 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <Calendar className="w-6 h-6 text-blue-600" />
@@ -95,6 +136,12 @@ export default function Meetings() {
                             <a href="/app/integrations" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium">
                                 Connect Now
                             </a>
+                        </div>
+                    )}
+
+                    {dataError && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8">
+                            <p className="text-amber-900 text-sm">{dataError}</p>
                         </div>
                     )}
 
