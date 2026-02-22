@@ -28,6 +28,7 @@ import Privacy from './pages/legal/Privacy';
 import Terms from './pages/legal/Terms';
 import Security from './pages/legal/Security';
 import DemoWorkspace from './pages/DemoWorkspace';
+import Waitlist from './pages/Waitlist';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -47,6 +48,7 @@ function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/security" element={<Security />} />
           <Route path="/demo" element={<DemoWorkspace />} />
+          <Route path="/waitlist" element={<Waitlist />} />
           <Route path="/join" element={<JoinTeam />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
