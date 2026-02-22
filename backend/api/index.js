@@ -17,6 +17,7 @@ import teamsRoutes from './routes/teams.js';
 import invitationsRoutes from './routes/invitations.js';
 import emailRoutes from './routes/email.js';
 import logger from './utils/logger.js';
+import waitlistRoutes from './routes/waitlist.js';
 import { db } from './services/supabase-client.js';
 
 const app = express();
@@ -95,6 +96,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/waitlist', waitlistRoutes);
 
 // Summaries endpoint
 app.get('/api/summaries', async (req, res) => {

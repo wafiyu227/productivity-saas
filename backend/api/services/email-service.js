@@ -96,6 +96,30 @@ class EmailService {
     }
   }
 
+  async sendWaitlistWelcome(email, name, position) {
+  try {
+    logger.info('Sending waitlist welcome email', { email, position });
+
+    const { data, error } = await resend.emails.send({
+      from: this.fromEmail,
+      to: [email],
+      subject: "You're on the Teama AI Waitlist! 🎉",
+      html: this.getWaitlistEmailTemplate(name, position)
+    });
+
+    if (error) {
+      logger.error('Waitlist email error:', error);
+      throw error;
+    }
+
+    logger.info('✅ Waitlist email sent', { email, messageId: data?.id });
+    return data;
+  } catch (error) {
+    logger.error('Failed to send waitlist email:', error);
+    throw error;
+  }
+}
+
   getInvitationEmailTemplate(teamName, inviterName, inviteUrl, expiresAt) {
     const expiryDate = new Date(expiresAt).toLocaleDateString();
 
@@ -257,6 +281,202 @@ class EmailService {
       </html>
     `;
   }
+  getWaitlistEmailTemplate(name, position) {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            line-height: 1.6; 
+            color: #333; 
+            margin: 0;
+            padding: 0;
+          }
+          .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+          }
+          .header { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; 
+            padding: 40px 30px; 
+            text-align: center; 
+            border-radius: 8px 8px 0 0; 
+          }
+          .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+          }
+          .header p {
+            margin: 0;
+            font-size: 18px;
+            opacity: 0.9;
+          }
+          .content { 
+            background: #f9fafb; 
+            padding: 30px; 
+          }
+          .position-card { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 12px; 
+            text-align: center; 
+            margin: 20px 0; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+          }
+          .position-label {
+            margin: 0;
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+          }
+          .position-number { 
+            font-size: 64px; 
+            font-weight: bold; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            -webkit-background-clip: text; 
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 10px 0;
+            line-height: 1;
+          }
+          .position-sublabel {
+            margin: 0;
+            color: #666;
+            font-size: 14px;
+          }
+          .features {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .feature {
+            display: flex;
+            align-items: start;
+            margin: 12px 0;
+          }
+          .feature-icon {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            flex-shrink: 0;
+            font-weight: bold;
+            font-size: 14px;
+          }
+          .button { 
+            display: inline-block; 
+            background: #667eea; 
+            color: white; 
+            padding: 14px 32px; 
+            text-decoration: none; 
+            border-radius: 8px; 
+            font-weight: 600; 
+            margin: 20px 0; 
+          }
+          .footer { 
+            text-align: center; 
+            color: #666; 
+            font-size: 12px; 
+            margin-top: 30px; 
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+          }
+          .social-share {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            padding: 16px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🎉 Welcome to Teama AI!</h1>
+            <p>You're officially on the list</p>
+          </div>
+          
+          <div class="content">
+            <p style="font-size: 16px; margin-top: 0;">Hi ${name}!</p>
+            
+            <p>Thanks for joining the Teama AI waitlist. We're building something special to help teams work smarter with AI-powered productivity insights.</p>
+            
+            <div class="position-card">
+              <p class="position-label">Your Position</p>
+              <div class="position-number">#${position}</div>
+              <p class="position-sublabel">in line</p>
+            </div>
+            
+            <h3 style="color: #333; margin-bottom: 12px;">What happens next?</h3>
+            <div class="features">
+              <div class="feature">
+                <span class="feature-icon">1</span>
+                <div>
+                  <strong>We'll keep you updated</strong><br>
+                  <span style="color: #666; font-size: 14px;">Regular progress updates as we build</span>
+                </div>
+              </div>
+              <div class="feature">
+                <span class="feature-icon">2</span>
+                <div>
+                  <strong>Early access</strong><br>
+                  <span style="color: #666; font-size: 14px;">You'll be first in line when we launch</span>
+                </div>
+              </div>
+              <div class="feature">
+                <span class="feature-icon">3</span>
+                <div>
+                  <strong>Founding member perks</strong><br>
+                  <span style="color: #666; font-size: 14px;">Special pricing & exclusive features</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="social-share">
+              <p style="margin: 0 0 8px 0; font-weight: 600; color: #333;">Want to move up faster?</p>
+              <p style="margin: 0; font-size: 14px; color: #666;">
+                Share Teama AI with your team and we'll bump you up the list! 🚀
+              </p>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+              <a href="https://productivity-saas-frontend.vercel.app" class="button">
+                Learn More About Teama AI
+              </a>
+            </div>
+            
+            <p style="font-size: 13px; color: #666; margin-top: 24px; line-height: 1.5;">
+              <strong>What is Teama AI?</strong><br>
+              Teama AI turns your Slack chaos into clear, actionable insights. Get AI-powered summaries, automatic blocker detection, and team productivity analytics—all without leaving your workspace.
+            </p>
+          </div>
+          
+          <div class="footer">
+            <p style="margin: 0 0 8px 0;">Questions? Just reply to this email—we read every message!</p>
+            <p style="margin: 0; color: #999;">© 2026 Teama AI. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
 }
+
+}
+
+
 
 export default new EmailService();
