@@ -63,14 +63,38 @@ router.post('/summarize', express.json(), async (req, res) => {
       return res.status(401).json({ error: 'Slack not connected' });
     }
 
+    const currentTeamId = integration.team_id;
+
+    // --- BILLING LIMITS CHECK ---
+    const billingInfo = await db.getTeamBillingInfo(currentTeamId);
+    const plan = billingInfo?.plan || 'free';
+
+    const monthYear = new Date().toISOString().slice(0, 7); // e.g., '2026-02'
+    const usageCount = await db.getTeamSummaryUsage(currentTeamId, monthYear);
+
+    const SUMMARY_LIMITS = { free: 50, starter: 1000, growth: Infinity };
+    const maxSummaries = SUMMARY_LIMITS[plan] || 50;
+
+    if (usageCount >= maxSummaries) {
+      return res.status(403).json({
+        error: `Monthly summary limit reached (${maxSummaries}) for ${plan} plan.`,
+        code: 'PLAN_LIMIT_REACHED',
+        currentPlan: plan
+      });
+    }
+
+    const HISTORY_LIMITS_HOURS = { free: 7 * 24, starter: 90 * 24, growth: 365 * 24 };
+    const maxHistory = HISTORY_LIMITS_HOURS[plan] || 168;
+    const requestedHours = Math.min(hours, maxHistory); // Cap to plan limit
+
     const client = new WebClient(integration.access_token);
 
     // Fetch channel info for name
     const channelInfo = await client.conversations.info({ channel: channelId });
     const channelName = channelInfo.channel?.name || 'unknown-channel';
 
-    // Calculate time range
-    const oldest = (Date.now() - (hours * 60 * 60 * 1000)) / 1000;
+    // Calculate time range using capped hours
+    const oldest = (Date.now() - (requestedHours * 60 * 60 * 1000)) / 1000;
 
     // Fetch messages
     const history = await client.conversations.history({
@@ -101,6 +125,9 @@ router.post('/summarize', express.json(), async (req, res) => {
 
     // Generate AI summary
     const aiAnalysis = await aiProcessor.summarizeSlackMessages(messages, channelName);
+
+    // Increment usage since successful
+    await db.incrementSummaryUsage(currentTeamId, monthYear);
 
     // Save to DB
     const savedSummary = await db.saveSlackSummary({

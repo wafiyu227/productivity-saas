@@ -391,5 +391,42 @@ export const db = {
 
     if (error) throw error;
     return { success: true };
+  },
+
+  // Billing & Usage Methods
+  async getTeamBillingInfo(teamId) {
+    const { data, error } = await supabase
+      .from('teams')
+      .select('plan, subscription_status')
+      .eq('id', teamId)
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async getTeamSummaryUsage(teamId, monthYear) {
+    const { data, error } = await supabase
+      .from('team_usage')
+      .select('summary_count')
+      .eq('team_id', teamId)
+      .eq('month_year', monthYear)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data?.summary_count || 0;
+  },
+
+  async incrementSummaryUsage(teamId, monthYear) {
+    // Basic increment logic. (In high-concurrency, an RPC is safer).
+    const current = await this.getTeamSummaryUsage(teamId, monthYear);
+    const { error } = await supabase
+      .from('team_usage')
+      .upsert(
+        { team_id: teamId, month_year: monthYear, summary_count: current + 1 },
+        { onConflict: 'team_id,month_year' }
+      );
+
+    if (error) throw error;
   }
 };

@@ -170,6 +170,25 @@ router.post('/:id/invite', async (req, res) => {
     }
 
     try {
+        // --- BILLING SEAT LIMITS CHECK ---
+        const billingInfo = await db.getTeamBillingInfo(teamId);
+        const plan = billingInfo?.plan || 'free';
+
+        const members = await db.getTeamMembers(teamId);
+        const invites = await db.getTeamInvitations(teamId);
+        const currentSeats = (members?.length || 0) + (invites?.length || 0);
+
+        const SEAT_LIMITS = { free: 5, starter: 20, growth: 75 };
+        const maxSeats = SEAT_LIMITS[plan] || 5;
+
+        if (currentSeats >= maxSeats) {
+            return res.status(403).json({
+                error: `Team size limit reached (${maxSeats} members for ${plan} plan). Please upgrade.`,
+                code: 'PLAN_LIMIT_REACHED',
+                currentPlan: plan
+            });
+        }
+
         // Get team info FIRST (needed for email)
         const { data: team } = await db.supabase
             .from('teams')

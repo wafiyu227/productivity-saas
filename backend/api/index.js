@@ -21,6 +21,8 @@ import waitlistRoutes from './routes/waitlist.js';
 import { db } from './services/supabase-client.js';
 
 const app = express();
+// Trust proxy is required for Vercel/proxied environments to get correct client IP
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
 // IMPORTANT: CORS must be FIRST, before any other middleware
@@ -44,11 +46,17 @@ app.use(compression());
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
+  max: 100,
+  // Skip rate limiting for Paystack webhooks
+  skip: (req) => req.originalUrl === '/api/paystack/webhook'
 });
 app.use('/api/', limiter);
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -80,10 +88,14 @@ app.get('/', (req, res) => {
       user: '/api/user',
       teams: '/api/teams',
       invitations: '/api/invitations',
-      email: '/api/email'
+      email: '/api/email',
+      paystack: '/api/paystack'
     }
   });
 });
+
+// Import Paystack Routes
+import paystackRoutes from './routes/paystack.js';
 
 // API Routes
 app.use('/api/slack', slackRoutes);
@@ -97,6 +109,7 @@ app.use('/api/teams', teamsRoutes);
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/waitlist', waitlistRoutes);
+app.use('/api/paystack', paystackRoutes);
 
 // Summaries endpoint
 app.get('/api/summaries', async (req, res) => {
