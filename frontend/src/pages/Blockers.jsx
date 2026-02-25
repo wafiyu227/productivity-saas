@@ -1,6 +1,7 @@
-import { AlertTriangle, Clock, MessageSquare, CheckCircle, Filter, Search } from 'lucide-react';
+import { AlertTriangle, Clock, MessageSquare, CheckCircle, Filter, Search, Target, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { api } from '../api/client';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -9,6 +10,7 @@ export default function Blockers() {
     const [blockers, setBlockers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
+    const [sourceFilter, setSourceFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [resolving, setResolving] = useState(null);
 
@@ -21,24 +23,26 @@ export default function Blockers() {
     const fetchBlockers = async () => {
         try {
             setLoading(true);
-            const url = new URL(`${API_URL}/api/summaries`);
-            url.searchParams.append('userId', user.id);
-            if (profile?.current_team_id) {
-                url.searchParams.append('teamId', profile.current_team_id);
-            }
+            const teamId = profile?.current_team_id;
 
-            const res = await fetch(url.toString());
-            const summaries = await res.json();
+            // Fetch Slack summaries and Asana deadlines in parallel
+            const [summariesRes, asanaData] = await Promise.all([
+                fetch(`${API_URL}/api/summaries?userId=${user.id}${teamId ? `&teamId=${teamId}` : ''}`).then(r => r.json()).catch(() => []),
+                api.getAsanaDeadlines(teamId).catch(() => ({ overdue: { tasks: [] }, dueToday: { tasks: [] } }))
+            ]);
 
-            // Extract blockers from summaries
+            const summaries = Array.isArray(summariesRes) ? summariesRes : [];
+
+            // Extract blockers from Slack summaries
             const extractedBlockers = [];
-            summaries.forEach((summary, index) => {
+            summaries.forEach((summary) => {
                 if (summary.blockers && Array.isArray(summary.blockers)) {
                     summary.blockers.forEach((blocker, blockIndex) => {
                         extractedBlockers.push({
-                            id: `${summary.id}-${blockIndex}`,
+                            id: `slack-${summary.id}-${blockIndex}`,
                             title: blocker,
                             source: `#${summary.channel_name}`,
+                            sourceType: 'slack',
                             createdAt: summary.created_at,
                             status: summary.blocker_status && summary.blocker_status[blockIndex]?.status ? summary.blocker_status[blockIndex].status : 'active',
                             priority: 'medium',
@@ -50,6 +54,41 @@ export default function Blockers() {
                         });
                     });
                 }
+            });
+
+            // Extract blockers from Asana overdue + due-today tasks
+            const overdueTasks = asanaData?.overdue?.tasks || [];
+            const dueTodayTasks = asanaData?.dueToday?.tasks || [];
+
+            overdueTasks.forEach((task) => {
+                const daysOverdue = Math.ceil((Date.now() - new Date(task.due_on).getTime()) / (1000 * 60 * 60 * 24));
+                extractedBlockers.push({
+                    id: `asana-${task.gid}`,
+                    title: task.name,
+                    source: task.project?.name || 'Asana',
+                    sourceType: 'asana',
+                    createdAt: task.due_on,
+                    status: 'active',
+                    priority: 'high',
+                    description: `Overdue by ${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} • Assigned to ${task.assignee?.name || 'Unassigned'}`,
+                    asanaGid: task.gid,
+                    resolvedAt: null
+                });
+            });
+
+            dueTodayTasks.forEach((task) => {
+                extractedBlockers.push({
+                    id: `asana-${task.gid}`,
+                    title: task.name,
+                    source: task.project?.name || 'Asana',
+                    sourceType: 'asana',
+                    createdAt: task.due_on,
+                    status: 'active',
+                    priority: 'medium',
+                    description: `Due today • Assigned to ${task.assignee?.name || 'Unassigned'}`,
+                    asanaGid: task.gid,
+                    resolvedAt: null
+                });
             });
 
             setBlockers(extractedBlockers);
@@ -102,30 +141,33 @@ export default function Blockers() {
 
     const filteredBlockers = blockers.filter(b => {
         const matchesFilter = filter === 'all' || b.status === filter;
+        const matchesSource = sourceFilter === 'all' || b.sourceType === sourceFilter;
         const matchesSearch = b.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
             b.source.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesFilter && matchesSearch;
+        return matchesFilter && matchesSource && matchesSearch;
     });
 
     const activeCount = blockers.filter(b => b.status === 'active').length;
     const resolvedCount = blockers.filter(b => b.status === 'resolved').length;
+    const slackCount = blockers.filter(b => b.sourceType === 'slack').length;
+    const asanaCount = blockers.filter(b => b.sourceType === 'asana').length;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-red-50">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
                 <div className="max-w-6xl mx-auto">
                     {/* Header */}
-                    <div className="mb-8">
-                        <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                    <div className="mb-6 md:mb-8">
+                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">
                             Team Blockers
                         </h1>
-                        <p className="text-lg text-gray-600">
+                        <p className="text-base md:text-lg text-gray-600">
                             Track and resolve issues blocking your team's progress
                         </p>
                     </div>
 
                     {/* Stats */}
-                    <div className="grid md:grid-cols-3 gap-6 mb-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                             <div className="flex items-center justify-between">
                                 <div>
@@ -167,8 +209,8 @@ export default function Blockers() {
 
                     {/* Filters */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-                        <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-4">
-                            <div className="flex gap-2">
+                        <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between mb-4">
+                            <div className="flex flex-wrap gap-2">
                                 <button
                                     onClick={() => setFilter('all')}
                                     className={`px-4 py-2 rounded-lg font-medium transition-all ${filter === 'all'
@@ -195,6 +237,37 @@ export default function Blockers() {
                                         }`}
                                 >
                                     Resolved ({resolvedCount})
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    onClick={() => setSourceFilter('all')}
+                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${sourceFilter === 'all'
+                                        ? 'bg-gray-800 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        }`}
+                                >
+                                    All Sources
+                                </button>
+                                <button
+                                    onClick={() => setSourceFilter('slack')}
+                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${sourceFilter === 'slack'
+                                        ? 'bg-purple-600 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        }`}
+                                >
+                                    <MessageSquare size={14} />
+                                    Slack ({slackCount})
+                                </button>
+                                <button
+                                    onClick={() => setSourceFilter('asana')}
+                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${sourceFilter === 'asana'
+                                        ? 'bg-orange-600 text-white'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        }`}
+                                >
+                                    <Target size={14} />
+                                    Asana ({asanaCount})
                                 </button>
                             </div>
                         </div>
@@ -278,11 +351,11 @@ function BlockerCard({ blocker, onResolve, isResolving }) {
     };
 
     return (
-        <div className={`bg-white rounded-2xl shadow-sm border-l-4 p-6 hover:shadow-md transition-shadow ${priorityColors[blocker.priority]}`}>
-            <div className="flex items-start justify-between mb-4">
+        <div className={`bg-white rounded-2xl shadow-sm border-l-4 p-4 md:p-6 hover:shadow-md transition-shadow ${priorityColors[blocker.priority]}`}>
+            <div className="flex flex-col sm:flex-row items-start justify-between gap-3 mb-4">
                 <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-xl font-bold text-gray-900">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
+                        <h3 className="text-base sm:text-xl font-bold text-gray-900">
                             {blocker.title}
                         </h3>
                         <span className={`px-3 py-1 text-xs font-semibold rounded-full ${statusColors[blocker.status]}`}>
@@ -296,7 +369,17 @@ function BlockerCard({ blocker, onResolve, isResolving }) {
                     <div className="flex flex-col gap-3 text-sm text-gray-600">
                         <div className="flex items-center gap-6">
                             <span className="flex items-center gap-2">
-                                <MessageSquare size={16} />
+                                {blocker.sourceType === 'asana' ? (
+                                    <Target size={16} className="text-orange-500" />
+                                ) : (
+                                    <MessageSquare size={16} />
+                                )}
+                                <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${blocker.sourceType === 'asana'
+                                        ? 'bg-orange-100 text-orange-700'
+                                        : 'bg-purple-100 text-purple-700'
+                                    }`}>
+                                    {blocker.sourceType === 'asana' ? 'Asana' : 'Slack'}
+                                </span>
                                 {blocker.source}
                             </span>
                         </div>
@@ -314,7 +397,7 @@ function BlockerCard({ blocker, onResolve, isResolving }) {
                         </div>
                     </div>
                 </div>
-                {blocker.status === 'active' && (
+                {blocker.status === 'active' && blocker.sourceType !== 'asana' && (
                     <button
                         onClick={() => onResolve(blocker.id)}
                         disabled={isResolving}
@@ -329,6 +412,17 @@ function BlockerCard({ blocker, onResolve, isResolving }) {
                             'Resolve'
                         )}
                     </button>
+                )}
+                {blocker.status === 'active' && blocker.sourceType === 'asana' && (
+                    <a
+                        href={`https://app.asana.com/0/0/${blocker.asanaGid}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition whitespace-nowrap flex items-center gap-2"
+                    >
+                        <ExternalLink size={16} />
+                        Open in Asana
+                    </a>
                 )}
                 {blocker.status === 'resolved' && (
                     <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg font-medium whitespace-nowrap">

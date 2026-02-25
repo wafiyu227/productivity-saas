@@ -197,10 +197,10 @@ const Projects = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="border-b border-gray-200 backdrop-blur-xl bg-white/80 sticky top-0 z-40"
             >
-                <div className="max-w-7xl mx-auto px-6 py-6">
-                    <div className="flex items-center justify-between mb-6">
+                <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4 md:mb-6">
                         <div>
-                            <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                            <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-1 md:mb-2">
                                 Projects Overview
                             </h1>
                             <p className="text-gray-600 font-mono text-sm">
@@ -239,7 +239,7 @@ const Projects = () => {
                     </div>
 
                     {/* Stats Bar */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -307,7 +307,7 @@ const Projects = () => {
                 </div>
             </motion.header>
 
-            <div className="max-w-7xl mx-auto px-6 py-8">
+            <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">
                 {/* Deadline Alerts Section */}
                 {deadlines && (deadlines.overdue?.count > 0 || deadlines.dueToday?.count > 0) && (
                     <motion.div

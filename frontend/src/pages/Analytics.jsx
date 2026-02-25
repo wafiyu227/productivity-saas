@@ -120,14 +120,14 @@ export default function Analytics() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
                 <div className="max-w-7xl mx-auto">
-                    <div className="mb-8 flex items-center justify-between">
+                    <div className="mb-6 md:mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                         <div>
-                            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
+                            <h1 className="text-2xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-1 md:mb-2">
                                 Analytics & Insights
                             </h1>
-                            <p className="text-lg text-gray-600">
+                            <p className="text-base md:text-lg text-gray-600">
                                 Live team productivity and collaboration metrics
                             </p>
                             {lastUpdated && (
@@ -149,7 +149,7 @@ export default function Analytics() {
                         </button>
                     </div>
 
-                    <div className="mb-8 flex gap-2">
+                    <div className="mb-6 md:mb-8 flex flex-wrap gap-2">
                         {[
                             { label: 'Today', value: '1day' },
                             { label: '7 Days', value: '7days' },
@@ -173,7 +173,7 @@ export default function Analytics() {
                         <LoadingState />
                     ) : (
                         <>
-                            <div className="grid md:grid-cols-4 gap-6 mb-8">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
                                 <MetricCard
                                     title="Total Messages"
                                     value={analytics.totalMessages}
@@ -208,7 +208,7 @@ export default function Analytics() {
                                 />
                             </div>
 
-                            <div className="grid lg:grid-cols-3 gap-8 mb-8">
+                            <div className="grid lg:grid-cols-3 gap-6 md:gap-8 mb-6 md:mb-8">
                                 <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                                     <h2 className="text-xl font-bold text-gray-900 mb-6">Activity Over Time</h2>
                                     <ActivityChart data={activityData} />
@@ -225,7 +225,7 @@ export default function Analytics() {
                                 <BlockersAnalysis data={blockerData} />
                             </div>
 
-                            <div className="grid md:grid-cols-2 gap-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                                 <PerformanceMetrics analytics={analytics} />
                                 <EngagementMetrics analytics={analytics} />
                             </div>

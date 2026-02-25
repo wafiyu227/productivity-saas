@@ -25,13 +25,6 @@ const About = () => {
         }
     ];
 
-    const stats = [
-        { number: "10K+", label: "Active Teams" },
-        { number: "500K+", label: "AI Summaries Generated" },
-        { number: "98%", label: "Customer Satisfaction" },
-        { number: "45%", label: "Time Saved Weekly" }
-    ];
-
     const founder = {
         name: "Ibrahim Wafiyudeen",
         role: "Solo Builder",
@@ -58,20 +51,6 @@ const About = () => {
                 </div>
             </div>
 
-            {/* Stats Section */}
-            <div className="max-w-6xl mx-auto px-8 -mt-12">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-                    {stats.map((stat, index) => (
-                        <div key={index} className="bg-white rounded-2xl shadow-lg p-6 text-center border border-slate-100">
-                            <div className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-2">
-                                {stat.number}
-                            </div>
-                            <div className="text-slate-600 font-medium">{stat.label}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
             {/* Story Section */}
             <div className="max-w-6xl mx-auto px-8 py-24">
                 <div className="grid lg:grid-cols-2 gap-16 items-center">
@@ -80,18 +59,19 @@ const About = () => {
                         <div className="space-y-4 text-slate-600 leading-relaxed">
                             <p>
                                 Teama AI was born from a simple frustration: too many tools, too much noise,
-                                and not enough clarity. As engineering leaders, we watched our teams drown in
-                                Slack threads, lose context between meetings, and struggle to identify blockers
-                                before they became crises.
+                                and not enough clarity. Watching teams drown in Slack threads, lose context
+                                between meetings, and struggle to identify blockers before they became
+                                crises — that pain was real.
                             </p>
                             <p>
-                                We knew AI could help—but only if it understood how teams actually work. So we
+                                We knew AI could help — but only if it understood how teams actually work. So we
                                 built Teama AI to connect the dots across your existing tools, surface insights
                                 that matter, and give everyone a clear view of what's happening.
                             </p>
                             <p>
-                                Today, thousands of teams use Teama AI to stay aligned, move faster, and spend
-                                less time in status meetings. We're just getting started.
+                                Teama AI is just launching — and we're inviting early teams to help shape what
+                                it becomes. If you've felt the pain of too many tools and too little clarity,
+                                this is built for you.
                             </p>
                         </div>
                     </div>
@@ -180,15 +160,15 @@ const About = () => {
                 <div className="max-w-4xl mx-auto px-8 py-16 text-center">
                     <h2 className="text-3xl font-bold mb-4">Ready to transform your team's productivity?</h2>
                     <p className="text-xl text-purple-100 mb-8">
-                        Join thousands of teams already using Teama AI
+                        Be among the first teams to experience AI-powered clarity.
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <button className="bg-white text-purple-600 px-8 py-3 rounded-lg font-semibold hover:shadow-xl transition-shadow">
+                        <a href="/signup" className="bg-white text-purple-600 px-8 py-3 rounded-lg font-semibold hover:shadow-xl transition-shadow">
                             Start Free Trial
-                        </button>
-                        <button className="bg-purple-500/30 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-500/50 transition-colors">
-                            Schedule Demo
-                        </button>
+                        </a>
+                        <a href="/contact" className="bg-purple-500/30 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-500/50 transition-colors">
+                            Get in Touch
+                        </a>
                     </div>
                 </div>
             </div>

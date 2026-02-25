@@ -163,7 +163,7 @@ const Team = () => {
     // ✅ ADDED: Error Display
     if (error) {
         return (
-            <div className="p-8 max-w-4xl mx-auto">
+            <div className="p-4 md:p-8 max-w-4xl mx-auto">
                 <div className="bg-red-50 border border-red-200 rounded-2xl p-8 flex items-start gap-4">
                     <AlertCircle className="text-red-600 flex-shrink-0" size={24} />
                     <div>
@@ -183,7 +183,7 @@ const Team = () => {
 
     if (!team) {
         return (
-            <div className="p-8 max-w-4xl mx-auto text-center">
+            <div className="p-4 md:p-8 max-w-4xl mx-auto text-center">
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-12">
                     <Users className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                     <h2 className="text-2xl font-bold text-slate-900 mb-2">No Team Selected</h2>
@@ -194,13 +194,13 @@ const Team = () => {
     }
 
     return (
-        <div className="p-8 max-w-6xl mx-auto">
+        <div className="p-4 md:p-8 max-w-6xl mx-auto">
             <div className="mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 mb-2">{team.name}</h1>
                     <p className="text-gray-600">{members.length} Members {team.size_range && `• ${team.size_range}`}</p>
                 </div>
-                </div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Members List */}
@@ -231,10 +231,10 @@ const Team = () => {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${member.role === 'owner'
-                                                ? 'bg-purple-100 text-purple-700'
-                                                : member.role === 'admin'
-                                                    ? 'bg-blue-100 text-blue-700'
-                                                    : 'bg-gray-100 text-gray-700'
+                                            ? 'bg-purple-100 text-purple-700'
+                                            : member.role === 'admin'
+                                                ? 'bg-blue-100 text-blue-700'
+                                                : 'bg-gray-100 text-gray-700'
                                             }`}>
                                             {member.role}
                                         </span>
@@ -268,10 +268,10 @@ const Team = () => {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${invite.status === 'pending'
-                                                    ? 'bg-yellow-100 text-yellow-700'
-                                                    : invite.status === 'accepted'
-                                                        ? 'bg-green-100 text-green-700'
-                                                        : 'bg-gray-100 text-gray-700'
+                                                ? 'bg-yellow-100 text-yellow-700'
+                                                : invite.status === 'accepted'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : 'bg-gray-100 text-gray-700'
                                                 }`}>
                                                 {invite.status}
                                             </span>

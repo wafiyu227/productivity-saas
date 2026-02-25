@@ -73,19 +73,21 @@ export default function Dashboard() {
         if (!user) return;
 
         try {
-            const url = new URL(`${API_URL}/api/blockers`);
-            url.searchParams.append('userId', user.id);
-            if (profile?.current_team_id) {
-                url.searchParams.append('teamId', profile.current_team_id);
-            }
+            const teamId = profile?.current_team_id;
 
-            const res = await fetch(url.toString());
-            const summariesWithBlockers = await res.json();
+            // Fetch Slack blockers and Asana deadlines in parallel
+            const [slackRes, asanaData] = await Promise.all([
+                fetch(`${API_URL}/api/blockers?userId=${user.id}${teamId ? `&teamId=${teamId}` : ''}`).then(r => r.json()).catch(() => []),
+                api.getAsanaDeadlines(teamId).catch(() => ({ overdue: { count: 0 }, dueToday: { count: 0 } }))
+            ]);
+
+            const summariesWithBlockers = Array.isArray(slackRes) ? slackRes : [];
 
             let activeCount = 0;
             let resolvedCount = 0;
             let totalCount = 0;
 
+            // Count Slack blockers
             summariesWithBlockers.forEach(summary => {
                 if (summary.blockers && Array.isArray(summary.blockers)) {
                     summary.blockers.forEach((blocker, index) => {
@@ -99,6 +101,11 @@ export default function Dashboard() {
                     });
                 }
             });
+
+            // Add Asana overdue + due-today as active blockers
+            const asanaActive = (asanaData?.overdue?.count || 0) + (asanaData?.dueToday?.count || 0);
+            activeCount += asanaActive;
+            totalCount += asanaActive;
 
             setBlockerStats({
                 active: activeCount,
@@ -220,20 +227,20 @@ export default function Dashboard() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
                 <div className="max-w-7xl mx-auto">
                     {/* Header */}
-                    <div className="mb-8">
-                        <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                    <div className="mb-6 md:mb-8">
+                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">
                             Welcome back! 👋
                         </h1>
-                        <p className="text-lg text-gray-600">
+                        <p className="text-base md:text-lg text-gray-600">
                             Here's what's happening with your team today
                         </p>
                     </div>
 
                     {/* Stats Grid */}
-                    <div className="grid md:grid-cols-5 gap-6 mb-8">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6 mb-6 md:mb-8">
                         <StatCard
                             title="Channels"
                             value={stats.channelsMonitored}
@@ -274,8 +281,8 @@ export default function Dashboard() {
                     </div>
 
                     {/* Generate Summary Card */}
-                    <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-xl p-8 mb-8 text-white">
-                        <div className="flex items-start justify-between mb-6">
+                    <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-xl p-5 md:p-8 mb-6 md:mb-8 text-white">
+                        <div className="flex items-start justify-between mb-4 md:mb-6">
                             <div>
                                 <h2 className="text-2xl font-bold mb-2">
                                     Generate AI Summary

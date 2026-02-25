@@ -175,10 +175,10 @@ export default function Profile() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
                 <div className="max-w-4xl mx-auto">
-                    <div className="flex items-center justify-between mb-8">
-                        <h1 className="text-4xl font-bold text-gray-900">Profile Settings</h1>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 md:mb-8">
+                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900">Profile Settings</h1>
                         {saved && !saving && (
                             <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium">
                                 Saved
@@ -192,10 +192,10 @@ export default function Profile() {
                         </div>
                     )}
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 mb-6">
-                        <div className="flex items-center gap-6 mb-8">
-                            <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
-                                <User className="text-white" size={48} />
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-8 mb-6">
+                        <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 mb-6 md:mb-8">
+                            <div className="w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
+                                <User className="text-white" size={40} />
                             </div>
                             <div>
                                 <h2 className="text-2xl font-bold text-gray-900 mb-1">
@@ -295,7 +295,7 @@ export default function Profile() {
                                 description="Secure your account or remove your data"
                             >
                                 <div className="space-y-4">
-                                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
                                         <div>
                                             <h4 className="font-semibold text-gray-900">Reset Password</h4>
                                             <p className="text-sm text-gray-600">Receive an email to securely change your password</p>
@@ -309,7 +309,7 @@ export default function Profile() {
                                         </button>
                                     </div>
 
-                                    <div className="flex items-center justify-between p-4 bg-red-50 rounded-xl border border-red-100">
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-red-50 rounded-xl border border-red-100">
                                         <div>
                                             <h4 className="font-semibold text-red-900">Delete Account</h4>
                                             <p className="text-sm text-red-700">Permanently remove your account and all associated data</p>
@@ -371,7 +371,7 @@ function SettingsSection({ icon, title, description, children }) {
                     <p className="text-sm text-gray-600">{description}</p>
                 </div>
             </div>
-            <div className="ml-14">
+            <div className="ml-0 sm:ml-14">
                 {children}
             </div>
         </div>

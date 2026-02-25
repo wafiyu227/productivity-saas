@@ -103,15 +103,15 @@ export default function Meetings() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-purple-50">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
                 <div className="max-w-6xl mx-auto">
                     {/* Header */}
-                    <div className="flex items-center justify-between mb-8">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 md:mb-8">
                         <div>
-                            <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                            <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-1 md:mb-2">
                                 Team Schedule & Analytics
                             </h1>
-                            <p className="text-lg text-gray-600">
+                            <p className="text-base md:text-lg text-gray-600">
                                 Monitor your team's meeting load and track action items
                             </p>
                         </div>
@@ -146,7 +146,7 @@ export default function Meetings() {
                     )}
 
                     {calendarConnected && analytics && (
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 md:mb-8">
                             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                                 <div className="flex items-center gap-2 text-gray-500 mb-1">
                                     <Clock size={16} />

@@ -1,12 +1,16 @@
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import {
-    Zap, Target, TrendingUp, ArrowRight, CheckCircle,
-    MessageSquare, BarChart3, Shield, Star, Users
+    Zap, Target, ArrowRight, CheckCircle,
+    MessageSquare, BarChart3, Shield, Users, Menu, X
 } from 'lucide-react';
 
 export default function Landing() {
+    const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
     const handleSmoothScroll = (event, sectionId) => {
         event.preventDefault();
+        setMobileNavOpen(false);
         const section = document.getElementById(sectionId);
         if (!section) return;
         section.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -16,51 +20,69 @@ export default function Landing() {
         <div className="min-h-screen bg-white">
             {/* Navigation */}
             <nav className="fixed w-full bg-white/80 backdrop-blur-md z-50 border-b border-gray-100">
-                <div className="container mx-auto px-6 py-4">
+                <div className="container mx-auto px-4 md:px-6 py-3 md:py-4">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
-                            <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-                                <Zap className="text-white" size={24} />
+                            <div className="w-9 h-9 md:w-10 md:h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+                                <Zap className="text-white" size={20} />
                             </div>
-                            <span className="text-xl font-bold text-gray-900">Teama AI</span>
+                            <span className="text-lg md:text-xl font-bold text-gray-900">Teama AI</span>
                         </div>
                         <div className="hidden md:flex items-center gap-8">
                             <a href="#features" onClick={(event) => handleSmoothScroll(event, 'features')} className="text-gray-600 hover:text-gray-900 transition">Features</a>
                             <a href="#how-it-works" onClick={(event) => handleSmoothScroll(event, 'how-it-works')} className="text-gray-600 hover:text-gray-900 transition">How it Works</a>
-                            <a href="#testimonials" onClick={(event) => handleSmoothScroll(event, 'testimonials')} className="text-gray-600 hover:text-gray-900 transition">Testimonials</a>
                             <a href="#pricing" onClick={(event) => handleSmoothScroll(event, 'pricing')} className="text-gray-600 hover:text-gray-900 transition">Pricing</a>
                         </div>
-                        <div className="flex items-center gap-4">
-                            <Link to="/login" className="text-gray-600 hover:text-gray-900 transition">
+                        <div className="flex items-center gap-2 md:gap-4">
+                            <Link to="/login" className="hidden sm:inline text-gray-600 hover:text-gray-900 transition text-sm md:text-base">
                                 Sign In
                             </Link>
                             <Link
                                 to="/signup"
-                                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg hover:scale-105 transition-all"
+                                className="px-4 md:px-6 py-2 md:py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm md:text-base rounded-lg hover:shadow-lg hover:scale-105 transition-all"
                             >
                                 Get Started Free
                             </Link>
+                            <button
+                                onClick={() => setMobileNavOpen(!mobileNavOpen)}
+                                className="md:hidden p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                                aria-label="Toggle navigation menu"
+                            >
+                                {mobileNavOpen ? <X size={22} /> : <Menu size={22} />}
+                            </button>
                         </div>
                     </div>
+
+                    {/* Mobile Nav Menu */}
+                    {mobileNavOpen && (
+                        <div className="md:hidden mt-3 pt-3 border-t border-gray-100 pb-2">
+                            <div className="flex flex-col gap-1">
+                                <a href="#features" onClick={(event) => handleSmoothScroll(event, 'features')} className="px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition">Features</a>
+                                <a href="#how-it-works" onClick={(event) => handleSmoothScroll(event, 'how-it-works')} className="px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition">How it Works</a>
+                                <a href="#pricing" onClick={(event) => handleSmoothScroll(event, 'pricing')} className="px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition">Pricing</a>
+                                <Link to="/login" className="sm:hidden px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition">Sign In</Link>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </nav>
 
             {/* Hero Section */}
-            <section className="pt-32 pb-20 px-6">
+            <section className="pt-28 md:pt-32 pb-12 md:pb-20 px-4 md:px-6">
                 <div className="container mx-auto max-w-6xl">
                     <div className="text-center">
                         <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium mb-6">
-                            <Star size={16} fill="currentColor" />
-                            Trusted by 500+ remote teams
+                            <Zap size={16} />
+                            Now in early access — be among the first teams
                         </div>
-                        <h1 className="text-6xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
+                        <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 mb-6 leading-tight">
                             AI-Powered Team
                             <br />
                             <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                                 Teama AI Productivity
                             </span>
                         </h1>
-                        <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto leading-relaxed">
+                        <p className="text-lg md:text-xl text-gray-600 mb-8 max-w-2xl mx-auto leading-relaxed">
                             Automatically summarize Slack conversations, detect blockers, and get actionable insights
                             for your remote team. No manual work required.
                         </p>
@@ -108,33 +130,19 @@ export default function Landing() {
                 </div>
             </section>
 
-            {/* Social Proof */}
-            <section className="py-12 bg-gray-50 border-y border-gray-100">
-                <div className="container mx-auto px-6">
-                    <p className="text-center text-gray-600 mb-8">Trusted by teams at</p>
-                    <div className="flex flex-wrap justify-center items-center gap-12 opacity-50">
-                        <span className="text-2xl font-bold text-gray-400">Stripe</span>
-                        <span className="text-2xl font-bold text-gray-400">Notion</span>
-                        <span className="text-2xl font-bold text-gray-400">Vercel</span>
-                        <span className="text-2xl font-bold text-gray-400">Linear</span>
-                        <span className="text-2xl font-bold text-gray-400">Figma</span>
-                    </div>
-                </div>
-            </section>
-
             {/* Features Section */}
-            <section id="features" className="py-24 px-6 scroll-mt-24">
+            <section id="features" className="py-16 md:py-24 px-4 md:px-6 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
-                    <div className="text-center mb-16">
-                        <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+                    <div className="text-center mb-10 md:mb-16">
+                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
                             Everything you need to boost productivity
                         </h2>
-                        <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+                        <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
                             Powerful features designed for modern remote teams
                         </p>
                     </div>
 
-                    <div className="grid md:grid-cols-3 gap-8">
+                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 md:gap-8">
                         <FeatureCard
                             icon={<MessageSquare className="text-blue-600" size={32} />}
                             title="AI Summaries"
@@ -169,25 +177,25 @@ export default function Landing() {
                             icon={<Zap className="text-indigo-600" size={32} />}
                             title="Instant Integration"
                             description="Connect Slack, Asana, and your tools in seconds. No technical setup required."
-                            features={['One-click setup', '50+ integrations', 'API access']}
+                            features={['One-click setup', 'All major tools', 'API access']}
                         />
                     </div>
                 </div>
             </section>
 
             {/* How It Works */}
-            <section id="how-it-works" className="py-24 px-6 bg-gradient-to-br from-blue-50 to-purple-50 scroll-mt-24">
+            <section id="how-it-works" className="py-16 md:py-24 px-4 md:px-6 bg-gradient-to-br from-blue-50 to-purple-50 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
-                    <div className="text-center mb-16">
-                        <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+                    <div className="text-center mb-10 md:mb-16">
+                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
                             How it works
                         </h2>
-                        <p className="text-xl text-gray-600">
+                        <p className="text-lg md:text-xl text-gray-600">
                             Get started in minutes, not hours
                         </p>
                     </div>
 
-                    <div className="grid md:grid-cols-3 gap-12">
+                    <div className="grid sm:grid-cols-3 gap-8 md:gap-12">
                         <Step
                             number="1"
                             title="Connect Your Tools"
@@ -207,120 +215,89 @@ export default function Landing() {
                 </div>
             </section>
 
-            {/* Testimonials */}
-            <section id="testimonials" className="py-24 px-6 scroll-mt-24">
-                <div className="container mx-auto max-w-6xl">
-                    <div className="text-center mb-16">
-                        <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-                            Loved by teams worldwide
-                        </h2>
-                        <p className="text-xl text-gray-600">
-                            See what our customers have to say
-                        </p>
-                    </div>
-
-                    <div className="grid md:grid-cols-3 gap-8">
-                        <Testimonial
-                            quote="Teama AI saved us 10+ hours per week. We catch blockers before they impact delivery."
-                            author="Sarah Chen"
-                            role="Engineering Manager"
-                            company="Stripe"
-                            avatar="https://i.pravatar.cc/150?img=1"
-                        />
-                        <Testimonial
-                            quote="The AI summaries are incredibly accurate. It's like having a super-assistant for the whole team."
-                            author="Michael Rodriguez"
-                            role="Product Lead"
-                            company="Notion"
-                            avatar="https://i.pravatar.cc/150?img=3"
-                        />
-                        <Testimonial
-                            quote="Best investment we made this year. Our async communication improved dramatically."
-                            author="Emily Taylor"
-                            role="VP of Operations"
-                            company="Vercel"
-                            avatar="https://i.pravatar.cc/150?img=5"
-                        />
-                    </div>
-                </div>
-            </section>
-
             {/* Pricing */}
-            <section id="pricing" className="py-24 px-6 bg-gray-50 scroll-mt-24">
+            <section id="pricing" className="py-16 md:py-24 px-4 md:px-6 bg-gray-50 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
-                    <div className="text-center mb-16">
-                        <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+                    <div className="text-center mb-10 md:mb-16">
+                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
                             Simple, flat-rate pricing
                         </h2>
-                        <p className="text-xl text-gray-600">
+                        <p className="text-lg md:text-xl text-gray-600">
                             No per-seat fees. Unlimited users on all paid plans.
                         </p>
                     </div>
 
-                    <div className="grid md:grid-cols-3 gap-8">
+                    <div className="grid md:grid-cols-3 gap-6 md:gap-8">
                         <PricingCard
                             name="Free"
                             price="$0"
-                            description="For small teams getting started"
+                            description="Try the full platform, no card needed"
                             features={[
-                                '1 team (up to 10 members)',
-                                '200 AI summaries per month',
-                                'Slack integration only',
-                                '30-day history',
-                                'Basic blocker detection',
+                                'Up to 5 team members',
+                                '50 AI summaries per month',
+                                'All integrations (Slack, Asana, Calendar, GitHub)',
+                                'Blocker detection',
+                                '7-day history',
                                 'Basic analytics',
                                 'Community support'
                             ]}
-                            cta="Start Free"
+                            cta="Get Started Free"
                             highlighted={false}
                         />
                         <PricingCard
                             name="Starter"
                             price="$19"
-                            description="For growing teams"
+                            description="For teams that rely on it daily"
                             features={[
-                                '1 team (up to 25 members)',
-                                '2,000 AI summaries per month',
-                                'Slack + Asana + Google Calendar',
-                                'Blocker detection',
-                                'Daily digest + blocker alerts',
+                                'Up to 20 team members',
+                                '1,000 AI summaries per month',
+                                'All integrations',
+                                'Advanced blocker detection',
+                                'Daily digest emails',
                                 '90-day history',
+                                'Full analytics & reports',
                                 'Email support'
                             ]}
-                            cta="Start Free Trial"
+                            cta="Start 14-Day Free Trial"
                             highlighted={true}
                         />
                         <PricingCard
                             name="Growth"
-                            price="$69"
-                            description="For scaling organizations"
+                            price="$49"
+                            description="For scaling teams that need more"
                             features={[
-                                '1 team (up to 100 members)',
-                                '10,000 AI summaries per month',
+                                'Up to 75 team members',
+                                'Unlimited AI summaries',
                                 'Everything in Starter',
-                                'Daily digest emails',
-                                'Advanced analytics',
-                                'Export reports',
                                 'Workload insights',
+                                'Export reports',
                                 '1-year history',
                                 'Priority support',
                                 'Custom onboarding'
                             ]}
-                            cta="Contact Sales"
+                            cta="Start 14-Day Free Trial"
                             highlighted={false}
                         />
                     </div>
+
+                    <p className="text-center text-gray-600 mt-8 md:mt-10">
+                        <span className="font-medium text-gray-900">Larger team?</span>{' '}
+                        <a href="mailto:hello@teama.ai" className="text-blue-600 hover:text-blue-700 font-medium underline underline-offset-2 transition">
+                            Contact us
+                        </a>{' '}
+                        — we'll build a plan that fits.
+                    </p>
                 </div>
             </section>
 
             {/* CTA Section */}
-            <section className="py-24 px-6 bg-gradient-to-r from-blue-600 to-purple-600">
+            <section className="py-16 md:py-24 px-4 md:px-6 bg-gradient-to-r from-blue-600 to-purple-600">
                 <div className="container mx-auto max-w-4xl text-center">
-                    <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
+                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6">
                         Ready to transform your team's productivity?
                     </h2>
-                    <p className="text-xl text-blue-100 mb-8">
-                        Join 500+ teams already using Teama AI
+                    <p className="text-lg md:text-xl text-blue-100 mb-8">
+                        Start free. No credit card needed. Cancel anytime.
                     </p>
                     <Link
                         to="/signup"
@@ -336,9 +313,9 @@ export default function Landing() {
             </section>
 
             {/* Footer */}
-            <footer className="bg-gray-900 text-gray-400 py-12 px-6">
+            <footer className="bg-gray-900 text-gray-400 py-10 md:py-12 px-4 md:px-6">
                 <div className="container mx-auto max-w-6xl">
-                    <div className="grid md:grid-cols-4 gap-8 mb-8">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 mb-8">
                         <div>
                             <div className="flex items-center gap-2 mb-4">
                                 <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
@@ -370,7 +347,7 @@ export default function Landing() {
                             <ul className="space-y-2 text-sm">
                                 <li><a href="/privacy" className="hover:text-white transition">Privacy</a></li>
                                 <li><a href="/terms" className="hover:text-white transition">Terms</a></li>
-                                <li><a href="security" className="hover:text-white transition">Security</a></li>
+                                <li><a href="/security" className="hover:text-white transition">Security</a></li>
                             </ul>
                         </div>
                     </div>
@@ -385,7 +362,7 @@ export default function Landing() {
 
 function FeatureCard({ icon, title, description, features }) {
     return (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-xl hover:scale-105 transition-all">
+        <div className="bg-white p-5 md:p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-xl hover:scale-[1.02] md:hover:scale-105 transition-all">
             <div className="mb-4">{icon}</div>
             <h3 className="text-xl font-bold text-gray-900 mb-3">{title}</h3>
             <p className="text-gray-600 mb-4">{description}</p>
@@ -413,30 +390,10 @@ function Step({ number, title, description }) {
     );
 }
 
-function Testimonial({ quote, author, role, company, avatar }) {
-    return (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-            <div className="flex gap-1 mb-4">
-                {[...Array(5)].map((_, i) => (
-                    <Star key={i} size={16} fill="#FCD34D" className="text-yellow-400" />
-                ))}
-            </div>
-            <p className="text-gray-700 mb-6 italic">"{quote}"</p>
-            <div className="flex items-center gap-3">
-                <img src={avatar} alt={author} className="w-12 h-12 rounded-full" />
-                <div>
-                    <p className="font-semibold text-gray-900">{author}</p>
-                    <p className="text-sm text-gray-600">{role} at {company}</p>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 function PricingCard({ name, price, description, features, cta, highlighted }) {
     return (
-        <div className={`bg-white p-8 rounded-2xl border-2 ${highlighted
-            ? 'border-blue-600 shadow-2xl scale-105'
+        <div className={`bg-white p-5 md:p-8 rounded-2xl border-2 ${highlighted
+            ? 'border-blue-600 shadow-2xl md:scale-105'
             : 'border-gray-100 shadow-sm'
             }`}>
             {highlighted && (
@@ -446,7 +403,7 @@ function PricingCard({ name, price, description, features, cta, highlighted }) {
             )}
             <h3 className="text-2xl font-bold text-gray-900 mb-2">{name}</h3>
             <div className="mb-2">
-                <span className="text-5xl font-bold text-gray-900">{price}</span>
+                <span className="text-4xl md:text-5xl font-bold text-gray-900">{price}</span>
                 {price !== 'Custom' && <span className="text-gray-600">/month</span>}
             </div>
             <p className="text-gray-600 mb-6">{description}</p>

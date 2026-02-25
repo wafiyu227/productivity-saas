@@ -120,7 +120,7 @@ export default function Integrations() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
                 <div className="max-w-4xl mx-auto">
                     {notification && (
                         <div className={`mb-6 p-4 rounded-lg flex items-center justify-between gap-3 ${notification.type === 'error'
@@ -148,8 +148,8 @@ export default function Integrations() {
                         </div>
                     )}
 
-                    <h1 className="text-4xl font-bold text-gray-900 mb-2">Integrations</h1>
-                    <p className="text-lg text-gray-600 mb-8">
+                    <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">Integrations</h1>
+                    <p className="text-base md:text-lg text-gray-600 mb-6 md:mb-8">
                         Connect your tools to unlock AI-powered insights
                     </p>
 
@@ -222,8 +222,8 @@ export default function Integrations() {
 
 function IntegrationCard({ name, description, icon, status, onConnect, onDisconnect, features }) {
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition">
-            <div className="flex items-start justify-between mb-4">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6 hover:shadow-md transition">
+            <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-4">
                 <div className="flex items-start gap-4">
                     <img src={icon} alt={name} className="w-12 h-12 rounded-lg" />
                     <div>

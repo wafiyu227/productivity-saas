@@ -129,7 +129,7 @@ export default function Summaries() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-8">
+            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-4 md:p-8">
                 <div className="text-center">
                     <Sparkles className="animate-spin mx-auto text-blue-600 mb-4" size={32} />
                     <p className="text-gray-600">Loading summaries...</p>
@@ -140,7 +140,7 @@ export default function Summaries() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-            <div className="p-8">
+            <div className="p-4 md:p-8">
                 <div className="max-w-6xl mx-auto">
                     {/* Header */}
                     <div className="mb-8">
@@ -151,15 +151,15 @@ export default function Summaries() {
                             <ArrowLeft size={20} />
                             Back to Dashboard
                         </button>
-                        <h1 className="text-4xl font-bold text-gray-900 mb-2">All Summaries</h1>
-                        <p className="text-lg text-gray-600">
+                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">All Summaries</h1>
+                        <p className="text-base md:text-lg text-gray-600">
                             {filteredSummaries.length} of {summaries.length} summaries
                         </p>
                     </div>
 
                     {/* Filters */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
-                        <div className="grid md:grid-cols-3 gap-4">
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6 mb-6 md:mb-8">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {/* Search */}
                             <div className="relative">
                                 <Search className="absolute left-3 top-3 text-gray-400" size={20} />
