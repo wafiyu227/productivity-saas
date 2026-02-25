@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Mail, Copy, Check, Users, AlertCircle } from 'lucide-react';
+import { Mail, Copy, Check, Users, AlertCircle, CreditCard } from 'lucide-react';
 
 const Team = () => {
     const { user, profile, refreshProfile } = useAuth(); // ✅ Added refreshProfile
@@ -12,11 +12,59 @@ const Team = () => {
     const [inviteEmail, setInviteEmail] = useState('');
     const [inviteSending, setInviteSending] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [isBillingLoading, setIsBillingLoading] = useState(false);
+
+    const clearPaymentQueryParams = () => {
+        const url = new URL(window.location.href);
+        ['payment', 'reference', 'trxref'].forEach((param) => {
+            url.searchParams.delete(param);
+        });
+        window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    };
+
+    const verifyPaymentFromRedirect = async () => {
+        const searchParams = new URLSearchParams(window.location.search);
+        if (searchParams.get('payment') !== 'success') return;
+
+        const reference = searchParams.get('reference') || searchParams.get('trxref');
+        if (!reference) {
+            alert('Payment succeeded, but no transaction reference was returned. Please refresh in a few seconds.');
+            clearPaymentQueryParams();
+            return;
+        }
+
+        setIsBillingLoading(true);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/paystack/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reference })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to verify payment');
+            }
+
+            alert('Your subscription was updated successfully!');
+        } catch (error) {
+            console.error('Payment verification error:', error);
+            alert(`Payment succeeded, but plan update is still processing: ${error.message}`);
+        } finally {
+            setIsBillingLoading(false);
+            clearPaymentQueryParams();
+        }
+    };
 
     useEffect(() => {
-        if (user && profile) {
-            fetchTeamData();
-        }
+        const initializePage = async () => {
+            await verifyPaymentFromRedirect();
+            if (user && profile) {
+                await fetchTeamData();
+            }
+        };
+
+        initializePage();
     }, [user, profile]);
 
     const fetchTeamData = async () => {
@@ -136,13 +184,81 @@ const Team = () => {
                 alert('Invitation sent!');
             } else {
                 const errorData = await res.json();
-                alert(errorData.error || 'Failed to send invitation');
+                if (res.status === 403 && errorData.error?.includes('Team size limit reached')) {
+                    const wantsUpgrade = window.confirm(`🛑 ${errorData.error}\n\nPlease use the Subscription & Billing section above to upgrade your plan.`);
+                    if (wantsUpgrade) {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                } else {
+                    alert(errorData.error || 'Failed to send invitation');
+                }
             }
         } catch (error) {
             console.error('Invite error:', error);
             alert('Failed to send invitation');
         } finally {
             setInviteSending(false);
+        }
+    };
+
+    const handleUpgrade = async (planName) => {
+        setIsBillingLoading(true);
+        try {
+            // Note: Users should provide these in their .env
+            const planCode = planName === 'starter'
+                ? import.meta.env.VITE_PAYSTACK_STARTER_PLAN
+                : import.meta.env.VITE_PAYSTACK_GROWTH_PLAN;
+
+            if (!planCode) {
+                alert('Plan codes not configured in environment variables (.env)');
+                setIsBillingLoading(false);
+                return;
+            }
+
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/paystack/initialize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: user.email,
+                    plan: planCode,
+                    planName,
+                    teamId: team.id,
+                    userId: user.id
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.checkoutUrl) {
+                window.location.href = data.checkoutUrl;
+            } else {
+                alert(data.error || 'Failed to initialize checkout');
+            }
+        } catch (error) {
+            console.error('Upgrade error:', error);
+            alert('Failed to start upgrade process');
+        } finally {
+            setIsBillingLoading(false);
+        }
+    };
+
+    const handleManageSubscription = async () => {
+        setIsBillingLoading(true);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/paystack/manage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ teamId: team.id })
+            });
+            const data = await res.json();
+            if (res.ok && data.manageUrl) {
+                window.location.href = data.manageUrl;
+            } else {
+                alert(data.error || 'Failed to get management link');
+            }
+        } catch (error) {
+            console.error('Manage subscription error:', error);
+            alert('Failed to get management link');
+        } finally {
+            setIsBillingLoading(false);
         }
     };
 
@@ -193,6 +309,22 @@ const Team = () => {
         );
     }
 
+    const subscriptionStatus = team.subscription_status || 'active';
+    const isCancelAtPeriodEnd = subscriptionStatus === 'cancel_at_period_end';
+    const statusBadgeClass = subscriptionStatus === 'active'
+        ? 'bg-green-100 text-green-700'
+        : isCancelAtPeriodEnd
+            ? 'bg-amber-100 text-amber-700'
+            : 'bg-gray-100 text-gray-700';
+    const statusLabel = subscriptionStatus === 'active'
+        ? 'Active'
+        : isCancelAtPeriodEnd
+            ? 'Cancels At Period End'
+            : 'Free Tier';
+    const periodEndLabel = team.current_period_end
+        ? new Date(team.current_period_end).toLocaleDateString()
+        : null;
+
     return (
         <div className="p-4 md:p-8 max-w-6xl mx-auto">
             <div className="mb-8">
@@ -203,8 +335,82 @@ const Team = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Members List */}
+                {/* Main Content Area: Billing + Members */}
                 <div className="lg:col-span-2 space-y-6">
+
+                    {/* Billing Section */}
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-blue-100">
+                        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 border-b border-blue-100 flex items-center justify-between">
+                            <div>
+                                <h2 className="font-semibold text-lg text-gray-900 flex items-center gap-2">
+                                    <CreditCard size={20} className="text-blue-600" />
+                                    Subscription & Billing
+                                </h2>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    Current Plan: <span className="font-semibold capitalize text-blue-700">{team.plan || 'Free'}</span>
+                                </p>
+                            </div>
+                            <div className="flex flex-col items-end">
+                                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadgeClass}`}>
+                                    {statusLabel}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="p-6">
+                            {isCancelAtPeriodEnd && periodEndLabel && (
+                                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                    Subscription cancellation is scheduled. Access remains active until {periodEndLabel}.
+                                </div>
+                            )}
+                            <div className="mb-6">
+                                <div className="flex justify-between items-end mb-2">
+                                    <span className="text-sm font-medium text-gray-700">Monthly AI Summaries</span>
+                                    <span className="text-sm font-semibold text-gray-900">
+                                        {team.usageCount || 0} / {team.plan === 'growth' ? 'Unlimited' : (team.plan === 'starter' ? '1000' : '50')}
+                                    </span>
+                                </div>
+                                <div className="w-full bg-gray-100 rounded-full h-2.5">
+                                    <div
+                                        className="bg-blue-600 h-2.5 rounded-full"
+                                        style={{ width: `${Math.min(100, ((team.usageCount || 0) / (team.plan === 'growth' ? 1000 : (team.plan === 'starter' ? 1000 : 50))) * 100)}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 mt-8">
+                                {(team.plan === 'free' || team.plan === 'starter') && (
+                                    <>
+                                        {team.plan === 'free' && (
+                                            <button
+                                                onClick={() => handleUpgrade('starter')}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
+                                                disabled={isBillingLoading}
+                                            >
+                                                {isBillingLoading ? 'Loading...' : 'Upgrade to Starter'}
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleUpgrade('growth')}
+                                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
+                                            disabled={isBillingLoading}
+                                        >
+                                            {isBillingLoading ? 'Loading...' : 'Upgrade to Growth'}
+                                        </button>
+                                    </>
+                                )}
+                                {team.plan !== 'free' && (
+                                    <button
+                                        onClick={handleManageSubscription}
+                                        className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
+                                        disabled={isBillingLoading}
+                                    >
+                                        {isBillingLoading ? 'Loading...' : 'Manage Subscription'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
                         <div className="p-6 border-b border-gray-100">
                             <h2 className="font-semibold text-lg text-gray-900">Team Members</h2>

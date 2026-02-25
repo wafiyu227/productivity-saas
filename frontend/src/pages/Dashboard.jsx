@@ -198,10 +198,15 @@ export default function Dashboard() {
 
             setSelectedChannel('');
         } catch (error) {
-            if (error.message.includes('not_in_channel')) {
-                alert('⚠️ The bot is not in this channel!\\n\\nTo fix:\\n1. Go to the channel in Slack\\n2. Type: /invite @Teama Assistant\\n3. Try again');
+            if (error.message?.includes('not_in_channel')) {
+                alert('⚠️ The bot is not in this channel!\n\nTo fix:\n1. Go to the channel in Slack\n2. Type: /invite @Teama Assistant\n3. Try again');
+            } else if (error.message?.includes('Monthly summary limit reached')) {
+                const wantsUpgrade = window.confirm(`🛑 ${error.message}\n\nWould you like to go to Team Settings to upgrade your plan?`);
+                if (wantsUpgrade) {
+                    navigate('/app/team');
+                }
             } else {
-                alert('Failed to generate summary: ' + error.message);
+                alert('Failed to generate summary: ' + (error.message || 'Unknown error'));
             }
         } finally {
             setLoading(false);
