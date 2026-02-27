@@ -63,22 +63,28 @@ export const db = {
 
   // FIXED: saveIntegration with proper conflict resolution
   async saveIntegration(userId, platform, tokens, scope = 'team') {
+    if (!tokens?.accessToken) {
+      throw new Error('saveIntegration requires accessToken');
+    }
+
     const integrationData = {
       user_id: userId,
       platform,
       scope,
       access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken || null,
-      expires_at: tokens.expiresAt || null,
-      workspace_id: tokens.workspaceId || null,
-      workspace_name: tokens.workspaceName || null,
-      team_id_external: tokens.teamIdExternal || null,
-      team_name: tokens.teamName || null,
       updated_at: new Date().toISOString()
     };
 
+    // Preserve existing values unless the caller explicitly provides a field.
+    if (tokens.refreshToken !== undefined) integrationData.refresh_token = tokens.refreshToken;
+    if (tokens.expiresAt !== undefined) integrationData.expires_at = tokens.expiresAt;
+    if (tokens.workspaceId !== undefined) integrationData.workspace_id = tokens.workspaceId;
+    if (tokens.workspaceName !== undefined) integrationData.workspace_name = tokens.workspaceName;
+    if (tokens.teamIdExternal !== undefined) integrationData.team_id_external = tokens.teamIdExternal;
+    if (tokens.teamName !== undefined) integrationData.team_name = tokens.teamName;
+
     // Add team_id only for team-scoped integrations
-    if (scope === 'team' && tokens.teamId) {
+    if (scope === 'team' && tokens.teamId !== undefined) {
       integrationData.team_id = tokens.teamId;
     }
 
@@ -413,7 +419,13 @@ export const db = {
       .eq('month_year', monthYear)
       .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') throw error;
+    if (error && error.code !== 'PGRST116') {
+      // Graceful fallback if billing migration has not been applied yet.
+      if (error.code === '42P01') {
+        return 0;
+      }
+      throw error;
+    }
     return data?.summary_count || 0;
   },
 
@@ -427,6 +439,11 @@ export const db = {
         { onConflict: 'team_id,month_year' }
       );
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === '42P01') {
+        return;
+      }
+      throw error;
+    }
   }
 };

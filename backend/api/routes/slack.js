@@ -3,6 +3,7 @@ import { WebClient } from '@slack/web-api';
 import { db } from '../services/supabase-client.js';
 import aiProcessor from '../services/ai-processor.js';
 import logger from '../utils/logger.js';
+import { getSummaryLimit, getHistoryLimitHours } from '../utils/plan-limits.js';
 
 const router = express.Router();
 
@@ -72,19 +73,17 @@ router.post('/summarize', express.json(), async (req, res) => {
     const monthYear = new Date().toISOString().slice(0, 7); // e.g., '2026-02'
     const usageCount = await db.getTeamSummaryUsage(currentTeamId, monthYear);
 
-    const SUMMARY_LIMITS = { free: 50, starter: 1000, growth: Infinity };
-    const maxSummaries = SUMMARY_LIMITS[plan] || 50;
+    const summaryLimit = getSummaryLimit(plan);
 
-    if (usageCount >= maxSummaries) {
+    if (summaryLimit !== null && usageCount >= summaryLimit) {
       return res.status(403).json({
-        error: `Monthly summary limit reached (${maxSummaries}) for ${plan} plan.`,
+        error: `Monthly summary limit reached (${summaryLimit}) for ${plan} plan.`,
         code: 'PLAN_LIMIT_REACHED',
         currentPlan: plan
       });
     }
 
-    const HISTORY_LIMITS_HOURS = { free: 7 * 24, starter: 90 * 24, growth: 365 * 24 };
-    const maxHistory = HISTORY_LIMITS_HOURS[plan] || 168;
+    const maxHistory = getHistoryLimitHours(plan);
     const requestedHours = Math.min(hours, maxHistory); // Cap to plan limit
 
     const client = new WebClient(integration.access_token);

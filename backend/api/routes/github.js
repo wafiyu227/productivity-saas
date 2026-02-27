@@ -17,19 +17,47 @@ async function getOctokit(userId, teamId) {
 // Get Repositories
 router.get('/repos', async (req, res) => {
     try {
-        const { userId, teamId } = req.query;
+        const { userId, teamId, all } = req.query;
+        const requestedPerPage = Number.parseInt(req.query.perPage, 10);
+        const perPage = Number.isFinite(requestedPerPage)
+            ? Math.min(Math.max(requestedPerPage, 1), 100)
+            : 10;
+
         if (!userId) return res.status(400).json({ error: 'userId required' });
 
         const octokit = await getOctokit(userId, teamId);
+        let repoData = [];
 
-        // List repos for the authenticated user
-        const { data } = await octokit.repos.listForAuthenticatedUser({
-            sort: 'updated',
-            direction: 'desc',
-            per_page: 10
-        });
+        if (all === 'true') {
+            const maxPages = 10; // Soft cap to avoid long-running requests for very large accounts
+            let page = 1;
 
-        const repos = data.map(repo => ({
+            while (page <= maxPages) {
+                const { data } = await octokit.repos.listForAuthenticatedUser({
+                    sort: 'updated',
+                    direction: 'desc',
+                    per_page: 100,
+                    page
+                });
+
+                repoData.push(...data);
+
+                if (data.length < 100) {
+                    break;
+                }
+
+                page += 1;
+            }
+        } else {
+            const { data } = await octokit.repos.listForAuthenticatedUser({
+                sort: 'updated',
+                direction: 'desc',
+                per_page: perPage
+            });
+            repoData = data;
+        }
+
+        const repos = repoData.map(repo => ({
             id: repo.id,
             name: repo.name,
             full_name: repo.full_name,
@@ -41,7 +69,13 @@ router.get('/repos', async (req, res) => {
             stargazers_count: repo.stargazers_count
         }));
 
-        res.json({ repos });
+        res.json({
+            repos,
+            meta: {
+                fetched_all: all === 'true',
+                limit: all === 'true' ? repos.length : perPage
+            }
+        });
     } catch (error) {
         logger.error('Failed to fetch repos:', error);
         res.status(500).json({ error: error.message });
@@ -52,32 +86,44 @@ router.get('/repos', async (req, res) => {
 router.get('/pulls', async (req, res) => {
     try {
         const { userId, teamId, repo } = req.query;
+        const requestedLimit = Number.parseInt(req.query.limit, 10);
+        const requestedStaleDays = Number.parseInt(req.query.staleDays, 10);
+        const limit = Number.isFinite(requestedLimit)
+            ? Math.min(Math.max(requestedLimit, 1), 25)
+            : 10;
+        const staleDays = Number.isFinite(requestedStaleDays)
+            ? Math.min(Math.max(requestedStaleDays, 1), 30)
+            : 7;
+
         if (!userId) return res.status(400).json({ error: 'userId required' });
 
         const octokit = await getOctokit(userId, teamId);
+        const staleCutoffDate = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .split('T')[0];
+        const repoQualifier = repo ? `repo:${repo}` : null;
+        const baseQuery = ['is:pr', 'is:open', 'archived:false', repoQualifier]
+            .filter(Boolean)
+            .join(' ');
 
-        let pulls = [];
-
-        if (repo) {
-            // Get PRs for specific repo
-            const [owner, name] = repo.split('/');
-            const { data } = await octokit.pulls.list({
-                owner,
-                repo: name,
-                state: 'open',
-                per_page: 10
-            });
-            pulls = data;
-        } else {
-            // Get PRs involving the user (issues search is often better for "my PRs")
-            const { data } = await octokit.search.issuesAndPullRequests({
-                q: 'is:pr is:open author:@me archived:false',
+        const [openSearch, needsReviewSearch, staleSearch] = await Promise.all([
+            octokit.search.issuesAndPullRequests({
+                q: baseQuery,
                 sort: 'updated',
                 order: 'desc',
-                per_page: 10
-            });
-            pulls = data.items;
-        }
+                per_page: limit
+            }),
+            octokit.search.issuesAndPullRequests({
+                q: `${baseQuery} review:none`,
+                per_page: 1
+            }),
+            octokit.search.issuesAndPullRequests({
+                q: `${baseQuery} updated:<${staleCutoffDate}`,
+                per_page: 1
+            })
+        ]);
+
+        const pulls = openSearch.data.items || [];
 
         const formattedPulls = pulls.map(pr => ({
             id: pr.id,
@@ -86,14 +132,25 @@ router.get('/pulls', async (req, res) => {
             html_url: pr.html_url,
             state: pr.state,
             user: {
-                login: pr.user.login,
-                avatar_url: pr.user.avatar_url
+                login: pr.user?.login || 'unknown',
+                avatar_url: pr.user?.avatar_url || ''
             },
             created_at: pr.created_at,
-            repo: repo || (pr.repository_url ? pr.repository_url.split('repos/')[1] : 'unknown')
+            updated_at: pr.updated_at,
+            repo: pr.repository_url ? pr.repository_url.split('repos/')[1] : (repo || 'unknown')
         }));
 
-        res.json({ pulls: formattedPulls });
+        res.json({
+            pulls: formattedPulls,
+            meta: {
+                total_open: openSearch.data.total_count || formattedPulls.length,
+                needs_review: needsReviewSearch.data.total_count || 0,
+                stale: staleSearch.data.total_count || 0,
+                stale_days: staleDays,
+                limit,
+                scope: repo ? `repo:${repo}` : 'team-visible'
+            }
+        });
     } catch (error) {
         logger.error('Failed to fetch PRs:', error);
         res.status(500).json({ error: error.message });

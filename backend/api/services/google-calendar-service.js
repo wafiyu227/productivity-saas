@@ -23,14 +23,33 @@ class GoogleCalendarService {
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            logger.error('Failed to refresh Google token:', error);
-            throw new Error('Failed to refresh Google access token');
+            let errorData = null;
+            try {
+                errorData = await response.json();
+            } catch {
+                // Ignore JSON parse errors and fall back to a generic message below.
+            }
+
+            logger.error('Failed to refresh Google token:', {
+                status: response.status,
+                error: errorData
+            });
+
+            const error = new Error(
+                errorData?.error_description ||
+                errorData?.error ||
+                'Failed to refresh Google access token'
+            );
+            error.status = response.status;
+            error.code = errorData?.error;
+            error.details = errorData;
+            throw error;
         }
 
         const data = await response.json();
         return {
             accessToken: data.access_token,
+            refreshToken: data.refresh_token,
             expiresIn: data.expires_in
         };
     }

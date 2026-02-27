@@ -6,8 +6,26 @@ import { db } from '../services/supabase-client.js';
 import emailService from '../services/email-service.js';
 import logger from '../utils/logger.js';
 import crypto from 'crypto';
+import { getSeatLimit } from '../utils/plan-limits.js';
 
 const router = express.Router();
+
+const getTeamSeatContext = async (teamId) => {
+    const { data: team, error } = await db.supabase
+        .from('teams')
+        .select('plan')
+        .eq('id', teamId)
+        .single();
+
+    if (error || !team) {
+        throw new Error('Team not found');
+    }
+
+    const plan = team.plan || 'free';
+    const maxSeats = getSeatLimit(plan);
+
+    return { plan, maxSeats };
+};
 
 // Get invitation by token (for join page)
 router.get('/:token', async (req, res) => {
@@ -127,6 +145,18 @@ router.post('/:token/accept', async (req, res) => {
             return res.status(400).json({ error: 'Already a team member' });
         }
 
+        const { plan, maxSeats } = await getTeamSeatContext(invitation.team_id);
+        const members = await db.getTeamMembers(invitation.team_id);
+        const activeMembers = (members || []).filter((member) => member.status === 'active' || !member.status);
+
+        if (activeMembers.length >= maxSeats) {
+            return res.status(403).json({
+                error: `Team size limit reached (${maxSeats} members for ${plan} plan). Please upgrade.`,
+                code: 'PLAN_LIMIT_REACHED',
+                currentPlan: plan
+            });
+        }
+
         // Add to team
         const { error: memberError } = await db.supabase
             .from('team_members')
@@ -240,6 +270,20 @@ router.post('/', async (req, res) => {
             return res.status(404).json({ error: 'Team not found' });
         }
 
+        const { plan, maxSeats } = await getTeamSeatContext(teamId);
+        const members = await db.getTeamMembers(teamId);
+        const invites = await db.getTeamInvitations(teamId);
+        const currentSeats = (members?.length || 0) + (invites?.length || 0);
+        let remainingSeats = maxSeats - currentSeats;
+
+        if (remainingSeats <= 0) {
+            return res.status(403).json({
+                error: `Team size limit reached (${maxSeats} members for ${plan} plan). Please upgrade.`,
+                code: 'PLAN_LIMIT_REACHED',
+                currentPlan: plan
+            });
+        }
+
         // Get inviter info
         const { data: inviter } = await db.supabase
             .from('profiles')
@@ -265,6 +309,14 @@ router.post('/', async (req, res) => {
 
                 if (existingInvite) {
                     errors.push({ email: cleanEmail, error: 'Invitation already sent' });
+                    continue;
+                }
+
+                if (remainingSeats <= 0) {
+                    errors.push({
+                        email: cleanEmail,
+                        error: `Team size limit reached (${maxSeats} members for ${plan} plan).`
+                    });
                     continue;
                 }
 
@@ -296,6 +348,7 @@ router.post('/', async (req, res) => {
                 );
 
                 invitations.push(invitation);
+                remainingSeats -= 1;
                 logger.info('Invitation created and sent', { email: cleanEmail, teamName: team.name });
             } catch (error) {
                 logger.error('Failed to create invitation:', error);

@@ -5,16 +5,37 @@ import logger from '../utils/logger.js';
 
 const router = express.Router();
 
-// Helper to get fresh access token
-async function getValidAccessToken(integration, userId) {
-    // Check if token is expired or close to expiring (within 5 mins)
-    // Note: Google tokens effectively expire in 1 hour. We could store expiration time.
-    // For simplicity, we'll try to use the current token, and if it fails with 401,
-    // the service layer catches it, so we can handle refresh there or here.
-    // Better approach: calculate expiration if we stored it, or just try-catch-refresh.
+async function disconnectInvalidGoogleIntegration(userId, integration, teamId) {
+    try {
+        const deleteTeamId = integration?.scope === 'team'
+            ? (integration.team_id || teamId || null)
+            : null;
 
-    // As per service implementation: service throws 'Unauthorized' on 401.
-    return integration.access_token;
+        await db.deleteIntegration(userId, 'google_calendar', deleteTeamId);
+    } catch (disconnectError) {
+        logger.warn('Failed to auto-disconnect invalid Google integration', {
+            userId,
+            teamId,
+            error: disconnectError.message
+        });
+    }
+}
+
+function buildGoogleTokenUpdate(integration, newTokens) {
+    const expiresAt = typeof newTokens.expiresIn === 'number'
+        ? new Date(Date.now() + newTokens.expiresIn * 1000).toISOString()
+        : integration.expires_at;
+
+    return {
+        accessToken: newTokens.accessToken,
+        refreshToken: newTokens.refreshToken ?? integration.refresh_token,
+        expiresAt,
+        workspaceId: integration.workspace_id,
+        workspaceName: integration.workspace_name,
+        teamIdExternal: integration.team_id_external,
+        teamName: integration.team_name,
+        teamId: integration.team_id
+    };
 }
 
 // Helper to handle token refresh on error
@@ -34,6 +55,7 @@ async function handleServiceCall(userId, teamId, serviceCall) {
             logger.info('Google access token expired, refreshing...', { userId });
 
             if (!integration.refresh_token) {
+                await disconnectInvalidGoogleIntegration(userId, integration, teamId);
                 const err = new Error('Session expired. Please reconnect Google Calendar.');
                 err.needsReauth = true;
                 err.status = 401;
@@ -44,19 +66,30 @@ async function handleServiceCall(userId, teamId, serviceCall) {
                 const newTokens = await googleCalendarService.refreshAccessToken(integration.refresh_token);
 
                 // Update DB with new token
-                await db.saveIntegration(userId, 'google_calendar', {
-                    ...integration,
-                    accessToken: newTokens.accessToken,
-                    expiresIn: newTokens.expiresIn
-                });
+                await db.saveIntegration(
+                    userId,
+                    'google_calendar',
+                    buildGoogleTokenUpdate(integration, newTokens),
+                    integration.scope || 'team'
+                );
 
                 // Retry call with new token
                 return await serviceCall(newTokens.accessToken);
             } catch (refreshError) {
                 logger.error('Token refresh failed:', refreshError);
-                const err = new Error('Authentication failed. Please reconnect.');
+                const isInvalidGrant = refreshError?.code === 'invalid_grant';
+                if (isInvalidGrant) {
+                    await disconnectInvalidGoogleIntegration(userId, integration, teamId);
+                }
+
+                const err = new Error(
+                    isInvalidGrant
+                        ? 'Google authorization expired. Please reconnect.'
+                        : 'Authentication failed. Please reconnect.'
+                );
                 err.needsReauth = true;
                 err.status = 401;
+                err.code = refreshError?.code;
                 throw err;
             }
         }

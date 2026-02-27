@@ -5,6 +5,7 @@ import express from 'express';
 import { db } from '../services/supabase-client.js';
 import emailService from '../services/email-service.js';
 import logger from '../utils/logger.js';
+import { getSeatLimit, getSummaryLimit } from '../utils/plan-limits.js';
 
 const router = express.Router();
 
@@ -75,8 +76,21 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Team not found' });
         }
 
+        const monthYear = new Date().toISOString().slice(0, 7);
+        const plan = data.plan || 'free';
+        const usageCount = await db.getTeamSummaryUsage(id, monthYear);
+        const summaryLimit = getSummaryLimit(plan);
+        const seatLimit = getSeatLimit(plan);
+
         logger.info('Team fetched successfully:', { teamId: id, teamName: data.name });
-        res.json(data);
+        res.json({
+            ...data,
+            usageCount,
+            usageMonth: monthYear,
+            summaryLimit,
+            isSummaryUnlimited: summaryLimit === null,
+            seatLimit
+        });
     } catch (error) {
         logger.error('Get team error:', {
             message: error.message,
@@ -178,8 +192,7 @@ router.post('/:id/invite', async (req, res) => {
         const invites = await db.getTeamInvitations(teamId);
         const currentSeats = (members?.length || 0) + (invites?.length || 0);
 
-        const SEAT_LIMITS = { free: 5, starter: 20, growth: 75 };
-        const maxSeats = SEAT_LIMITS[plan] || 5;
+        const maxSeats = getSeatLimit(plan);
 
         if (currentSeats >= maxSeats) {
             return res.status(403).json({
