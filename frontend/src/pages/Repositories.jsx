@@ -29,7 +29,7 @@ export default function Repositories() {
         setLoading(true);
         try {
             const teamId = profile?.current_team_id;
-            const res = await fetch(`${API_URL}/api/github/repos?userId=${user.id}&teamId=${teamId}`);
+            const res = await fetch(`${API_URL}/api/github/repos?userId=${user.id}&teamId=${teamId}&all=true`);
             if (!res.ok) throw new Error('Failed to fetch repositories');
             const data = await res.json();
             setRepos(data.repos || []);

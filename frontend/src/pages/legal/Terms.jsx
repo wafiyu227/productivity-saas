@@ -126,7 +126,7 @@ const Terms = () => {
                 },
                 {
                     subtitle: "Refunds",
-                    text: "Fees are non-refundable except as required by law or as stated in our refund policy. We offer a 14-day money-back guarantee for new annual subscriptions."
+                    text: "Fees are non-refundable except as required by law or as stated in our refund policy."
                 },
                 {
                     subtitle: "Cancellation",
@@ -378,7 +378,7 @@ const Terms = () => {
                                 <ul className="space-y-3 text-sm text-slate-600">
                                     <li className="flex items-start gap-2">
                                         <span className="text-blue-600 mt-1">•</span>
-                                        <span>14-day money-back guarantee</span>
+                                        <span>Refund terms are covered by our refund policy</span>
                                     </li>
                                     <li className="flex items-start gap-2">
                                         <span className="text-blue-600 mt-1">•</span>

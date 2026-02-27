@@ -79,7 +79,14 @@ export default function Integrations() {
         if (!user) return;
         try {
             const teamId = profile?.current_team_id;
-            const res = await fetch(`${API_URL}/api/auth/status?userId=${user.id}&platform=${platform}&teamId=${teamId}`);
+            const url = new URL(`${API_URL}/api/auth/status`);
+            url.searchParams.append('userId', user.id);
+            url.searchParams.append('platform', platform);
+            if (teamId) {
+                url.searchParams.append('teamId', teamId);
+            }
+
+            const res = await fetch(url.toString());
             const data = await res.json();
 
             if (platform === 'slack') setSlackStatus({ ...data, loading: false });
@@ -100,14 +107,27 @@ export default function Integrations() {
     const handleConnect = (platform, scope = 'team') => {
         if (!user) return;
         const teamId = profile?.current_team_id;
-        window.location.href = `${API_URL}/api/auth/${platform}/connect?userId=${user.id}&teamId=${teamId}&scope=${scope}`;
+        const url = new URL(`${API_URL}/api/auth/${platform}/connect`);
+        url.searchParams.append('userId', user.id);
+        url.searchParams.append('scope', scope);
+        if (teamId) {
+            url.searchParams.append('teamId', teamId);
+        }
+
+        window.location.href = url.toString();
     };
 
     const handleDisconnect = async (platform) => {
         if (!user || !confirm(`Disconnect ${platform}?`)) return;
         try {
             const teamId = profile?.current_team_id;
-            const res = await fetch(`${API_URL}/api/auth/${platform}/disconnect?userId=${user.id}&teamId=${teamId}`, {
+            const url = new URL(`${API_URL}/api/auth/${platform}/disconnect`);
+            url.searchParams.append('userId', user.id);
+            if (teamId) {
+                url.searchParams.append('teamId', teamId);
+            }
+
+            const res = await fetch(url.toString(), {
                 method: 'DELETE'
             });
             if (res.ok) {

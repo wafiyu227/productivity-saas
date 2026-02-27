@@ -130,7 +130,7 @@ export default function DemoWorkspace() {
                         to="/signup"
                         className="px-5 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition"
                     >
-                        Start Free Trial
+                        Get Started
                     </Link>
                 </div>
 

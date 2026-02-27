@@ -9,8 +9,6 @@ import {
     Github,
     Star,
     Clock,
-    CheckCircle,
-    XCircle,
     AlertCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -24,8 +22,14 @@ export default function Code() {
     const [connected, setConnected] = useState(false);
     const [repos, setRepos] = useState([]);
     const [pulls, setPulls] = useState([]);
+    const [pullMetrics, setPullMetrics] = useState({
+        totalOpen: 0,
+        needsReview: 0,
+        stale: 0,
+        staleDays: 7,
+        limit: 10
+    });
     const [activity, setActivity] = useState([]);
-    const [selectedRepo, setSelectedRepo] = useState(null);
 
     useEffect(() => {
         if (user) {
@@ -55,17 +59,23 @@ export default function Code() {
         setLoading(true);
         try {
             const teamId = profile?.current_team_id;
-            const headers = { 'Content-Type': 'application/json' };
 
             // 1. Fetch Repos
-            const reposRes = await fetch(`${API_URL}/api/github/repos?userId=${user.id}&teamId=${teamId}`);
+            const reposRes = await fetch(`${API_URL}/api/github/repos?userId=${user.id}&teamId=${teamId}&perPage=10`);
             const reposData = await reposRes.json();
             setRepos(reposData.repos || []);
 
-            // 2. Fetch Recent Pull Requests (Global or for first repo)
-            const pullsRes = await fetch(`${API_URL}/api/github/pulls?userId=${user.id}&teamId=${teamId}`);
+            // 2. Fetch team-visible Pull Requests and PR health counters
+            const pullsRes = await fetch(`${API_URL}/api/github/pulls?userId=${user.id}&teamId=${teamId}&limit=10&staleDays=7`);
             const pullsData = await pullsRes.json();
             setPulls(pullsData.pulls || []);
+            setPullMetrics({
+                totalOpen: pullsData.meta?.total_open || 0,
+                needsReview: pullsData.meta?.needs_review || 0,
+                stale: pullsData.meta?.stale || 0,
+                staleDays: pullsData.meta?.stale_days || 7,
+                limit: pullsData.meta?.limit || 10
+            });
 
             // 3. Fetch Recent Activity
             const activityRes = await fetch(`${API_URL}/api/github/activity?userId=${user.id}&teamId=${teamId}`);
@@ -133,7 +143,7 @@ export default function Code() {
                 {/* Left Column: Stats & PRs */}
                 <div className="lg:col-span-2 space-y-8">
                     {/* Key Metrics */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                             <div className="flex items-center gap-3 mb-2">
                                 <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
@@ -141,16 +151,28 @@ export default function Code() {
                                 </div>
                                 <span className="text-sm font-medium text-gray-500">Open PRs</span>
                             </div>
-                            <p className="text-3xl font-bold text-gray-900">{pulls.length}</p>
+                            <p className="text-3xl font-bold text-gray-900">{pullMetrics.totalOpen}</p>
+                            <p className="text-xs text-gray-500 mt-1">Team-visible across connected repositories</p>
                         </div>
                         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                             <div className="flex items-center gap-3 mb-2">
-                                <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-                                    <GitCommit size={20} />
+                                <div className="p-2 bg-yellow-50 text-yellow-700 rounded-lg">
+                                    <AlertCircle size={20} />
                                 </div>
-                                <span className="text-sm font-medium text-gray-500">Recent Activity</span>
+                                <span className="text-sm font-medium text-gray-500">Needs Review</span>
                             </div>
-                            <p className="text-3xl font-bold text-gray-900">{activity.length}</p>
+                            <p className="text-3xl font-bold text-gray-900">{pullMetrics.needsReview}</p>
+                            <p className="text-xs text-gray-500 mt-1">Open PRs without a review yet</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="p-2 bg-red-50 text-red-600 rounded-lg">
+                                    <Clock size={20} />
+                                </div>
+                                <span className="text-sm font-medium text-gray-500">Stale PRs</span>
+                            </div>
+                            <p className="text-3xl font-bold text-gray-900">{pullMetrics.stale}</p>
+                            <p className="text-xs text-gray-500 mt-1">No updates in {pullMetrics.staleDays}+ days</p>
                         </div>
                         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
                             <div className="flex items-center gap-3 mb-2">
@@ -160,16 +182,20 @@ export default function Code() {
                                 <span className="text-sm font-medium text-gray-500">Active Repos</span>
                             </div>
                             <p className="text-3xl font-bold text-gray-900">{repos.length}</p>
+                            <p className="text-xs text-gray-500 mt-1">Top 10 recently updated repositories</p>
                         </div>
                     </div>
 
                     {/* Pull Requests List */}
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                        <div className="p-6 border-b border-gray-100">
                             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                                 <GitPullRequest size={20} className="text-gray-400" />
                                 Active Pull Requests
                             </h2>
+                            <p className="text-xs text-gray-500 mt-1">
+                                Top {pullMetrics.limit} most recently updated open pull requests
+                            </p>
                         </div>
                         <div className="divide-y divide-gray-50">
                             {pulls.length === 0 ? (
@@ -225,37 +251,42 @@ export default function Code() {
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
                         <div className="p-6 border-b border-gray-100">
                             <h2 className="text-lg font-bold text-gray-900">Repositories</h2>
+                            <p className="text-xs text-gray-500 mt-1">Top 10 recently updated repositories</p>
                         </div>
                         <div className="p-2 space-y-1">
-                            {repos.slice(0, 5).map(repo => (
-                                <a
-                                    key={repo.id}
-                                    href={repo.html_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 transition group"
-                                >
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                        <div className="p-2 bg-gray-100 rounded-lg text-gray-600 group-hover:bg-white group-hover:shadow-sm transition">
-                                            <GitBranch size={16} />
+                            {repos.length === 0 ? (
+                                <div className="p-4 text-sm text-gray-500">No repositories found.</div>
+                            ) : (
+                                repos.map(repo => (
+                                    <a
+                                        key={repo.id}
+                                        href={repo.html_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 transition group"
+                                    >
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            <div className="p-2 bg-gray-100 rounded-lg text-gray-600 group-hover:bg-white group-hover:shadow-sm transition">
+                                                <GitBranch size={16} />
+                                            </div>
+                                            <div className="overflow-hidden">
+                                                <p className="font-medium text-gray-900 truncate">{repo.name}</p>
+                                                <p className="text-xs text-gray-500 truncate">{repo.full_name}</p>
+                                            </div>
                                         </div>
-                                        <div className="overflow-hidden">
-                                            <p className="font-medium text-gray-900 truncate">{repo.name}</p>
-                                            <p className="text-xs text-gray-500 truncate">{repo.full_name}</p>
+                                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                                            <Star size={12} />
+                                            {repo.stargazers_count}
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                                        <Star size={12} />
-                                        {repo.stargazers_count}
-                                    </div>
-                                </a>
-                            ))}
-                            {repos.length > 5 && (
+                                    </a>
+                                ))
+                            )}
+                            {repos.length > 0 && (
                                 <button
                                     onClick={() => navigate('/app/code/repos')}
                                     className="w-full py-2 text-sm text-center text-blue-600 hover:bg-blue-50 rounded-lg transition mt-2"
                                 >
-                                    View all {repos.length} repositories
+                                    View all repositories
                                 </button>
                             )}
                         </div>
@@ -265,41 +296,46 @@ export default function Code() {
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
                         <div className="p-6 border-b border-gray-100">
                             <h2 className="text-lg font-bold text-gray-900">Recent Activity</h2>
+                            <p className="text-xs text-gray-500 mt-1">Top 10 most recent events</p>
                         </div>
                         <div className="p-4 space-y-4">
-                            {activity.slice(0, 8).map(event => (
-                                <div key={event.id} className="flex gap-3 text-sm">
-                                    <div className="mt-1">
-                                        {event.type === 'PushEvent' ? (
-                                            <GitCommit size={16} className="text-blue-500" />
-                                        ) : event.type === 'PullRequestEvent' ? (
-                                            <GitPullRequest size={16} className="text-green-500" />
-                                        ) : (
-                                            <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
-                                        )}
+                            {activity.length === 0 ? (
+                                <div className="text-sm text-gray-500">No recent activity found.</div>
+                            ) : (
+                                activity.slice(0, 10).map(event => (
+                                    <div key={event.id} className="flex gap-3 text-sm">
+                                        <div className="mt-1">
+                                            {event.type === 'PushEvent' ? (
+                                                <GitCommit size={16} className="text-blue-500" />
+                                            ) : event.type === 'PullRequestEvent' ? (
+                                                <GitPullRequest size={16} className="text-green-500" />
+                                            ) : (
+                                                <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-900">
+                                                <span className="font-semibold text-gray-900">
+                                                    {event.actor?.display_login || event.actor?.login || 'User'}
+                                                </span>
+                                                <span className="text-gray-500 mx-1">
+                                                    {event.payload?.action || 'pushed to'}
+                                                </span>
+                                                <span className="text-blue-600 font-medium">{event.repo}</span>
+                                            </p>
+                                            <p className="text-gray-400 text-xs mt-0.5">
+                                                {new Date(event.created_at).toLocaleString([], {
+                                                    year: 'numeric',
+                                                    month: 'short',
+                                                    day: 'numeric',
+                                                    hour: '2-digit',
+                                                    minute: '2-digit'
+                                                })}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="text-gray-900">
-                                            <span className="font-semibold text-gray-900">
-                                                {event.actor?.display_login || event.actor?.login || 'User'}
-                                            </span>
-                                            <span className="text-gray-500 mx-1">
-                                                {event.payload?.action || 'pushed to'}
-                                            </span>
-                                            <span className="text-blue-600 font-medium">{event.repo}</span>
-                                        </p>
-                                        <p className="text-gray-400 text-xs mt-0.5">
-                                            {new Date(event.created_at).toLocaleString([], {
-                                                year: 'numeric',
-                                                month: 'short',
-                                                day: 'numeric',
-                                                hour: '2-digit',
-                                                minute: '2-digit'
-                                            })}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
+                                ))
+                            )}
                         </div>
                     </div>
                 </div>

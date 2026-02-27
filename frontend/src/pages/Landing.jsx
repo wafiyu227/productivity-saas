@@ -91,7 +91,7 @@ export default function Landing() {
                                 to="/signup"
                                 className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-lg rounded-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
                             >
-                                Start Free Trial
+                                Get Started
                                 <ArrowRight size={20} />
                             </Link>
                             <a
@@ -104,11 +104,11 @@ export default function Landing() {
                         <div className="flex items-center justify-center gap-8 text-sm text-gray-600 flex-wrap">
                             <div className="flex items-center gap-2">
                                 <CheckCircle size={16} className="text-green-500" />
-                                Free 14-day trial
+                                Free plan available
                             </div>
                             <div className="flex items-center gap-2">
                                 <CheckCircle size={16} className="text-green-500" />
-                                No credit card required
+                                Upgrade anytime
                             </div>
                             <div className="flex items-center gap-2">
                                 <CheckCircle size={16} className="text-green-500" />
@@ -223,7 +223,7 @@ export default function Landing() {
                             Simple, flat-rate pricing
                         </h2>
                         <p className="text-lg md:text-xl text-gray-600">
-                            No per-seat fees. Unlimited users on all paid plans.
+                            Flat monthly pricing with clear team and usage limits.
                         </p>
                     </div>
 
@@ -258,7 +258,7 @@ export default function Landing() {
                                 'Full analytics & reports',
                                 'Email support'
                             ]}
-                            cta="Start 14-Day Free Trial"
+                            cta="Get Started"
                             highlighted={true}
                         />
                         <PricingCard
@@ -275,7 +275,7 @@ export default function Landing() {
                                 'Priority support',
                                 'Custom onboarding'
                             ]}
-                            cta="Start 14-Day Free Trial"
+                            cta="Get Started"
                             highlighted={false}
                         />
                     </div>
@@ -297,17 +297,17 @@ export default function Landing() {
                         Ready to transform your team's productivity?
                     </h2>
                     <p className="text-lg md:text-xl text-blue-100 mb-8">
-                        Start free. No credit card needed. Cancel anytime.
+                        Start with the free plan and upgrade when your team grows.
                     </p>
                     <Link
                         to="/signup"
                         className="inline-flex items-center gap-2 px-8 py-4 bg-white text-blue-600 text-lg font-semibold rounded-lg hover:shadow-2xl hover:scale-105 transition-all"
                     >
-                        Start Free Trial
+                        Get Started
                         <ArrowRight size={20} />
                     </Link>
                     <p className="text-blue-100 mt-4 text-sm">
-                        No credit card required • 14-day free trial
+                        Free plan available • No long-term contracts
                     </p>
                 </div>
             </section>

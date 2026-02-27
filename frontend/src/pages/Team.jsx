@@ -309,6 +309,19 @@ const Team = () => {
         );
     }
 
+    const currentPlan = (team.plan || 'free').toLowerCase();
+    const parsedUsageCount = Number(team.usageCount);
+    const usageCount = Number.isFinite(parsedUsageCount) ? parsedUsageCount : 0;
+    const fallbackSummaryLimit = currentPlan === 'starter' ? 1000 : (currentPlan === 'growth' ? null : 50);
+    const summaryLimit = team.summaryLimit ?? fallbackSummaryLimit;
+    const isSummaryUnlimited = team.isSummaryUnlimited ?? summaryLimit === null;
+    const fallbackSeatLimit = currentPlan === 'starter' ? 20 : (currentPlan === 'growth' ? 75 : 5);
+    const seatLimit = team.seatLimit ?? fallbackSeatLimit;
+    const seatUsageCount = members.length + invitations.length;
+    const usagePercent = isSummaryUnlimited
+        ? 0
+        : Math.min(100, (usageCount / Math.max(summaryLimit || 1, 1)) * 100);
+
     const subscriptionStatus = team.subscription_status || 'active';
     const isCancelAtPeriodEnd = subscriptionStatus === 'cancel_at_period_end';
     const statusBadgeClass = subscriptionStatus === 'active'
@@ -347,7 +360,7 @@ const Team = () => {
                                     Subscription & Billing
                                 </h2>
                                 <p className="text-sm text-gray-600 mt-1">
-                                    Current Plan: <span className="font-semibold capitalize text-blue-700">{team.plan || 'Free'}</span>
+                                    Current Plan: <span className="font-semibold capitalize text-blue-700">{currentPlan}</span>
                                 </p>
                             </div>
                             <div className="flex flex-col items-end">
@@ -366,21 +379,28 @@ const Team = () => {
                                 <div className="flex justify-between items-end mb-2">
                                     <span className="text-sm font-medium text-gray-700">Monthly AI Summaries</span>
                                     <span className="text-sm font-semibold text-gray-900">
-                                        {team.usageCount || 0} / {team.plan === 'growth' ? 'Unlimited' : (team.plan === 'starter' ? '1000' : '50')}
+                                        {usageCount} / {isSummaryUnlimited ? 'Unlimited' : summaryLimit}
                                     </span>
                                 </div>
                                 <div className="w-full bg-gray-100 rounded-full h-2.5">
                                     <div
                                         className="bg-blue-600 h-2.5 rounded-full"
-                                        style={{ width: `${Math.min(100, ((team.usageCount || 0) / (team.plan === 'growth' ? 1000 : (team.plan === 'starter' ? 1000 : 50))) * 100)}%` }}
+                                        style={{ width: `${usagePercent}%` }}
                                     ></div>
                                 </div>
+                                {isSummaryUnlimited && (
+                                    <p className="text-xs text-gray-500 mt-2">Unlimited monthly summaries on Growth plan</p>
+                                )}
+                            </div>
+                            <div className="mb-2 text-sm text-gray-700">
+                                Team Seats Used: <span className="font-semibold text-gray-900">{seatUsageCount}</span> / <span className="font-semibold text-gray-900">{seatLimit}</span>
+                                <span className="text-gray-500"> (includes pending invites)</span>
                             </div>
 
                             <div className="flex gap-3 mt-8">
-                                {(team.plan === 'free' || team.plan === 'starter') && (
+                                {(currentPlan === 'free' || currentPlan === 'starter') && (
                                     <>
-                                        {team.plan === 'free' && (
+                                        {currentPlan === 'free' && (
                                             <button
                                                 onClick={() => handleUpgrade('starter')}
                                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
@@ -398,7 +418,7 @@ const Team = () => {
                                         </button>
                                     </>
                                 )}
-                                {team.plan !== 'free' && (
+                                {currentPlan !== 'free' && (
                                     <button
                                         onClick={handleManageSubscription}
                                         className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"

@@ -164,7 +164,7 @@ const About = () => {
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
                         <a href="/signup" className="bg-white text-purple-600 px-8 py-3 rounded-lg font-semibold hover:shadow-xl transition-shadow">
-                            Start Free Trial
+                            Get Started
                         </a>
                         <a href="/contact" className="bg-purple-500/30 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-500/50 transition-colors">
                             Get in Touch
