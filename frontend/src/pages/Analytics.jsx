@@ -27,12 +27,29 @@ import {
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import {
+    buildTopActiveBlockerData,
+    createEmptyAsanaDeadlines,
+    createEmptyCalendarSignals,
+    createEmptyGithubPulls,
+    extractAsanaBlockers,
+    extractCalendarBlockers,
+    extractGithubBlockers,
+    extractSlackBlockers,
+    mergeBlockers
+} from '../utils/blockerSignals';
 
 const CHART_COLORS = ['#2563EB', '#06B6D4', '#0EA5E9', '#6366F1', '#14B8A6', '#0284C7'];
+const GITHUB_STALE_DAYS = 7;
+const GITHUB_BLOCKER_LIMIT = 25;
+const CALENDAR_BLOCKER_WINDOW_DAYS = 14;
 
 export default function Analytics() {
     const { user, profile } = useAuth();
     const [summaries, setSummaries] = useState([]);
+    const [asanaDeadlines, setAsanaDeadlines] = useState(createEmptyAsanaDeadlines());
+    const [githubPulls, setGithubPulls] = useState(createEmptyGithubPulls());
+    const [calendarSignals, setCalendarSignals] = useState(createEmptyCalendarSignals());
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState('7days');
     const [refreshing, setRefreshing] = useState(false);
@@ -43,11 +60,39 @@ export default function Analytics() {
 
         if (showLoader) setLoading(true);
         try {
-            const data = await api.getSummaries(profile?.current_team_id, { limit: 500 });
-            setSummaries(Array.isArray(data) ? data : []);
+            const teamId = profile?.current_team_id;
+            const [summaryData, asanaData, githubData, calendarData] = await Promise.all([
+                api.getSummaries(teamId, { limit: 500 }),
+                api.getAsanaDeadlines(teamId).catch(() => createEmptyAsanaDeadlines()),
+                api.getGithubPulls(teamId, { limit: GITHUB_BLOCKER_LIMIT, staleDays: GITHUB_STALE_DAYS }).catch(() => createEmptyGithubPulls()),
+                api.getGoogleCalendarActionItems(teamId, CALENDAR_BLOCKER_WINDOW_DAYS).catch(() => createEmptyCalendarSignals())
+            ]);
+
+            setSummaries(Array.isArray(summaryData) ? summaryData : []);
+
+            if (asanaData?.error) {
+                setAsanaDeadlines(createEmptyAsanaDeadlines());
+            } else {
+                setAsanaDeadlines(asanaData || createEmptyAsanaDeadlines());
+            }
+
+            if (githubData?.error) {
+                setGithubPulls(createEmptyGithubPulls());
+            } else {
+                setGithubPulls(githubData || createEmptyGithubPulls());
+            }
+
+            if (calendarData?.error || calendarData?.needsReauth) {
+                setCalendarSignals(createEmptyCalendarSignals());
+            } else {
+                setCalendarSignals(calendarData || createEmptyCalendarSignals());
+            }
             setLastUpdated(new Date());
         } catch (error) {
             console.error('Failed to load analytics:', error);
+            setAsanaDeadlines(createEmptyAsanaDeadlines());
+            setGithubPulls(createEmptyGithubPulls());
+            setCalendarSignals(createEmptyCalendarSignals());
         } finally {
             if (showLoader) setLoading(false);
         }
@@ -102,8 +147,13 @@ export default function Analytics() {
     );
 
     const analytics = useMemo(
-        () => calculateAnalytics(summaries, timeRange),
-        [summaries, timeRange]
+        () => calculateAnalytics(summaries, timeRange, {
+            asanaDeadlines,
+            githubPulls,
+            calendarSignals,
+            githubStaleDays: GITHUB_STALE_DAYS
+        }),
+        [summaries, timeRange, asanaDeadlines, githubPulls, calendarSignals]
     );
     const activityData = useMemo(
         () => buildActivityData(filteredSummaries, timeRange),
@@ -113,10 +163,15 @@ export default function Analytics() {
         () => buildChannelData(filteredSummaries),
         [filteredSummaries]
     );
-    const blockerData = useMemo(
-        () => buildBlockerData(filteredSummaries),
-        [filteredSummaries]
-    );
+    const blockerData = useMemo(() => {
+        const combined = mergeBlockers(
+            extractSlackBlockers(filteredSummaries),
+            extractAsanaBlockers(asanaDeadlines),
+            extractGithubBlockers(githubPulls, GITHUB_STALE_DAYS),
+            extractCalendarBlockers(calendarSignals)
+        );
+        return buildTopActiveBlockerData(combined, 8);
+    }, [filteredSummaries, asanaDeadlines, githubPulls, calendarSignals]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -478,39 +533,59 @@ function filterSummariesByRange(summaries, timeRange) {
     });
 }
 
-function calculateAnalytics(summaries, timeRange) {
+function calculateAnalytics(summaries, timeRange, signals) {
+    const {
+        asanaDeadlines,
+        githubPulls,
+        calendarSignals,
+        githubStaleDays
+    } = signals || {};
+
     const currentPeriod = filterSummariesByRange(summaries, timeRange);
     const previousPeriod = getPreviousPeriodSummaries(summaries, timeRange);
 
     const currentMessages = sumMessages(currentPeriod);
-    const currentBlockers = countBlockers(currentPeriod);
+    const externalSignals = mergeBlockers(
+        extractAsanaBlockers(asanaDeadlines),
+        extractGithubBlockers(githubPulls, githubStaleDays || GITHUB_STALE_DAYS),
+        extractCalendarBlockers(calendarSignals)
+    );
+    const currentBlockers = mergeBlockers(
+        extractSlackBlockers(currentPeriod),
+        externalSignals
+    );
     const currentChannels = new Set(currentPeriod.map((summary) => summary.channel_id)).size;
     const currentSummaries = currentPeriod.length;
 
     const previousMessages = sumMessages(previousPeriod);
-    const previousBlockers = countBlockers(previousPeriod);
+    const previousBlockers = mergeBlockers(
+        extractSlackBlockers(previousPeriod),
+        externalSignals
+    );
     const previousChannels = new Set(previousPeriod.map((summary) => summary.channel_id)).size;
     const previousSummaries = previousPeriod.length;
+    const currentCounts = countByStatus(currentBlockers);
+    const previousCounts = countByStatus(previousBlockers);
 
     const activeDays = new Set(
         currentPeriod.map((summary) => new Date(summary.created_at).toISOString().split('T')[0])
     ).size;
 
     const avgMessagesPerSummary = currentSummaries > 0 ? currentMessages / currentSummaries : 0;
-    const totalCurrentBlockers = currentBlockers.active + currentBlockers.resolved;
+    const totalCurrentBlockers = currentCounts.active + currentCounts.resolved;
     const avgTotalBlockersPerSummary = currentSummaries > 0 ? totalCurrentBlockers / currentSummaries : 0;
     const resolutionRate = totalCurrentBlockers > 0
-        ? Math.round((currentBlockers.resolved / totalCurrentBlockers) * 100)
+        ? Math.round((currentCounts.resolved / totalCurrentBlockers) * 100)
         : 0;
 
     return {
         totalMessages: currentMessages,
-        activeBlockers: currentBlockers.active,
-        resolvedBlockers: currentBlockers.resolved,
+        activeBlockers: currentCounts.active,
+        resolvedBlockers: currentCounts.resolved,
         channelCount: currentChannels,
         summaryCount: currentSummaries,
         messageChange: calculateChange(currentMessages, previousMessages),
-        blockerChange: calculateChange(currentBlockers.active, previousBlockers.active),
+        blockerChange: calculateChange(currentCounts.active, previousCounts.active),
         channelChange: calculateChange(currentChannels, previousChannels),
         summaryChange: calculateChange(currentSummaries, previousSummaries),
         avgMessagesPerSummary,
@@ -575,59 +650,19 @@ function buildChannelData(summaries) {
     }));
 }
 
-function buildBlockerData(summaries) {
-    const counts = {};
-    summaries.forEach((summary) => {
-        const blockers = normalizeList(summary.blockers);
-        blockers.forEach((blocker, index) => {
-            if (getBlockerStatus(summary, index) !== 'active') return;
-            const trimmed = blocker.trim();
-            if (!trimmed) return;
-            counts[trimmed] = (counts[trimmed] || 0) + 1;
-        });
-    });
-
-    return Object.entries(counts)
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 8);
-}
-
-function normalizeList(value) {
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string') {
-        try {
-            const parsed = JSON.parse(value);
-            return Array.isArray(parsed) ? parsed : [];
-        } catch {
-            return [];
-        }
-    }
-    return [];
-}
-
 function sumMessages(summaries) {
     return summaries.reduce((total, summary) => total + (summary.message_count || 0), 0);
 }
 
-function countBlockers(summaries) {
-    return summaries.reduce((acc, summary) => {
-        const blockers = normalizeList(summary.blockers);
-        blockers.forEach((_, index) => {
-            if (getBlockerStatus(summary, index) === 'resolved') {
-                acc.resolved += 1;
-            } else {
-                acc.active += 1;
-            }
-        });
+function countByStatus(blockers) {
+    return (Array.isArray(blockers) ? blockers : []).reduce((acc, blocker) => {
+        if (blocker?.status === 'resolved') {
+            acc.resolved += 1;
+        } else {
+            acc.active += 1;
+        }
         return acc;
     }, { active: 0, resolved: 0 });
-}
-
-function getBlockerStatus(summary, blockIndex) {
-    const blockerStatus = normalizeList(summary.blocker_status);
-    const status = blockerStatus?.[blockIndex]?.status;
-    return status === 'resolved' ? 'resolved' : 'active';
 }
 
 function calculateChange(current, previous) {

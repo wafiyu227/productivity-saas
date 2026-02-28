@@ -70,15 +70,20 @@ export default function Meetings() {
                 api.getGoogleCalendarActionItems(teamId)
             ]);
 
+            const requiresReauth = [eventsData, analyticsData, actionItemsData]
+                .some(payload => payload?.needsReauth);
+
+            if (requiresReauth) {
+                setCalendarConnected(false);
+                setCalendarEvents([]);
+                setAnalytics(null);
+                setActionItems([]);
+                setDataError('Google Calendar authorization expired. Please reconnect from Integrations.');
+                return;
+            }
+
             if (eventsData.error) {
-                if (eventsData.needsReauth) {
-                    setCalendarConnected(false);
-                    setCalendarEvents([]);
-                    setAnalytics(null);
-                    setActionItems([]);
-                } else {
-                    setDataError('Calendar is connected, but we could not load meeting data right now. Please refresh.');
-                }
+                setDataError('Calendar is connected, but we could not load meeting data right now. Please refresh.');
                 return;
             }
 

@@ -404,6 +404,35 @@ export const api = {
         }
     },
 
+    async getGithubPulls(teamId = null, options = {}) {
+        const userId = getUserId();
+        if (!userId) return { pulls: [], error: 'Not authenticated' };
+
+        const { limit = 10, staleDays = 7, repo = null } = options;
+
+        const url = new URL(`${API_BASE_URL}/api/github/pulls`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+        if (repo) url.searchParams.append('repo', repo);
+        if (Number.isFinite(limit) && limit > 0) {
+            url.searchParams.append('limit', String(Math.floor(limit)));
+        }
+        if (Number.isFinite(staleDays) && staleDays > 0) {
+            url.searchParams.append('staleDays', String(Math.floor(staleDays)));
+        }
+
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                return { pulls: [], meta: {}, error: data.error || 'Failed to fetch GitHub pull requests' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { pulls: [], meta: {}, error: error.message };
+        }
+    },
+
     async deleteSummary(summaryId) {
         const userId = getUserId();
         if (!userId) throw new Error('Not authenticated');
