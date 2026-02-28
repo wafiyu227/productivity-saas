@@ -3,6 +3,7 @@ import { WebClient } from '@slack/web-api';
 import { db } from '../services/supabase-client.js';
 import googleCalendarService from '../services/google-calendar-service.js';
 import logger from '../utils/logger.js';
+import { requireTeamAdmin, requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
@@ -95,12 +96,33 @@ async function validateGoogleStatus(userId, teamId, integration) {
     }
 }
 
+async function ensureTeamAdminForScope(userId, teamId, scope = 'team') {
+    if (scope !== 'team') return;
+    if (!teamId) {
+        const error = new Error('teamId required for team-scoped integration');
+        error.status = 400;
+        throw error;
+    }
+    await requireTeamAdmin(teamId, userId);
+}
+
+async function ensureTeamMemberForTeamQuery(userId, teamId) {
+    if (!teamId) return;
+    await requireTeamMember(teamId, userId);
+}
+
 // Initiate OAuth flow
-router.get('/slack/connect', (req, res) => {
+router.get('/slack/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        await ensureTeamAdminForScope(userId, teamId, scope);
+    } catch (error) {
+        return res.status(error.status || 403).json({ error: error.message });
     }
 
     const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
@@ -135,6 +157,7 @@ router.get('/slack/oauth/callback', async (req, res) => {
 
     try {
         const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://slack.com/api/oauth.v2.access', {
@@ -186,6 +209,7 @@ router.get('/slack/status', async (req, res) => {
     }
 
     try {
+        await ensureTeamMemberForTeamQuery(userId, teamId);
         const integration = await db.getIntegration(userId, 'slack', teamId);
 
         res.json({
@@ -206,6 +230,7 @@ router.get('/status', async (req, res) => {
     }
 
     try {
+        await ensureTeamMemberForTeamQuery(userId, teamId);
         const dbPlatform = platform === 'google' || platform === 'google/calendar' ? 'google_calendar' : platform;
         let integration = await db.getIntegration(userId, dbPlatform, teamId);
         let needsReauth = false;
@@ -237,6 +262,7 @@ router.delete('/slack/disconnect', async (req, res) => {
     }
 
     try {
+        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
         await db.deleteIntegration(userId, 'slack', teamId);
         res.json({ success: true });
     } catch (error) {
@@ -312,11 +338,17 @@ router.post('/settings', async (req, res) => {
 });
 
 // Initiate Asana OAuth
-router.get('/asana/connect', (req, res) => {
+router.get('/asana/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        await ensureTeamAdminForScope(userId, teamId, scope);
+    } catch (error) {
+        return res.status(error.status || 403).json({ error: error.message });
     }
 
     const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
@@ -342,6 +374,7 @@ router.get('/asana/oauth/callback', async (req, res) => {
 
     try {
         const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://app.asana.com/-/oauth_token', {
@@ -402,6 +435,7 @@ router.get('/asana/status', async (req, res) => {
     }
 
     try {
+        await ensureTeamMemberForTeamQuery(userId, teamId);
         const integration = await db.getIntegration(userId, 'asana', teamId);
 
         res.json({
@@ -423,6 +457,7 @@ router.delete('/asana/disconnect', async (req, res) => {
     }
 
     try {
+        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
         await db.deleteIntegration(userId, 'asana', teamId);
         res.json({ success: true });
     } catch (error) {
@@ -436,11 +471,17 @@ router.delete('/asana/disconnect', async (req, res) => {
 // ============================================
 
 // ✅ ADDED: Initiate Google OAuth (THIS WAS MISSING!)
-router.get('/google/connect', (req, res) => {
+router.get('/google/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        await ensureTeamAdminForScope(userId, teamId, scope);
+    } catch (error) {
+        return res.status(error.status || 403).json({ error: error.message });
     }
 
     const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
@@ -474,6 +515,7 @@ router.get('/google/oauth/callback', async (req, res) => {
 
     try {
         const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -535,6 +577,7 @@ router.get('/google/status', async (req, res) => {
     }
 
     try {
+        await ensureTeamMemberForTeamQuery(userId, teamId);
         const integration = await db.getIntegration(userId, 'google_calendar', teamId);
 
         res.json({
@@ -556,6 +599,7 @@ router.delete('/google/disconnect', async (req, res) => {
     }
 
     try {
+        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
         await db.deleteIntegration(userId, 'google_calendar', teamId);
         res.json({ success: true });
     } catch (error) {
@@ -591,11 +635,17 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const GITHUB_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/github/oauth/callback';
 
 // Initiate GitHub OAuth
-router.get('/github/connect', (req, res) => {
+router.get('/github/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
+    }
+
+    try {
+        await ensureTeamAdminForScope(userId, teamId, scope);
+    } catch (error) {
+        return res.status(error.status || 403).json({ error: error.message });
     }
 
     const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
@@ -632,6 +682,7 @@ router.get('/github/oauth/callback', async (req, res) => {
 
     try {
         const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
@@ -698,6 +749,7 @@ router.get('/github/status', async (req, res) => {
     }
 
     try {
+        await ensureTeamMemberForTeamQuery(userId, teamId);
         const integration = await db.getIntegration(userId, 'github', teamId);
 
         res.json({
@@ -719,6 +771,7 @@ router.delete('/github/disconnect', async (req, res) => {
     }
 
     try {
+        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
         await db.deleteIntegration(userId, 'github', teamId);
         res.json({ success: true });
     } catch (error) {

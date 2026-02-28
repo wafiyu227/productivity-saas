@@ -2,6 +2,7 @@ import express from 'express';
 import { Octokit } from '@octokit/rest';
 import { db } from '../services/supabase-client.js';
 import logger from '../utils/logger.js';
+import { requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
@@ -66,6 +67,7 @@ router.get('/repos', async (req, res) => {
             : 10;
 
         if (!userId) return res.status(400).json({ error: 'userId required' });
+        if (teamId) await requireTeamMember(teamId, userId);
 
         const { octokit } = await getGithubClient(userId, teamId);
         let repoData = [];
@@ -122,7 +124,7 @@ router.get('/repos', async (req, res) => {
         });
     } catch (error) {
         logger.error('Failed to fetch repos:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
@@ -140,6 +142,7 @@ router.get('/pulls', async (req, res) => {
             : 7;
 
         if (!userId) return res.status(400).json({ error: 'userId required' });
+        if (teamId) await requireTeamMember(teamId, userId);
 
         const { octokit, integration } = await getGithubClient(userId, teamId);
         const connectedLogin = await getConnectedLogin(octokit, integration);
@@ -260,7 +263,7 @@ router.get('/pulls', async (req, res) => {
         });
     } catch (error) {
         logger.error('Failed to fetch PRs:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
@@ -269,6 +272,7 @@ router.get('/activity', async (req, res) => {
     try {
         const { userId, teamId, username } = req.query;
         if (!userId) return res.status(400).json({ error: 'userId required' });
+        if (teamId) await requireTeamMember(teamId, userId);
 
         const { octokit } = await getGithubClient(userId, teamId);
 
@@ -300,7 +304,7 @@ router.get('/activity', async (req, res) => {
         res.json({ activity });
     } catch (error) {
         logger.error('Failed to fetch activity:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 

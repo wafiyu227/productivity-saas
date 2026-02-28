@@ -1,6 +1,7 @@
 import express from 'express';
 import { db, supabase } from '../services/supabase-client.js';
 import logger from '../utils/logger.js';
+import { requireTeamAdmin, requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ router.post('/resolve', express.json(), async (req, res) => {
         // Get current summary
         const { data: summary, error: fetchError } = await supabase
             .from('slack_summaries')
-            .select('blocker_status, blockers')
+            .select('team_id, blocker_status, blockers')
             .eq('id', summaryId)
             .single();
 
@@ -26,6 +27,8 @@ router.post('/resolve', express.json(), async (req, res) => {
             logger.error('Failed to fetch summary', { error: fetchError });
             return res.status(500).json({ error: 'Failed to fetch summary' });
         }
+
+        await requireTeamAdmin(summary.team_id, userId);
 
         // Initialize blocker_status if it doesn't exist
         let blockerStatus = summary.blocker_status || [];
@@ -62,7 +65,7 @@ router.post('/resolve', express.json(), async (req, res) => {
 
     } catch (error) {
         logger.error('Resolve blocker error:', { error: error.message });
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
@@ -73,6 +76,10 @@ router.get('/', async (req, res) => {
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
+        }
+
+        if (teamId) {
+            await requireTeamMember(teamId, userId);
         }
 
         // Get user's integration
@@ -99,7 +106,7 @@ router.get('/', async (req, res) => {
 
     } catch (error) {
         logger.error('Get blockers error:', { error: error.message });
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 

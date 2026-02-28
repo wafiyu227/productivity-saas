@@ -1,13 +1,140 @@
-// UPDATED: backend/routes/teams.js
-// Replace your teams.js with this version
-
+import crypto from 'crypto';
 import express from 'express';
-import { db } from '../services/supabase-client.js';
 import emailService from '../services/email-service.js';
+import { db } from '../services/supabase-client.js';
 import logger from '../utils/logger.js';
 import { getSeatLimit, getSummaryLimit } from '../utils/plan-limits.js';
+import { getTeamMember, requireTeamAdmin, requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
+const INVITE_EXPIRY_DAYS = 7;
+
+const normalizeEmail = (email = '') => email.trim().toLowerCase();
+
+const isExpired = (value) => new Date(value) < new Date();
+
+async function refreshExpiredInvitations(teamId) {
+    const nowIso = new Date().toISOString();
+    const { data: expiredPending, error: pendingError } = await db.supabase
+        .from('team_invitations')
+        .select('id')
+        .eq('team_id', teamId)
+        .eq('status', 'pending')
+        .lt('expires_at', nowIso);
+
+    if (pendingError) throw pendingError;
+
+    if (expiredPending?.length) {
+        const { error: updateError } = await db.supabase
+            .from('team_invitations')
+            .update({ status: 'expired' })
+            .in('id', expiredPending.map((row) => row.id));
+
+        if (updateError) throw updateError;
+    }
+}
+
+function buildInviteUpdate(userId, role = 'member') {
+    return {
+        token: crypto.randomBytes(24).toString('hex'),
+        status: 'pending',
+        invited_by: userId,
+        role,
+        accepted_at: null,
+        expires_at: new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    };
+}
+
+async function getTeamPlanAndName(teamId) {
+    const { data: team, error } = await db.supabase
+        .from('teams')
+        .select('name, plan')
+        .eq('id', teamId)
+        .single();
+
+    if (error || !team) {
+        const teamError = new Error('Team not found');
+        teamError.status = 404;
+        throw teamError;
+    }
+
+    return {
+        name: team.name,
+        plan: team.plan || 'free'
+    };
+}
+
+async function getSeatUsage(teamId) {
+    const members = await db.getTeamMembers(teamId);
+    const activeMembers = (members || []).filter((member) => member.status === 'active' || !member.status);
+
+    const { count: pendingInvites, error } = await db.supabase
+        .from('team_invitations')
+        .select('id', { count: 'exact', head: true })
+        .eq('team_id', teamId)
+        .eq('status', 'pending');
+
+    if (error) throw error;
+
+    return {
+        activeMembers,
+        pendingInvites: pendingInvites || 0,
+        currentSeats: activeMembers.length + (pendingInvites || 0)
+    };
+}
+
+async function getInviterName(userId) {
+    const profile = await db.getProfile(userId);
+    return profile?.full_name || 'A teammate';
+}
+
+async function setFallbackCurrentTeam(userId, removedTeamId) {
+    const { data: memberships, error: membershipError } = await db.supabase
+        .from('team_members')
+        .select('team_id')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .neq('team_id', removedTeamId)
+        .order('joined_at', { ascending: false })
+        .limit(1);
+
+    if (membershipError) throw membershipError;
+
+    const nextTeamId = memberships?.[0]?.team_id || null;
+
+    const { error: profileError } = await db.supabase
+        .from('profiles')
+        .update({
+            current_team_id: nextTeamId,
+            team_id: nextTeamId,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+    if (profileError) throw profileError;
+}
+
+async function getLatestInvite(teamId, email) {
+    const { data, error } = await db.supabase
+        .from('team_invitations')
+        .select('*')
+        .eq('team_id', teamId)
+        .eq('email', email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data || null;
+}
+
+async function isAlreadyActiveMember(teamId, email) {
+    const members = await db.getTeamMembers(teamId);
+    return (members || []).some((member) => {
+        const memberEmail = normalizeEmail(member?.profiles?.email || member?.email || '');
+        return memberEmail === email && (member.status === 'active' || !member.status);
+    });
+}
 
 // Get user's teams
 router.get('/', async (req, res) => {
@@ -39,159 +166,125 @@ router.post('/', async (req, res) => {
 
 // Get team details
 router.get('/:id', async (req, res) => {
-    const { id } = req.params;
+    const { id: teamId } = req.params;
+    const { userId } = req.query;
 
-    logger.info('Fetching team details:', { teamId: id });
+    if (!userId) return res.status(400).json({ error: 'userId required' });
 
     try {
+        const membership = await requireTeamMember(teamId, userId);
+
         const { data, error } = await db.supabase
             .from('teams')
             .select('*')
-            .eq('id', id)
+            .eq('id', teamId)
             .single();
 
-        if (error) {
-            logger.error('Supabase error fetching team:', {
-                code: error.code,
-                message: error.message,
-                details: error.details,
-                hint: error.hint,
-                teamId: id
-            });
-
-            // If it's an RLS error, log it clearly
-            if (error.code === '42501' || error.code === 'PGRST301') {
-                logger.error('RLS POLICY BLOCKING ACCESS - User cannot view this team');
-                return res.status(403).json({
-                    error: 'Access denied - you are not a member of this team',
-                    code: 'RLS_POLICY_VIOLATION'
-                });
-            }
-
-            throw error;
-        }
-
-        if (!data) {
-            logger.warn('Team not found:', { teamId: id });
+        if (error || !data) {
             return res.status(404).json({ error: 'Team not found' });
         }
 
         const monthYear = new Date().toISOString().slice(0, 7);
         const plan = data.plan || 'free';
-        const usageCount = await db.getTeamSummaryUsage(id, monthYear);
+        const usageCount = await db.getTeamSummaryUsage(teamId, monthYear);
         const summaryLimit = getSummaryLimit(plan);
         const seatLimit = getSeatLimit(plan);
 
-        logger.info('Team fetched successfully:', { teamId: id, teamName: data.name });
         res.json({
             ...data,
             usageCount,
             usageMonth: monthYear,
             summaryLimit,
             isSummaryUnlimited: summaryLimit === null,
-            seatLimit
+            seatLimit,
+            currentUserRole: membership.role
         });
     } catch (error) {
-        logger.error('Get team error:', {
-            message: error.message,
-            stack: error.stack,
-            teamId: id
-        });
-        res.status(500).json({ error: error.message });
+        logger.error('Get team error:', error);
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
 // Get team members
 router.get('/:id/members', async (req, res) => {
-    const { id } = req.params;
+    const { id: teamId } = req.params;
+    const { userId } = req.query;
 
-    logger.info('Fetching team members:', { teamId: id });
+    if (!userId) return res.status(400).json({ error: 'userId required' });
 
     try {
-        const members = await db.getTeamMembers(id);
-        logger.info('Team members fetched:', { teamId: id, count: members.length });
+        await requireTeamMember(teamId, userId);
+        const members = await db.getTeamMembers(teamId);
         res.json(members);
     } catch (error) {
         logger.error('Get team members error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
-// ✅ NEW: Get team invitations
+// Get team invitations (member-readable, admin-manageable)
 router.get('/:id/invitations', async (req, res) => {
     const { id: teamId } = req.params;
     const { userId } = req.query;
 
-    logger.info('Fetching team invitations:', { teamId, userId });
-
-    if (!userId) {
-        return res.status(400).json({ error: 'userId required' });
-    }
+    if (!userId) return res.status(400).json({ error: 'userId required' });
 
     try {
-        // Verify user is a member of the team (and preferably admin/owner)
-        const { data: member } = await db.supabase
-            .from('team_members')
-            .select('role')
-            .eq('team_id', teamId)
-            .eq('user_id', userId)
-            .single();
+        await requireTeamMember(teamId, userId);
+        await refreshExpiredInvitations(teamId);
 
-        if (!member) {
-            logger.warn('User not a team member:', { teamId, userId });
-            return res.status(403).json({ error: 'Not a team member' });
-        }
-
-        // Get invitations (check if table exists first)
         const { data: invitations, error } = await db.supabase
             .from('team_invitations')
             .select('*')
             .eq('team_id', teamId)
-            .eq('status', 'pending') // ✅ Added filter
+            .in('status', ['pending', 'expired', 'cancelled'])
             .order('created_at', { ascending: false });
 
-        if (error) {
-            // If table doesn't exist yet, return empty array
-            if (error.code === '42P01') {
-                logger.warn('team_invitations table does not exist yet');
-                return res.json([]);
-            }
-            throw error;
-        }
-
-        logger.info('Team invitations fetched:', { teamId, count: invitations?.length || 0 });
+        if (error) throw error;
         res.json(invitations || []);
     } catch (error) {
-        logger.error('Get team invitations error:', {
-            message: error.message,
-            teamId,
-            userId
-        });
-        res.status(500).json({ error: error.message });
+        logger.error('Get team invitations error:', error);
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
-// FIXED: backend/routes/teams.js - Invite endpoint
-// Replace your invite endpoint with this
-
-// Invite member
+// Invite one member (admin-only)
 router.post('/:id/invite', async (req, res) => {
     const { id: teamId } = req.params;
-    const { userId, email, role } = req.body;
+    const { userId, email, role = 'member' } = req.body;
 
     if (!userId || !email) {
         return res.status(400).json({ error: 'userId and email required' });
     }
 
+    if (!['member', 'admin'].includes(role)) {
+        return res.status(400).json({ error: "role must be either 'member' or 'admin'" });
+    }
+
     try {
-        // --- BILLING SEAT LIMITS CHECK ---
-        const billingInfo = await db.getTeamBillingInfo(teamId);
-        const plan = billingInfo?.plan || 'free';
+        await requireTeamAdmin(teamId, userId);
+        await refreshExpiredInvitations(teamId);
 
-        const members = await db.getTeamMembers(teamId);
-        const invites = await db.getTeamInvitations(teamId);
-        const currentSeats = (members?.length || 0) + (invites?.length || 0);
+        const cleanEmail = normalizeEmail(email);
+        const alreadyMember = await isAlreadyActiveMember(teamId, cleanEmail);
+        if (alreadyMember) {
+            return res.status(409).json({
+                error: 'User is already an active team member',
+                code: 'ALREADY_MEMBER'
+            });
+        }
 
+        const latestInvite = await getLatestInvite(teamId, cleanEmail);
+        if (latestInvite?.status === 'pending' && !isExpired(latestInvite.expires_at)) {
+            return res.status(409).json({
+                error: 'An active invitation already exists for this email',
+                code: 'DUPLICATE_PENDING_INVITE',
+                invitation: latestInvite
+            });
+        }
+
+        const { name: teamName, plan } = await getTeamPlanAndName(teamId);
+        const { currentSeats } = await getSeatUsage(teamId);
         const maxSeats = getSeatLimit(plan);
 
         if (currentSeats >= maxSeats) {
@@ -202,71 +295,207 @@ router.post('/:id/invite', async (req, res) => {
             });
         }
 
-        // Get team info FIRST (needed for email)
-        const { data: team } = await db.supabase
-            .from('teams')
-            .select('name')
-            .eq('id', teamId)
-            .single();
-
-        if (!team) {
-            return res.status(404).json({ error: 'Team not found' });
-        }
-
-        // Create invitation
-        const invitation = await db.createInvitation(teamId, userId, email);
-
-        // Update role if specified
-        if (role) {
-            await db.supabase
+        let invitation;
+        if (latestInvite && ['expired', 'cancelled'].includes(latestInvite.status)) {
+            const { data, error } = await db.supabase
                 .from('team_invitations')
-                .update({ role })
-                .eq('id', invitation.id);
-            invitation.role = role;
+                .update(buildInviteUpdate(userId, role))
+                .eq('id', latestInvite.id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            invitation = data;
+        } else {
+            const { data, error } = await db.supabase
+                .from('team_invitations')
+                .insert({
+                    team_id: teamId,
+                    email: cleanEmail,
+                    ...buildInviteUpdate(userId, role)
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            invitation = data;
         }
 
-        // Get inviter profile
-        const inviterProfile = await db.getProfile(userId);
-        const inviterName = inviterProfile?.full_name || 'A teammate';
-
-        // ✅ FIX: Call correct method with correct parameters
-        await emailService.sendTeamInvitation(
-            invitation,        // First parameter: invitation object
-            team.name,         // Second parameter: team name
-            inviterName        // Third parameter: inviter name
-        );
-
-        logger.info('Invitation sent successfully', {
-            email,
-            teamId,
-            teamName: team.name
-        });
+        const inviterName = await getInviterName(userId);
+        await emailService.sendTeamInvitation(invitation, teamName, inviterName);
 
         res.json(invitation);
     } catch (error) {
         logger.error('Invite member error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
-// Remove member
-router.delete('/:id/members/:userId', async (req, res) => {
+// Update member role (owner-only)
+router.patch('/:id/members/:userId/role', async (req, res) => {
     const { id: teamId, userId: memberId } = req.params;
-    const { userId: requesterId } = req.query; // Who is performing the delete
+    const { requesterId, role } = req.body;
+
+    if (!requesterId || !role) {
+        return res.status(400).json({ error: 'requesterId and role required' });
+    }
+
+    if (!['member', 'admin'].includes(role)) {
+        return res.status(400).json({ error: "role must be either 'member' or 'admin'" });
+    }
 
     try {
-        // Only owner/admin should be able to delete (handled by RLS but we can check here too)
+        const requester = await requireTeamAdmin(teamId, requesterId);
+        if (requester.role !== 'owner') {
+            return res.status(403).json({ error: 'Only team owner can change member roles' });
+        }
+
+        const { data: targetMember, error: targetError } = await db.supabase
+            .from('team_members')
+            .select('id, role, status')
+            .eq('team_id', teamId)
+            .eq('user_id', memberId)
+            .eq('status', 'active')
+            .single();
+
+        if (targetError || !targetMember) {
+            return res.status(404).json({ error: 'Team member not found' });
+        }
+
+        if (targetMember.role === 'owner') {
+            return res.status(400).json({ error: 'Owner role cannot be changed from this endpoint' });
+        }
+
         const { error } = await db.supabase
             .from('team_members')
-            .delete()
-            .eq('team_id', teamId)
-            .eq('user_id', memberId);
+            .update({ role })
+            .eq('id', targetMember.id);
 
         if (error) throw error;
         res.json({ success: true });
     } catch (error) {
+        logger.error('Update member role error:', error);
+        res.status(error.status || 500).json({ error: error.message });
+    }
+});
+
+// Remove member (admin-only)
+router.delete('/:id/members/:userId', async (req, res) => {
+    const { id: teamId, userId: memberId } = req.params;
+    const { userId: requesterId } = req.query;
+
+    if (!requesterId) return res.status(400).json({ error: 'requester userId required' });
+
+    try {
+        const requester = await requireTeamAdmin(teamId, requesterId);
+
+        const { data: targetMember, error: targetError } = await db.supabase
+            .from('team_members')
+            .select('id, role, user_id, status')
+            .eq('team_id', teamId)
+            .eq('user_id', memberId)
+            .eq('status', 'active')
+            .single();
+
+        if (targetError || !targetMember) {
+            return res.status(404).json({ error: 'Team member not found' });
+        }
+
+        if (memberId === requesterId) {
+            return res.status(400).json({ error: 'Use leave endpoint to remove yourself' });
+        }
+
+        if (targetMember.role === 'owner' && requester.role !== 'owner') {
+            return res.status(403).json({ error: 'Only owner can remove another owner' });
+        }
+
+        if (targetMember.role === 'owner') {
+            const { count: ownerCount, error: ownerCountError } = await db.supabase
+                .from('team_members')
+                .select('id', { count: 'exact', head: true })
+                .eq('team_id', teamId)
+                .eq('status', 'active')
+                .eq('role', 'owner');
+
+            if (ownerCountError) throw ownerCountError;
+            if ((ownerCount || 0) <= 1) {
+                return res.status(400).json({ error: 'Cannot remove the last owner from the team' });
+            }
+        }
+
+        const { error } = await db.supabase
+            .from('team_members')
+            .delete()
+            .eq('id', targetMember.id);
+
+        if (error) throw error;
+
+        await setFallbackCurrentTeam(memberId, teamId);
+        res.json({ success: true });
+    } catch (error) {
         logger.error('Remove member error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
+    }
+});
+
+// Leave team
+router.post('/:id/leave', async (req, res) => {
+    const { id: teamId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+
+    try {
+        const membership = await requireTeamMember(teamId, userId);
+
+        if (membership.role === 'owner') {
+            const { count: ownerCount, error: ownerCountError } = await db.supabase
+                .from('team_members')
+                .select('id', { count: 'exact', head: true })
+                .eq('team_id', teamId)
+                .eq('status', 'active')
+                .eq('role', 'owner');
+
+            if (ownerCountError) throw ownerCountError;
+            if ((ownerCount || 0) <= 1) {
+                return res.status(400).json({
+                    error: 'You are the only owner. Promote another member to owner before leaving.'
+                });
+            }
+        }
+
+        const { error } = await db.supabase
+            .from('team_members')
+            .delete()
+            .eq('id', membership.id);
+
+        if (error) throw error;
+
+        await setFallbackCurrentTeam(userId, teamId);
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Leave team error:', error);
+        res.status(error.status || 500).json({ error: error.message });
+    }
+});
+
+// Get current user's team role
+router.get('/:id/me', async (req, res) => {
+    const { id: teamId } = req.params;
+    const { userId } = req.query;
+
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+
+    try {
+        const member = await getTeamMember(teamId, userId);
+        if (!member) return res.status(404).json({ error: 'Membership not found' });
+        res.json({
+            role: member.role,
+            canManage: member.role === 'owner' || member.role === 'admin'
+        });
+    } catch (error) {
+        logger.error('Get team role error:', error);
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 

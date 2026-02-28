@@ -1,93 +1,207 @@
-// COMPLETE: backend/routes/invitations.js
-// This is a complete, working invitations route file
-
-import express from 'express';
-import { db } from '../services/supabase-client.js';
-import emailService from '../services/email-service.js';
-import logger from '../utils/logger.js';
 import crypto from 'crypto';
+import express from 'express';
+import emailService from '../services/email-service.js';
+import { db } from '../services/supabase-client.js';
+import logger from '../utils/logger.js';
 import { getSeatLimit } from '../utils/plan-limits.js';
+import { requireTeamAdmin } from '../utils/team-permissions.js';
 
 const router = express.Router();
+const INVITE_EXPIRY_DAYS = 7;
 
-const getTeamSeatContext = async (teamId) => {
+const normalizeEmail = (email = '') => email.trim().toLowerCase();
+
+const isInvitationExpired = (invitation) => {
+    if (!invitation?.expires_at) return false;
+    return new Date(invitation.expires_at) < new Date();
+};
+
+const buildInviteRefreshPayload = ({ invitedBy, role }) => ({
+    token: crypto.randomBytes(24).toString('hex'),
+    status: 'pending',
+    invited_by: invitedBy,
+    role: role || 'member',
+    expires_at: new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+    accepted_at: null
+});
+
+async function refreshExpiredInvitations(teamId) {
+    const nowIso = new Date().toISOString();
+
+    const { data: expiredPending, error: findError } = await db.supabase
+        .from('team_invitations')
+        .select('id')
+        .eq('team_id', teamId)
+        .eq('status', 'pending')
+        .lt('expires_at', nowIso);
+
+    if (findError) throw findError;
+    if (!expiredPending?.length) return 0;
+
+    const { error: updateError } = await db.supabase
+        .from('team_invitations')
+        .update({ status: 'expired' })
+        .in('id', expiredPending.map((invitation) => invitation.id));
+
+    if (updateError) throw updateError;
+    return expiredPending.length;
+}
+
+async function getTeamSeatContext(teamId) {
     const { data: team, error } = await db.supabase
         .from('teams')
-        .select('plan')
+        .select('plan, name')
         .eq('id', teamId)
         .single();
 
     if (error || !team) {
-        throw new Error('Team not found');
+        const notFound = new Error('Team not found');
+        notFound.status = 404;
+        throw notFound;
     }
 
     const plan = team.plan || 'free';
     const maxSeats = getSeatLimit(plan);
+    const members = await db.getTeamMembers(teamId);
+    const activeMembers = (members || []).filter((member) => member.status === 'active' || !member.status);
 
-    return { plan, maxSeats };
-};
+    const { count: pendingInviteCount, error: inviteCountError } = await db.supabase
+        .from('team_invitations')
+        .select('id', { count: 'exact', head: true })
+        .eq('team_id', teamId)
+        .eq('status', 'pending');
 
-// Get invitation by token (for join page)
+    if (inviteCountError) throw inviteCountError;
+
+    return {
+        teamName: team.name,
+        plan,
+        maxSeats,
+        activeMembers,
+        currentSeats: activeMembers.length + (pendingInviteCount || 0)
+    };
+}
+
+async function getInviterName(userId) {
+    const { data: inviter, error } = await db.supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return inviter?.full_name || 'Your teammate';
+}
+
+async function getExistingInvite(teamId, email) {
+    const { data, error } = await db.supabase
+        .from('team_invitations')
+        .select('*')
+        .eq('team_id', teamId)
+        .eq('email', email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data || null;
+}
+
+async function createInvite(teamId, email, invitedBy, role) {
+    const payload = {
+        team_id: teamId,
+        email,
+        ...buildInviteRefreshPayload({ invitedBy, role })
+    };
+
+    const { data, error } = await db.supabase
+        .from('team_invitations')
+        .insert(payload)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
+async function refreshInvite(invitationId, invitedBy, role) {
+    const { data, error } = await db.supabase
+        .from('team_invitations')
+        .update(buildInviteRefreshPayload({ invitedBy, role }))
+        .eq('id', invitationId)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
+async function ensureUserNotAlreadyMember(teamId, cleanEmail) {
+    const members = await db.getTeamMembers(teamId);
+    const alreadyMember = (members || []).some((member) => {
+        const memberEmail = normalizeEmail(member?.profiles?.email || member?.email || '');
+        return memberEmail && memberEmail === cleanEmail && (member.status === 'active' || !member.status);
+    });
+
+    return !alreadyMember;
+}
+
+// Get invitation by token (join page)
 router.get('/:token', async (req, res) => {
     try {
         const { token } = req.params;
-
-        logger.info('Fetching invitation by token', { token: token.substring(0, 10) + '...' });
+        logger.info('Fetching invitation by token', { token: `${token.substring(0, 10)}...` });
 
         const { data: invitation, error } = await db.supabase
             .from('team_invitations')
             .select(`
-        *,
-        teams (
-          id,
-          name,
-          description
-        )
-      `)
+                *,
+                teams (
+                    id,
+                    name,
+                    description
+                )
+            `)
             .eq('token', token)
             .single();
 
-        if (error) {
-            logger.error('Error fetching invitation:', error);
+        if (error || !invitation) {
             return res.status(404).json({ error: 'Invitation not found' });
         }
 
-        if (!invitation) {
-            logger.warn('Invitation not found', { token: token.substring(0, 10) + '...' });
-            return res.status(404).json({ error: 'Invitation not found' });
+        if (invitation.status === 'accepted') {
+            return res.status(410).json({ error: 'Invitation already accepted' });
         }
 
-        // Check if expired
-        if (new Date(invitation.expires_at) < new Date()) {
-            logger.warn('Invitation expired', { token: token.substring(0, 10) + '...' });
+        if (invitation.status === 'cancelled') {
+            return res.status(410).json({ error: 'Invitation has been cancelled' });
+        }
 
-            // Update status to expired
-            await db.supabase
-                .from('team_invitations')
-                .update({ status: 'expired' })
-                .eq('id', invitation.id);
+        if (invitation.status === 'expired' || isInvitationExpired(invitation)) {
+            if (invitation.status === 'pending') {
+                await db.supabase
+                    .from('team_invitations')
+                    .update({ status: 'expired' })
+                    .eq('id', invitation.id);
+            }
 
             return res.status(410).json({ error: 'Invitation has expired' });
         }
 
-        // Check if already accepted
-        if (invitation.status === 'accepted') {
-            logger.warn('Invitation already accepted', { token: token.substring(0, 10) + '...' });
-            return res.status(410).json({ error: 'Invitation already accepted' });
+        let inviterName = null;
+        if (invitation.invited_by) {
+            const { data: inviter } = await db.supabase
+                .from('profiles')
+                .select('full_name')
+                .eq('id', invitation.invited_by)
+                .maybeSingle();
+            inviterName = inviter?.full_name || null;
         }
 
-        // Check if cancelled
-        if (invitation.status === 'cancelled') {
-            logger.warn('Invitation cancelled', { token: token.substring(0, 10) + '...' });
-            return res.status(410).json({ error: 'Invitation has been cancelled' });
-        }
-
-        logger.info('Invitation found successfully', {
-            email: invitation.email,
-            teamName: invitation.teams?.name
+        res.json({
+            ...invitation,
+            inviter_name: inviterName
         });
-
-        res.json(invitation);
     } catch (error) {
         logger.error('Get invitation error:', error);
         res.status(500).json({ error: error.message });
@@ -104,12 +218,6 @@ router.post('/:token/accept', async (req, res) => {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        logger.info('Accepting invitation', {
-            token: token.substring(0, 10) + '...',
-            userId
-        });
-
-        // Get invitation
         const { data: invitation, error: inviteError } = await db.supabase
             .from('team_invitations')
             .select('*')
@@ -118,30 +226,39 @@ router.post('/:token/accept', async (req, res) => {
             .single();
 
         if (inviteError || !invitation) {
-            logger.error('Invitation not found or not pending:', inviteError);
             return res.status(404).json({ error: 'Invalid or expired invitation' });
         }
 
-        // Check expiry
-        if (new Date(invitation.expires_at) < new Date()) {
+        if (isInvitationExpired(invitation)) {
             await db.supabase
                 .from('team_invitations')
                 .update({ status: 'expired' })
                 .eq('id', invitation.id);
-
             return res.status(410).json({ error: 'Invitation has expired' });
         }
 
-        // Check if already a member
-        const { data: existingMember } = await db.supabase
-            .from('team_members')
-            .select('id')
-            .eq('team_id', invitation.team_id)
-            .eq('user_id', userId)
+        const { data: profile, error: profileError } = await db.supabase
+            .from('profiles')
+            .select('email, full_name')
+            .eq('id', userId)
             .single();
 
-        if (existingMember) {
-            logger.warn('User already a team member', { userId, teamId: invitation.team_id });
+        if (profileError || !profile) {
+            return res.status(400).json({ error: 'User profile not found' });
+        }
+
+        if (normalizeEmail(profile.email) !== normalizeEmail(invitation.email)) {
+            return res.status(403).json({ error: 'This invitation is for a different email address' });
+        }
+
+        const { data: existingMember } = await db.supabase
+            .from('team_members')
+            .select('id, status')
+            .eq('team_id', invitation.team_id)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (existingMember && (existingMember.status === 'active' || !existingMember.status)) {
             return res.status(400).json({ error: 'Already a team member' });
         }
 
@@ -157,25 +274,35 @@ router.post('/:token/accept', async (req, res) => {
             });
         }
 
-        // Add to team
-        const { error: memberError } = await db.supabase
-            .from('team_members')
-            .insert({
-                team_id: invitation.team_id,
-                user_id: userId,
-                role: invitation.role || 'member',
-                status: 'active',
-                invited_by: invitation.invited_by,
-                joined_at: new Date().toISOString(),
-                joined_via: 'invitation'
-            });
+        if (existingMember) {
+            const { error: reactivateError } = await db.supabase
+                .from('team_members')
+                .update({
+                    status: 'active',
+                    role: invitation.role || 'member',
+                    invited_by: invitation.invited_by,
+                    joined_at: new Date().toISOString(),
+                    joined_via: 'invitation'
+                })
+                .eq('id', existingMember.id);
 
-        if (memberError) {
-            logger.error('Error adding team member:', memberError);
-            throw memberError;
+            if (reactivateError) throw reactivateError;
+        } else {
+            const { error: memberError } = await db.supabase
+                .from('team_members')
+                .insert({
+                    team_id: invitation.team_id,
+                    user_id: userId,
+                    role: invitation.role || 'member',
+                    status: 'active',
+                    invited_by: invitation.invited_by,
+                    joined_at: new Date().toISOString(),
+                    joined_via: 'invitation'
+                });
+
+            if (memberError) throw memberError;
         }
 
-        // Update invitation status
         await db.supabase
             .from('team_invitations')
             .update({
@@ -184,36 +311,23 @@ router.post('/:token/accept', async (req, res) => {
             })
             .eq('id', invitation.id);
 
-        // Update user's current team
         await db.supabase
             .from('profiles')
             .update({
                 current_team_id: invitation.team_id,
+                team_id: invitation.team_id,
                 updated_at: new Date().toISOString()
             })
             .eq('id', userId);
 
-        logger.info('✅ Invitation accepted successfully', {
-            userId,
-            teamId: invitation.team_id,
-            email: invitation.email
-        });
-
-        // Send welcome email (optional - don't block on this)
         try {
-            const { data: profile } = await db.supabase
-                .from('profiles')
-                .select('full_name, email')
-                .eq('id', userId)
-                .single();
-
             const { data: team } = await db.supabase
                 .from('teams')
                 .select('name')
                 .eq('id', invitation.team_id)
                 .single();
 
-            if (profile && team) {
+            if (team?.name) {
                 await emailService.sendWelcomeEmail(
                     profile.email || invitation.email,
                     profile.full_name || 'there',
@@ -224,22 +338,19 @@ router.post('/:token/accept', async (req, res) => {
             logger.error('Failed to send welcome email (non-blocking):', emailError);
         }
 
-        res.json({
-            success: true,
-            teamId: invitation.team_id
-        });
+        res.json({ success: true, teamId: invitation.team_id });
     } catch (error) {
         logger.error('Accept invitation error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Create invitation(s) - bulk invite
+// Create invitations (bulk)
 router.post('/', async (req, res) => {
     try {
         const { teamId, emails, invitedBy, role = 'member' } = req.body;
 
-        if (!teamId || !emails || !Array.isArray(emails) || emails.length === 0) {
+        if (!teamId || !Array.isArray(emails) || emails.length === 0) {
             return res.status(400).json({ error: 'teamId and emails array required' });
         }
 
@@ -247,68 +358,41 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'invitedBy (userId) required' });
         }
 
-        // Verify inviter has permission
-        const { data: member } = await db.supabase
-            .from('team_members')
-            .select('role')
-            .eq('team_id', teamId)
-            .eq('user_id', invitedBy)
-            .single();
-
-        if (!member || !['owner', 'admin'].includes(member.role)) {
-            return res.status(403).json({ error: 'Only team owners and admins can invite members' });
+        if (!['member', 'admin'].includes(role)) {
+            return res.status(400).json({ error: "role must be either 'member' or 'admin'" });
         }
 
-        // Get team info
-        const { data: team } = await db.supabase
-            .from('teams')
-            .select('name')
-            .eq('id', teamId)
-            .single();
+        await requireTeamAdmin(teamId, invitedBy);
 
-        if (!team) {
-            return res.status(404).json({ error: 'Team not found' });
-        }
+        await refreshExpiredInvitations(teamId);
 
-        const { plan, maxSeats } = await getTeamSeatContext(teamId);
-        const members = await db.getTeamMembers(teamId);
-        const invites = await db.getTeamInvitations(teamId);
-        const currentSeats = (members?.length || 0) + (invites?.length || 0);
+        const {
+            teamName,
+            plan,
+            maxSeats,
+            currentSeats
+        } = await getTeamSeatContext(teamId);
+
         let remainingSeats = maxSeats - currentSeats;
-
-        if (remainingSeats <= 0) {
-            return res.status(403).json({
-                error: `Team size limit reached (${maxSeats} members for ${plan} plan). Please upgrade.`,
-                code: 'PLAN_LIMIT_REACHED',
-                currentPlan: plan
-            });
-        }
-
-        // Get inviter info
-        const { data: inviter } = await db.supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', invitedBy)
-            .single();
+        const inviterName = await getInviterName(invitedBy);
 
         const invitations = [];
+        const resent = [];
         const errors = [];
+        const uniqueEmails = [...new Set(emails.map(normalizeEmail).filter(Boolean))];
 
-        for (const email of emails) {
+        for (const cleanEmail of uniqueEmails) {
             try {
-                const cleanEmail = email.toLowerCase().trim();
+                const canInvite = await ensureUserNotAlreadyMember(teamId, cleanEmail);
+                if (!canInvite) {
+                    errors.push({ email: cleanEmail, error: 'User is already an active team member' });
+                    continue;
+                }
 
-                // Check if already invited (pending)
-                const { data: existingInvite } = await db.supabase
-                    .from('team_invitations')
-                    .select('id')
-                    .eq('team_id', teamId)
-                    .eq('email', cleanEmail)
-                    .eq('status', 'pending')
-                    .single();
-
-                if (existingInvite) {
-                    errors.push({ email: cleanEmail, error: 'Invitation already sent' });
+                const existingInvite = await getExistingInvite(teamId, cleanEmail);
+                if (existingInvite?.status === 'pending' && !isInvitationExpired(existingInvite)) {
+                    await emailService.sendTeamInvitation(existingInvite, teamName, inviterName);
+                    resent.push(existingInvite);
                     continue;
                 }
 
@@ -320,80 +404,57 @@ router.post('/', async (req, res) => {
                     continue;
                 }
 
-                // Create invitation
-                const token = crypto.randomBytes(16).toString('hex');
-                const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+                let invitation;
+                if (existingInvite && ['expired', 'cancelled'].includes(existingInvite.status)) {
+                    invitation = await refreshInvite(existingInvite.id, invitedBy, role);
+                } else {
+                    invitation = await createInvite(teamId, cleanEmail, invitedBy, role);
+                }
 
-                const { data: invitation, error: inviteError } = await db.supabase
-                    .from('team_invitations')
-                    .insert({
-                        team_id: teamId,
-                        email: cleanEmail,
-                        invited_by: invitedBy,
-                        role,
-                        token,
-                        expires_at: expiresAt.toISOString(),
-                        status: 'pending'
-                    })
-                    .select()
-                    .single();
-
-                if (inviteError) throw inviteError;
-
-                // Send invitation email
-                await emailService.sendTeamInvitation(
-                    invitation,
-                    team.name,
-                    inviter?.full_name || 'Your teammate'
-                );
-
+                await emailService.sendTeamInvitation(invitation, teamName, inviterName);
                 invitations.push(invitation);
                 remainingSeats -= 1;
-                logger.info('Invitation created and sent', { email: cleanEmail, teamName: team.name });
-            } catch (error) {
-                logger.error('Failed to create invitation:', error);
-                errors.push({ email, error: error.message });
+            } catch (inviteError) {
+                logger.error('Failed to create invitation:', inviteError);
+                errors.push({ email: cleanEmail, error: inviteError.message });
             }
         }
 
         res.json({
             success: true,
             invitations,
+            resent,
             errors: errors.length > 0 ? errors : undefined
         });
     } catch (error) {
         logger.error('Invitations creation error:', error);
-        res.status(500).json({ error: error.message });
+        const status = error.status || 500;
+        res.status(status).json({ error: error.message });
     }
 });
 
-// Get team invitations
+// Get team invitations (admin-only)
 router.get('/team/:teamId', async (req, res) => {
     try {
         const { teamId } = req.params;
-        const { userId } = req.query;
+        const { userId, status } = req.query;
 
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        // Verify user is admin
-        const { data: member } = await db.supabase
-            .from('team_members')
-            .select('role')
-            .eq('team_id', teamId)
-            .eq('user_id', userId)
-            .single();
+        await requireTeamAdmin(teamId, userId);
+        await refreshExpiredInvitations(teamId);
 
-        if (!member || !['owner', 'admin'].includes(member.role)) {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
+        const statuses = typeof status === 'string' && status.trim()
+            ? status.split(',').map((value) => value.trim()).filter(Boolean)
+            : ['pending', 'expired', 'cancelled'];
 
         const { data: invitations, error } = await db.supabase
             .from('team_invitations')
             .select('*')
             .eq('team_id', teamId)
-            .eq('status', 'pending')
+            .in('status', statuses)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -401,11 +462,11 @@ router.get('/team/:teamId', async (req, res) => {
         res.json(invitations || []);
     } catch (error) {
         logger.error('Get team invitations error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
-// Cancel invitation
+// Cancel invitation (admin-only)
 router.delete('/:invitationId', async (req, res) => {
     try {
         const { invitationId } = req.params;
@@ -415,45 +476,36 @@ router.delete('/:invitationId', async (req, res) => {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        // Get invitation
-        const { data: invitation } = await db.supabase
+        const { data: invitation, error: invitationError } = await db.supabase
             .from('team_invitations')
-            .select('team_id')
+            .select('id, team_id, status')
             .eq('id', invitationId)
             .single();
 
-        if (!invitation) {
+        if (invitationError || !invitation) {
             return res.status(404).json({ error: 'Invitation not found' });
         }
 
-        // Verify user is admin
-        const { data: member } = await db.supabase
-            .from('team_members')
-            .select('role')
-            .eq('team_id', invitation.team_id)
-            .eq('user_id', userId)
-            .single();
+        await requireTeamAdmin(invitation.team_id, userId);
 
-        if (!member || !['owner', 'admin'].includes(member.role)) {
-            return res.status(403).json({ error: 'Unauthorized' });
+        if (invitation.status === 'accepted') {
+            return res.status(400).json({ error: 'Accepted invitations cannot be cancelled' });
         }
 
-        // Update status to cancelled
         const { error } = await db.supabase
             .from('team_invitations')
             .update({ status: 'cancelled' })
             .eq('id', invitationId);
 
         if (error) throw error;
-
         res.json({ success: true });
     } catch (error) {
         logger.error('Cancel invitation error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 
-// Resend invitation
+// Resend invitation (admin-only)
 router.post('/:invitationId/resend', async (req, res) => {
     try {
         const { invitationId } = req.params;
@@ -463,54 +515,46 @@ router.post('/:invitationId/resend', async (req, res) => {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        // Get invitation with team info
-        const { data: invitation } = await db.supabase
+        const { data: invitation, error: invitationError } = await db.supabase
             .from('team_invitations')
             .select(`
-        *,
-        teams (
-          name
-        )
-      `)
+                *,
+                teams (
+                    id,
+                    name
+                )
+            `)
             .eq('id', invitationId)
             .single();
 
-        if (!invitation) {
+        if (invitationError || !invitation) {
             return res.status(404).json({ error: 'Invitation not found' });
         }
 
-        // Verify user is admin
-        const { data: member } = await db.supabase
-            .from('team_members')
-            .select('role')
-            .eq('team_id', invitation.team_id)
-            .eq('user_id', userId)
-            .single();
+        await requireTeamAdmin(invitation.team_id, userId);
 
-        if (!member || !['owner', 'admin'].includes(member.role)) {
-            return res.status(403).json({ error: 'Unauthorized' });
+        if (invitation.status === 'accepted') {
+            return res.status(400).json({ error: 'Accepted invitation cannot be resent' });
         }
 
-        // Get inviter info
-        const { data: inviter } = await db.supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', invitation.invited_by)
-            .single();
-
-        // Send email again
-        await emailService.sendTeamInvitation(
-            invitation,
-            invitation.teams.name,
-            inviter?.full_name || 'Your teammate'
+        const refreshedInvitation = await refreshInvite(
+            invitation.id,
+            userId,
+            invitation.role || 'member'
         );
 
-        logger.info('Invitation resent', { email: invitation.email });
+        const inviterName = await getInviterName(userId);
 
-        res.json({ success: true });
+        await emailService.sendTeamInvitation(
+            refreshedInvitation,
+            invitation.teams?.name || 'Your team',
+            inviterName
+        );
+
+        res.json({ success: true, invitation: refreshedInvitation });
     } catch (error) {
         logger.error('Resend invitation error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: error.message });
     }
 });
 

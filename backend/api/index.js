@@ -19,6 +19,7 @@ import emailRoutes from './routes/email.js';
 import logger from './utils/logger.js';
 import waitlistRoutes from './routes/waitlist.js';
 import { db } from './services/supabase-client.js';
+import { requireTeamAdmin, requireTeamMember } from './utils/team-permissions.js';
 
 const app = express();
 // Trust proxy is required for Vercel/proxied environments to get correct client IP
@@ -124,20 +125,22 @@ app.get('/api/summaries', async (req, res) => {
       return res.status(400).json({ error: 'userId required' });
     }
 
-    // Try to get integration for the specific team if teamId is provided
-    const integration = await db.getIntegration(userId, 'slack', teamId);
-
-    if (!integration) {
-      // If no integration found for this team/user, return empty
-      return res.json([]);
+    if (teamId) {
+      await requireTeamMember(teamId, userId);
+      const teamSummaries = await db.getSummaries(teamId, null, limit);
+      return res.json(teamSummaries || []);
     }
+
+    // Personal fallback for legacy users without team context.
+    const integration = await db.getIntegration(userId, 'slack', null);
+    if (!integration) return res.json([]);
 
     const summaries = await db.getSummaries(integration?.team_id, userId, limit);
 
     res.json(summaries || []);
   } catch (error) {
     logger.error('Failed to fetch summaries:', error);
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
@@ -150,11 +153,33 @@ app.delete('/api/summaries/:id', async (req, res) => {
       return res.status(400).json({ error: 'id and userId required' });
     }
 
-    await db.deleteSummary(id, userId);
+    const { data: summary, error: summaryError } = await db.supabase
+      .from('slack_summaries')
+      .select('id, user_id, team_id')
+      .eq('id', id)
+      .single();
+
+    if (summaryError || !summary) {
+      return res.status(404).json({ error: 'Summary not found' });
+    }
+
+    if (summary.team_id) {
+      await requireTeamAdmin(summary.team_id, userId);
+    } else if (summary.user_id !== userId) {
+      return res.status(403).json({ error: 'Not authorized to delete this summary' });
+    }
+
+    const { error: deleteError } = await db.supabase
+      .from('slack_summaries')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) throw deleteError;
+
     res.json({ success: true });
   } catch (error) {
     logger.error('Failed to delete summary:', error);
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
