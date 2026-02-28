@@ -9,7 +9,7 @@ export default function JoinTeam() {
     const [searchParams] = useSearchParams();
     const token = searchParams.get('token');
     const navigate = useNavigate();
-    const { user, signUp, signIn, signOut } = useAuth();
+    const { user, signUp, signIn, signOut, refreshProfile } = useAuth();
 
     const [invitation, setInvitation] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -131,8 +131,14 @@ export default function JoinTeam() {
 
             const data = await res.json();
 
-            // Redirect to welcome page
-            navigate('/onboarding/welcome-member');
+            // Force profile reload so current_team_id and team list are in memory before navigation.
+            await refreshProfile();
+
+            if (data?.teamId) {
+                sessionStorage.setItem('joined_team_id', data.teamId);
+            }
+
+            navigate('/onboarding/welcome-member', { replace: true });
         } catch (err) {
             setError(err.message);
             setJoining(false);
@@ -212,7 +218,7 @@ export default function JoinTeam() {
                         Join {invitation?.teams?.name}?
                     </h1>
                     <p className="text-gray-600 mb-2">
-                        You've been invited by {invitation?.profiles?.full_name || 'your teammate'}
+                        You've been invited by {invitation?.inviter_name || invitation?.profiles?.full_name || 'your teammate'}
                     </p>
                     <p className="text-sm text-gray-500 mb-8">
                         Role: {invitation?.role}
@@ -245,7 +251,7 @@ export default function JoinTeam() {
                         Join {invitation?.teams?.name}
                     </h1>
                     <p className="text-gray-600">
-                        You've been invited by {invitation?.profiles?.full_name || 'your teammate'}
+                        You've been invited by {invitation?.inviter_name || invitation?.profiles?.full_name || 'your teammate'}
                     </p>
                 </div>
 

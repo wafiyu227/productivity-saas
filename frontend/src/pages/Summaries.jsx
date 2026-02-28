@@ -16,6 +16,8 @@ export default function Summaries() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedChannel, setSelectedChannel] = useState('');
+    const currentMembership = profile?.teams?.find((membership) => membership.team_id === profile?.current_team_id);
+    const canManageSummaries = !profile?.current_team_id || ['owner', 'admin'].includes(currentMembership?.role);
 
     const loadSummaries = useCallback(async () => {
         if (!user) return;
@@ -83,6 +85,10 @@ export default function Summaries() {
     }, [user, profile?.current_team_id, loadSummaries]);
 
     const handleDeleteSummary = async (id) => {
+        if (!canManageSummaries) {
+            alert('Only team owners/admins can delete summaries.');
+            return;
+        }
         if (!window.confirm('Are you sure you want to delete this summary?')) return;
 
         try {
@@ -155,6 +161,11 @@ export default function Summaries() {
                         <p className="text-base md:text-lg text-gray-600">
                             {filteredSummaries.length} of {summaries.length} summaries
                         </p>
+                        {!canManageSummaries && (
+                            <p className="text-sm text-gray-500 mt-2">
+                                Summaries are read-only for members.
+                            </p>
+                        )}
                     </div>
 
                     {/* Filters */}
@@ -217,6 +228,7 @@ export default function Summaries() {
                                     key={summary.id}
                                     summary={summary}
                                     onDelete={handleDeleteSummary}
+                                    canDelete={canManageSummaries}
                                 />
                             ))}
                         </div>
@@ -227,7 +239,7 @@ export default function Summaries() {
     );
 }
 
-function SummaryRow({ summary, onDelete }) {
+function SummaryRow({ summary, onDelete, canDelete }) {
     const channelName = summary.channel_name || 'unknown';
     const summaryText = summary.summary || '';
     const blockers = summary.blockers || summary.key_topics || [];
@@ -255,13 +267,15 @@ function SummaryRow({ summary, onDelete }) {
                         <p className="text-gray-700 leading-relaxed">{summaryText}</p>
                     </div>
                 </div>
-                <button
-                    onClick={() => onDelete(summary.id)}
-                    className="text-red-400 hover:text-red-600 transition p-2 hover:bg-red-50 rounded-lg"
-                    title="Delete summary"
-                >
-                    <Trash2 size={20} />
-                </button>
+                {canDelete && (
+                    <button
+                        onClick={() => onDelete(summary.id)}
+                        className="text-red-400 hover:text-red-600 transition p-2 hover:bg-red-50 rounded-lg"
+                        title="Delete summary"
+                    >
+                        <Trash2 size={20} />
+                    </button>
+                )}
             </div>
 
             {Array.isArray(blockers) && blockers.length > 0 && (

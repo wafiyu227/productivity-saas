@@ -1,10 +1,15 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { CheckCircle, ArrowRight, MessageSquare, FolderKanban, Calendar } from 'lucide-react';
 
 export default function WelcomeMember() {
     const navigate = useNavigate();
-    const { profile } = useAuth();
+    const { profile, refreshProfile } = useAuth();
+
+    useEffect(() => {
+        refreshProfile();
+    }, [refreshProfile]);
 
     // In a real app, we'd fetch the team details here
     const teamName = profile?.current_team_id ? 'Your Team' : 'Teama AI';

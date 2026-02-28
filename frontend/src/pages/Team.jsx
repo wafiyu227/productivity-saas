@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Mail, Copy, Check, Users, AlertCircle, CreditCard } from 'lucide-react';
+import { Mail, Copy, Check, Users, AlertCircle, CreditCard, RefreshCw, X, UserMinus, LogOut } from 'lucide-react';
 
 const Team = () => {
     const { user, profile, refreshProfile } = useAuth(); // ✅ Added refreshProfile
@@ -13,6 +13,10 @@ const Team = () => {
     const [inviteSending, setInviteSending] = useState(false);
     const [copied, setCopied] = useState(false);
     const [isBillingLoading, setIsBillingLoading] = useState(false);
+    const [memberRole, setMemberRole] = useState(null);
+    const [inviteActionId, setInviteActionId] = useState(null);
+    const [memberActionId, setMemberActionId] = useState(null);
+    const [leaving, setLeaving] = useState(false);
 
     const clearPaymentQueryParams = () => {
         const url = new URL(window.location.href);
@@ -110,8 +114,8 @@ const Team = () => {
 
             // Fetch all data in parallel
             const [teamRes, membersRes, invitesRes] = await Promise.all([
-                fetch(`${apiUrl}/api/teams/${teamId}`),
-                fetch(`${apiUrl}/api/teams/${teamId}/members`),
+                fetch(`${apiUrl}/api/teams/${teamId}?userId=${user.id}`),
+                fetch(`${apiUrl}/api/teams/${teamId}/members?userId=${user.id}`),
                 fetch(`${apiUrl}/api/teams/${teamId}/invitations?userId=${user.id}`)
             ]);
 
@@ -119,6 +123,7 @@ const Team = () => {
             if (teamRes.ok) {
                 const teamData = await teamRes.json();
                 setTeam(teamData);
+                setMemberRole(teamData.currentUserRole || null);
             } else {
                 const errorText = await teamRes.text();
                 console.error('Failed to fetch team:', {
@@ -140,6 +145,10 @@ const Team = () => {
             if (membersRes.ok) {
                 const membersData = await membersRes.json();
                 setMembers(Array.isArray(membersData) ? membersData : []);
+                if (!memberRole && Array.isArray(membersData)) {
+                    const currentMember = membersData.find((member) => member.user_id === user.id);
+                    if (currentMember?.role) setMemberRole(currentMember.role);
+                }
             } else {
                 console.error('Failed to fetch members:', membersRes.status);
             }
@@ -148,9 +157,7 @@ const Team = () => {
             if (invitesRes.ok) {
                 const invitesData = await invitesRes.json();
                 setInvitations(Array.isArray(invitesData) ? invitesData : []);
-            } else if (invitesRes.status === 404) {
-                // Invitations endpoint doesn't exist yet - that's okay
-                console.log('Invitations endpoint not available');
+            } else if (invitesRes.status === 403 || invitesRes.status === 404) {
                 setInvitations([]);
             } else {
                 console.error('Failed to fetch invitations:', invitesRes.status);
@@ -163,9 +170,11 @@ const Team = () => {
         }
     };
 
+    const canManageTeam = memberRole === 'owner' || memberRole === 'admin';
+
     const handleInvite = async (e) => {
         e.preventDefault();
-        if (!inviteEmail || !team) return;
+        if (!inviteEmail || !team || !canManageTeam) return;
 
         setInviteSending(true);
         try {
@@ -181,9 +190,16 @@ const Team = () => {
             if (res.ok) {
                 setInviteEmail('');
                 await fetchTeamData();
-                alert('Invitation sent!');
+                return;
             } else {
                 const errorData = await res.json();
+                if (res.status === 409 && errorData.code === 'DUPLICATE_PENDING_INVITE' && errorData.invitation?.id) {
+                    const shouldResend = window.confirm('An active invitation already exists. Resend it now?');
+                    if (shouldResend) {
+                        await handleResendInvite(errorData.invitation.id);
+                    }
+                    return;
+                }
                 if (res.status === 403 && errorData.error?.includes('Team size limit reached')) {
                     const wantsUpgrade = window.confirm(`🛑 ${errorData.error}\n\nPlease use the Subscription & Billing section above to upgrade your plan.`);
                     if (wantsUpgrade) {
@@ -198,6 +214,88 @@ const Team = () => {
             alert('Failed to send invitation');
         } finally {
             setInviteSending(false);
+        }
+    };
+
+    const handleResendInvite = async (invitationId) => {
+        if (!team || !canManageTeam || !invitationId) return;
+
+        setInviteActionId(`resend-${invitationId}`);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/invitations/${invitationId}/resend?userId=${user.id}`, {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to resend invitation');
+            await fetchTeamData();
+        } catch (error) {
+            console.error('Resend invitation error:', error);
+            alert(error.message || 'Failed to resend invitation');
+        } finally {
+            setInviteActionId(null);
+        }
+    };
+
+    const handleCancelInvite = async (invitationId) => {
+        if (!team || !canManageTeam || !invitationId) return;
+        if (!window.confirm('Cancel this invitation?')) return;
+
+        setInviteActionId(`cancel-${invitationId}`);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/invitations/${invitationId}?userId=${user.id}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to cancel invitation');
+            await fetchTeamData();
+        } catch (error) {
+            console.error('Cancel invitation error:', error);
+            alert(error.message || 'Failed to cancel invitation');
+        } finally {
+            setInviteActionId(null);
+        }
+    };
+
+    const handleRemoveMember = async (memberUserId) => {
+        if (!team || !canManageTeam || !memberUserId) return;
+        if (!window.confirm('Remove this member from the team?')) return;
+
+        setMemberActionId(memberUserId);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/teams/${team.id}/members/${memberUserId}?userId=${user.id}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to remove member');
+            await fetchTeamData();
+        } catch (error) {
+            console.error('Remove member error:', error);
+            alert(error.message || 'Failed to remove member');
+        } finally {
+            setMemberActionId(null);
+        }
+    };
+
+    const handleLeaveTeam = async () => {
+        if (!team || !user?.id) return;
+        if (!window.confirm('Leave this team? You will lose access immediately.')) return;
+
+        setLeaving(true);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/teams/${team.id}/leave`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to leave team');
+            await refreshProfile();
+            await fetchTeamData();
+        } catch (error) {
+            console.error('Leave team error:', error);
+            alert(error.message || 'Failed to leave team');
+        } finally {
+            setLeaving(false);
         }
     };
 
@@ -317,7 +415,8 @@ const Team = () => {
     const isSummaryUnlimited = team.isSummaryUnlimited ?? summaryLimit === null;
     const fallbackSeatLimit = currentPlan === 'starter' ? 20 : (currentPlan === 'growth' ? 75 : 5);
     const seatLimit = team.seatLimit ?? fallbackSeatLimit;
-    const seatUsageCount = members.length + invitations.length;
+    const pendingInvitations = invitations.filter((invite) => invite.status === 'pending');
+    const seatUsageCount = members.length + pendingInvitations.length;
     const usagePercent = isSummaryUnlimited
         ? 0
         : Math.min(100, (usageCount / Math.max(summaryLimit || 1, 1)) * 100);
@@ -464,6 +563,20 @@ const Team = () => {
                                             }`}>
                                             {member.role}
                                         </span>
+                                        {canManageTeam && member.user_id !== user.id && (
+                                            <button
+                                                onClick={() => handleRemoveMember(member.user_id)}
+                                                disabled={memberActionId === member.user_id}
+                                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                            >
+                                                {memberActionId === member.user_id ? (
+                                                    <RefreshCw size={12} className="animate-spin" />
+                                                ) : (
+                                                    <UserMinus size={12} />
+                                                )}
+                                                Remove
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -476,11 +589,11 @@ const Team = () => {
                     {invitations.length > 0 && (
                         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
                             <div className="p-6 border-b border-gray-100">
-                                <h2 className="font-semibold text-lg text-gray-900">Pending Invitations</h2>
+                                <h2 className="font-semibold text-lg text-gray-900">Invitations</h2>
                             </div>
                             <div className="divide-y divide-gray-100">
                                 {invitations.map((invite) => (
-                                    <div key={invite.id} className="p-4 flex items-center justify-between bg-yellow-50/30">
+                                    <div key={invite.id} className={`p-4 flex items-center justify-between ${invite.status === 'expired' ? 'bg-gray-50' : 'bg-yellow-50/30'}`}>
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
                                                 <Mail size={18} />
@@ -495,12 +608,44 @@ const Team = () => {
                                         <div className="flex items-center gap-2">
                                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${invite.status === 'pending'
                                                 ? 'bg-yellow-100 text-yellow-700'
-                                                : invite.status === 'accepted'
-                                                    ? 'bg-green-100 text-green-700'
-                                                    : 'bg-gray-100 text-gray-700'
+                                                : invite.status === 'expired'
+                                                    ? 'bg-red-100 text-red-700'
+                                                    : invite.status === 'cancelled'
+                                                        ? 'bg-gray-100 text-gray-700'
+                                                        : 'bg-green-100 text-green-700'
                                                 }`}>
                                                 {invite.status}
                                             </span>
+                                            {canManageTeam && invite.status !== 'accepted' && (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleResendInvite(invite.id)}
+                                                        disabled={inviteActionId === `resend-${invite.id}`}
+                                                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                                                    >
+                                                        {inviteActionId === `resend-${invite.id}` ? (
+                                                            <RefreshCw size={12} className="animate-spin" />
+                                                        ) : (
+                                                            <RefreshCw size={12} />
+                                                        )}
+                                                        Resend
+                                                    </button>
+                                                    {invite.status !== 'cancelled' && (
+                                                        <button
+                                                            onClick={() => handleCancelInvite(invite.id)}
+                                                            disabled={inviteActionId === `cancel-${invite.id}`}
+                                                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                                        >
+                                                            {inviteActionId === `cancel-${invite.id}` ? (
+                                                                <RefreshCw size={12} className="animate-spin" />
+                                                            ) : (
+                                                                <X size={12} />
+                                                            )}
+                                                            Cancel
+                                                        </button>
+                                                    )}
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -513,46 +658,65 @@ const Team = () => {
                 <div className="space-y-6">
                     <div id="invite-form" className="bg-white rounded-xl shadow-sm p-6">
                         <h2 className="font-semibold text-lg text-gray-900 mb-4">Invite People</h2>
-                        <form onSubmit={handleInvite} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Email Address
-                                </label>
-                                <input
-                                    type="email"
-                                    value={inviteEmail}
-                                    onChange={(e) => setInviteEmail(e.target.value)}
-                                    placeholder="colleague@company.com"
-                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                                    required
-                                />
-                            </div>
+                        <div className="mb-4 flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                            <span>Role: {(memberRole || 'member').toUpperCase()}</span>
                             <button
-                                type="submit"
-                                disabled={inviteSending}
-                                className="w-full bg-blue-600 text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                onClick={handleLeaveTeam}
+                                disabled={leaving}
+                                className="inline-flex items-center gap-1 text-red-700 hover:text-red-800 disabled:opacity-50"
                             >
-                                {inviteSending ? 'Sending...' : 'Send Invite'}
+                                {leaving ? <RefreshCw size={12} className="animate-spin" /> : <LogOut size={12} />}
+                                Leave Team
                             </button>
-                        </form>
-
-                        <div className="mt-6 pt-6 border-t border-gray-100">
-                            <h3 className="text-sm font-medium text-gray-900 mb-2">Or share invite link</h3>
-                            <div className="flex gap-2">
-                                <input
-                                    readOnly
-                                    value={`${window.location.origin}/signup?ref=team_${team?.id}`}
-                                    className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600"
-                                />
-                                <button
-                                    onClick={copyInviteLink}
-                                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                    title="Copy invite link"
-                                >
-                                    {copied ? <Check size={20} /> : <Copy size={20} />}
-                                </button>
-                            </div>
                         </div>
+                        {canManageTeam ? (
+                            <>
+                                <form onSubmit={handleInvite} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Email Address
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={inviteEmail}
+                                            onChange={(e) => setInviteEmail(e.target.value)}
+                                            placeholder="colleague@company.com"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                                            required
+                                        />
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={inviteSending}
+                                        className="w-full bg-blue-600 text-white font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                    >
+                                        {inviteSending ? 'Sending...' : 'Send Invite'}
+                                    </button>
+                                </form>
+
+                                <div className="mt-6 pt-6 border-t border-gray-100">
+                                    <h3 className="text-sm font-medium text-gray-900 mb-2">Or share invite link</h3>
+                                    <div className="flex gap-2">
+                                        <input
+                                            readOnly
+                                            value={`${window.location.origin}/signup?ref=team_${team?.id}`}
+                                            className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600"
+                                        />
+                                        <button
+                                            onClick={copyInviteLink}
+                                            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            title="Copy invite link"
+                                        >
+                                            {copied ? <Check size={20} /> : <Copy size={20} />}
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                                Invite management is read-only for members. Ask a team owner or admin to send or manage invites.
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

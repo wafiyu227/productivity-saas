@@ -15,6 +15,36 @@ export default function Integrations() {
     const [notification, setNotification] = useState(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const [oauthProcessed, setOauthProcessed] = useState(false);
+    const currentMembership = profile?.teams?.find((membership) => membership.team_id === profile?.current_team_id);
+    const canManageIntegrations = !profile?.current_team_id || ['owner', 'admin'].includes(currentMembership?.role);
+
+    async function checkStatus(platform) {
+        if (!user) return;
+        try {
+            const teamId = profile?.current_team_id;
+            const url = new URL(`${API_URL}/api/auth/status`);
+            url.searchParams.append('userId', user.id);
+            url.searchParams.append('platform', platform);
+            if (teamId) {
+                url.searchParams.append('teamId', teamId);
+            }
+
+            const res = await fetch(url.toString());
+            const data = await res.json();
+
+            if (platform === 'slack') setSlackStatus({ ...data, loading: false });
+            if (platform === 'asana') setAsanaStatus({ ...data, loading: false });
+            if (platform === 'google') setGoogleStatus({ ...data, loading: false });
+            if (platform === 'github') setGithubStatus({ ...data, loading: false });
+        } catch (error) {
+            console.error(`Failed to check ${platform} status:`, error);
+            const fallback = { connected: false, loading: false };
+            if (platform === 'slack') setSlackStatus(fallback);
+            if (platform === 'asana') setAsanaStatus(fallback);
+            if (platform === 'google') setGoogleStatus(fallback);
+            if (platform === 'github') setGithubStatus(fallback);
+        }
+    }
 
     useEffect(() => {
         if (user) {
@@ -75,37 +105,12 @@ export default function Integrations() {
         }
     }, []);
 
-    const checkStatus = async (platform) => {
-        if (!user) return;
-        try {
-            const teamId = profile?.current_team_id;
-            const url = new URL(`${API_URL}/api/auth/status`);
-            url.searchParams.append('userId', user.id);
-            url.searchParams.append('platform', platform);
-            if (teamId) {
-                url.searchParams.append('teamId', teamId);
-            }
-
-            const res = await fetch(url.toString());
-            const data = await res.json();
-
-            if (platform === 'slack') setSlackStatus({ ...data, loading: false });
-            if (platform === 'asana') setAsanaStatus({ ...data, loading: false });
-            if (platform === 'google') setGoogleStatus({ ...data, loading: false });
-            if (platform === 'github') setGithubStatus({ ...data, loading: false });
-        } catch (error) {
-            console.error(`Failed to check ${platform} status:`, error);
-            const fallback = { connected: false, loading: false };
-            if (platform === 'slack') setSlackStatus(fallback);
-            if (platform === 'asana') setAsanaStatus(fallback);
-            if (platform === 'google') setGoogleStatus(fallback);
-            if (platform === 'github') setGithubStatus(fallback);
-        }
-    };
-
-
     const handleConnect = (platform, scope = 'team') => {
         if (!user) return;
+        if (!canManageIntegrations && scope === 'team') {
+            alert('Only team owners and admins can manage integrations.');
+            return;
+        }
         const teamId = profile?.current_team_id;
         const url = new URL(`${API_URL}/api/auth/${platform}/connect`);
         url.searchParams.append('userId', user.id);
@@ -118,7 +123,12 @@ export default function Integrations() {
     };
 
     const handleDisconnect = async (platform) => {
-        if (!user || !confirm(`Disconnect ${platform}?`)) return;
+        if (!user) return;
+        if (!canManageIntegrations) {
+            alert('Only team owners and admins can manage integrations.');
+            return;
+        }
+        if (!confirm(`Disconnect ${platform}?`)) return;
         try {
             const teamId = profile?.current_team_id;
             const url = new URL(`${API_URL}/api/auth/${platform}/disconnect`);
@@ -172,6 +182,11 @@ export default function Integrations() {
                     <p className="text-base md:text-lg text-gray-600 mb-6 md:mb-8">
                         Connect your tools to unlock AI-powered insights
                     </p>
+                    {!canManageIntegrations && (
+                        <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
+                            Integrations are read-only for members. Team owners/admins can connect or disconnect tools.
+                        </div>
+                    )}
 
                     <div className="space-y-6">
                         <IntegrationCard
@@ -181,6 +196,7 @@ export default function Integrations() {
                             status={slackStatus}
                             onConnect={() => handleConnect('slack')}
                             onDisconnect={() => handleDisconnect('slack')}
+                            canManage={canManageIntegrations}
                             features={[
                                 'AI-powered channel summaries',
                                 'Automatic blocker detection',
@@ -196,6 +212,7 @@ export default function Integrations() {
                             status={asanaStatus}
                             onConnect={() => handleConnect('asana')}
                             onDisconnect={() => handleDisconnect('asana')}
+                            canManage={canManageIntegrations}
                             features={[
                                 'Project health monitoring',
                                 'Task tracking & analysis',
@@ -211,6 +228,7 @@ export default function Integrations() {
                             status={githubStatus}
                             onConnect={() => handleConnect('github')}
                             onDisconnect={() => handleDisconnect('github')}
+                            canManage={canManageIntegrations}
                             features={[
                                 'PR review tracking',
                                 'Commit analysis',
@@ -226,6 +244,7 @@ export default function Integrations() {
                             status={googleStatus}
                             onConnect={() => handleConnect('google')}
                             onDisconnect={() => handleDisconnect('google')}
+                            canManage={canManageIntegrations}
                             features={[
                                 'Meeting summaries',
                                 'Action item extraction',
@@ -240,7 +259,7 @@ export default function Integrations() {
     );
 }
 
-function IntegrationCard({ name, description, icon, status, onConnect, onDisconnect, features }) {
+function IntegrationCard({ name, description, icon, status, onConnect, onDisconnect, features, canManage }) {
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6 hover:shadow-md transition">
             <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-4">
@@ -265,21 +284,33 @@ function IntegrationCard({ name, description, icon, status, onConnect, onDisconn
                                 <CheckCircle size={20} />
                                 <span className="text-sm font-medium">Connected</span>
                             </div>
-                            <button
-                                onClick={onDisconnect}
-                                className="px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition text-sm font-medium"
-                            >
-                                Disconnect
-                            </button>
+                            {canManage ? (
+                                <button
+                                    onClick={onDisconnect}
+                                    className="px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition text-sm font-medium"
+                                >
+                                    Disconnect
+                                </button>
+                            ) : (
+                                <span className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium">
+                                    Read-only
+                                </span>
+                            )}
                         </>
                     ) : (
-                        <button
-                            onClick={onConnect}
-                            className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition flex items-center gap-2"
-                        >
-                            Connect {name}
-                            <ExternalLink size={16} />
-                        </button>
+                        canManage ? (
+                            <button
+                                onClick={onConnect}
+                                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition flex items-center gap-2"
+                            >
+                                Connect {name}
+                                <ExternalLink size={16} />
+                            </button>
+                        ) : (
+                            <span className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium">
+                                Read-only
+                            </span>
+                        )
                     )}
                 </div>
             </div>

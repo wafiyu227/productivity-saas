@@ -70,6 +70,8 @@ export default function Blockers() {
     const [sourceFilter, setSourceFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [resolving, setResolving] = useState(null);
+    const currentMembership = profile?.teams?.find((membership) => membership.team_id === profile?.current_team_id);
+    const canManageBlockers = !profile?.current_team_id || ['owner', 'admin'].includes(currentMembership?.role);
 
     useEffect(() => {
         if (user && profile) {
@@ -115,6 +117,7 @@ export default function Blockers() {
     };
 
     const resolveBlocker = async (blockerId) => {
+        if (!canManageBlockers) return;
         const blocker = blockers.find((item) => item.id === blockerId);
         if (!blocker || blocker.sourceType !== 'slack') return;
 
@@ -185,6 +188,11 @@ export default function Blockers() {
                         <p className="text-base md:text-lg text-gray-600">
                             Track and resolve blockers across Slack, Asana, GitHub, and Calendar
                         </p>
+                        {!canManageBlockers && (
+                            <p className="mt-3 text-sm text-gray-600">
+                                Resolution controls are read-only for members.
+                            </p>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
@@ -326,6 +334,7 @@ export default function Blockers() {
                                     blocker={blocker}
                                     onResolve={resolveBlocker}
                                     isResolving={resolving === blocker.id}
+                                    canResolve={canManageBlockers}
                                 />
                             ))}
                         </div>
@@ -336,7 +345,7 @@ export default function Blockers() {
     );
 }
 
-function BlockerCard({ blocker, onResolve, isResolving }) {
+function BlockerCard({ blocker, onResolve, isResolving, canResolve }) {
     const priorityColors = {
         high: 'border-red-500 bg-red-50',
         medium: 'border-yellow-500 bg-yellow-50',
@@ -391,7 +400,7 @@ function BlockerCard({ blocker, onResolve, isResolving }) {
                         </div>
                     </div>
                 </div>
-                {blocker.status === 'active' && blocker.sourceType === 'slack' && (
+                {canResolve && blocker.status === 'active' && blocker.sourceType === 'slack' && (
                     <button
                         onClick={() => onResolve(blocker.id)}
                         disabled={isResolving}
