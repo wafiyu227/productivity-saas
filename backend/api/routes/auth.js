@@ -1,6 +1,7 @@
 import express from 'express';
 import { WebClient } from '@slack/web-api';
 import { db } from '../services/supabase-client.js';
+import googleCalendarService from '../services/google-calendar-service.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -20,6 +21,79 @@ const ASANA_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/asana/oauth/cal
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.API_BASE_URL + '/api/auth/google/oauth/callback';
+
+function buildGoogleTokenUpdate(integration, newTokens) {
+    const expiresAt = typeof newTokens.expiresIn === 'number'
+        ? new Date(Date.now() + newTokens.expiresIn * 1000).toISOString()
+        : integration.expires_at;
+
+    return {
+        accessToken: newTokens.accessToken,
+        refreshToken: newTokens.refreshToken ?? integration.refresh_token,
+        expiresAt,
+        workspaceId: integration.workspace_id,
+        workspaceName: integration.workspace_name,
+        teamIdExternal: integration.team_id_external,
+        teamName: integration.team_name,
+        teamId: integration.team_id
+    };
+}
+
+async function validateGoogleStatus(userId, teamId, integration) {
+    if (!integration) {
+        return { integration: null, needsReauth: false };
+    }
+
+    const deleteTeamId = integration.scope === 'team'
+        ? (integration.team_id || teamId || null)
+        : null;
+
+    try {
+        // Verify the existing access token still works.
+        await googleCalendarService.getUpcomingEvents(integration.access_token, 1);
+        return { integration, needsReauth: false };
+    } catch (error) {
+        if (error.message !== 'Unauthorized' && error.status !== 401) {
+            logger.warn('Google status verification failed (non-auth error)', {
+                userId,
+                teamId,
+                error: error.message
+            });
+            return { integration, needsReauth: false };
+        }
+    }
+
+    if (!integration.refresh_token) {
+        await db.deleteIntegration(userId, 'google_calendar', deleteTeamId);
+        return { integration: null, needsReauth: true };
+    }
+
+    try {
+        const newTokens = await googleCalendarService.refreshAccessToken(integration.refresh_token);
+        await db.saveIntegration(
+            userId,
+            'google_calendar',
+            buildGoogleTokenUpdate(integration, newTokens),
+            integration.scope || 'team'
+        );
+
+        return { integration, needsReauth: false };
+    } catch (refreshError) {
+        const isInvalidGrant = refreshError?.code === 'invalid_grant';
+        if (isInvalidGrant) {
+            await db.deleteIntegration(userId, 'google_calendar', deleteTeamId);
+            return { integration: null, needsReauth: true };
+        }
+
+        logger.warn('Google token refresh failed during status check', {
+            userId,
+            teamId,
+            error: refreshError.message
+        });
+
+        return { integration, needsReauth: false };
+    }
+}
 
 // Initiate OAuth flow
 router.get('/slack/connect', (req, res) => {
@@ -133,12 +207,20 @@ router.get('/status', async (req, res) => {
 
     try {
         const dbPlatform = platform === 'google' || platform === 'google/calendar' ? 'google_calendar' : platform;
-        const integration = await db.getIntegration(userId, dbPlatform, teamId);
+        let integration = await db.getIntegration(userId, dbPlatform, teamId);
+        let needsReauth = false;
+
+        if (dbPlatform === 'google_calendar' && integration) {
+            const validation = await validateGoogleStatus(userId, teamId, integration);
+            integration = validation.integration;
+            needsReauth = validation.needsReauth;
+        }
 
         res.json({
             connected: !!integration,
             platform: platform,
-            workspace: integration?.workspace_name || integration?.team_name || null
+            workspace: integration?.workspace_name || integration?.team_name || null,
+            needsReauth
         });
     } catch (error) {
         logger.error(`Status check error for ${platform}:`, error);
