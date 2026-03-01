@@ -171,6 +171,7 @@ const Team = () => {
     };
 
     const canManageTeam = memberRole === 'owner' || memberRole === 'admin';
+    const canManageBilling = canManageTeam;
 
     const handleInvite = async (e) => {
         e.preventDefault();
@@ -300,6 +301,7 @@ const Team = () => {
     };
 
     const handleUpgrade = async (planName) => {
+        if (!team || !canManageBilling) return;
         setIsBillingLoading(true);
         try {
             // Note: Users should provide these in their .env
@@ -339,12 +341,16 @@ const Team = () => {
     };
 
     const handleManageSubscription = async () => {
+        if (!team || !canManageBilling) return;
         setIsBillingLoading(true);
         try {
             const res = await fetch(`${import.meta.env.VITE_API_URL}/api/paystack/manage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ teamId: team.id })
+                body: JSON.stringify({
+                    teamId: team.id,
+                    userId: user.id
+                })
             });
             const data = await res.json();
             if (res.ok && data.manageUrl) {
@@ -496,37 +502,43 @@ const Team = () => {
                                 <span className="text-gray-500"> (includes pending invites)</span>
                             </div>
 
-                            <div className="flex gap-3 mt-8">
-                                {(currentPlan === 'free' || currentPlan === 'starter') && (
-                                    <>
-                                        {currentPlan === 'free' && (
+                            {canManageBilling ? (
+                                <div className="flex gap-3 mt-8">
+                                    {(currentPlan === 'free' || currentPlan === 'starter') && (
+                                        <>
+                                            {currentPlan === 'free' && (
+                                                <button
+                                                    onClick={() => handleUpgrade('starter')}
+                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
+                                                    disabled={isBillingLoading}
+                                                >
+                                                    {isBillingLoading ? 'Loading...' : 'Upgrade to Starter'}
+                                                </button>
+                                            )}
                                             <button
-                                                onClick={() => handleUpgrade('starter')}
-                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
+                                                onClick={() => handleUpgrade('growth')}
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
                                                 disabled={isBillingLoading}
                                             >
-                                                {isBillingLoading ? 'Loading...' : 'Upgrade to Starter'}
+                                                {isBillingLoading ? 'Loading...' : 'Upgrade to Growth'}
                                             </button>
-                                        )}
+                                        </>
+                                    )}
+                                    {currentPlan !== 'free' && (
                                         <button
-                                            onClick={() => handleUpgrade('growth')}
-                                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
+                                            onClick={handleManageSubscription}
+                                            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
                                             disabled={isBillingLoading}
                                         >
-                                            {isBillingLoading ? 'Loading...' : 'Upgrade to Growth'}
+                                            {isBillingLoading ? 'Loading...' : 'Manage Subscription'}
                                         </button>
-                                    </>
-                                )}
-                                {currentPlan !== 'free' && (
-                                    <button
-                                        onClick={handleManageSubscription}
-                                        className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm transition disabled:opacity-50"
-                                        disabled={isBillingLoading}
-                                    >
-                                        {isBillingLoading ? 'Loading...' : 'Manage Subscription'}
-                                    </button>
-                                )}
-                            </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <p className="mt-8 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
+                                    Subscription changes are restricted to team owners and admins.
+                                </p>
+                            )}
                         </div>
                     </div>
 

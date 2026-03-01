@@ -38,7 +38,7 @@ export default function Landing() {
                                 Sign In
                             </Link>
                             <Link
-                                to="/signup"
+                                to="/signup?plan=free"
                                 className="px-4 md:px-6 py-2 md:py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm md:text-base rounded-lg hover:shadow-lg hover:scale-105 transition-all"
                             >
                                 Get Started Free
@@ -88,7 +88,7 @@ export default function Landing() {
                         </p>
                         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
                             <Link
-                                to="/signup"
+                                to="/signup?plan=free"
                                 className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-lg rounded-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
                             >
                                 Get Started
@@ -230,6 +230,7 @@ export default function Landing() {
                     <div className="grid md:grid-cols-3 gap-6 md:gap-8">
                         <PricingCard
                             name="Free"
+                            plan="free"
                             price="$0"
                             description="Try the full platform, no card needed"
                             features={[
@@ -246,6 +247,7 @@ export default function Landing() {
                         />
                         <PricingCard
                             name="Starter"
+                            plan="starter"
                             price="$19"
                             description="For teams that rely on it daily"
                             features={[
@@ -263,6 +265,7 @@ export default function Landing() {
                         />
                         <PricingCard
                             name="Growth"
+                            plan="growth"
                             price="$49"
                             description="For scaling teams that need more"
                             features={[
@@ -300,7 +303,7 @@ export default function Landing() {
                         Start with the free plan and upgrade when your team grows.
                     </p>
                     <Link
-                        to="/signup"
+                        to="/signup?plan=free"
                         className="inline-flex items-center gap-2 px-8 py-4 bg-white text-blue-600 text-lg font-semibold rounded-lg hover:shadow-2xl hover:scale-105 transition-all"
                     >
                         Get Started
@@ -390,7 +393,7 @@ function Step({ number, title, description }) {
     );
 }
 
-function PricingCard({ name, price, description, features, cta, highlighted }) {
+function PricingCard({ name, plan = 'free', price, description, features, cta, highlighted }) {
     return (
         <div className={`bg-white p-5 md:p-8 rounded-2xl border-2 ${highlighted
             ? 'border-blue-600 shadow-2xl md:scale-105'
@@ -416,7 +419,7 @@ function PricingCard({ name, price, description, features, cta, highlighted }) {
                 ))}
             </ul>
             <Link
-                to="/signup"
+                to={`/signup?plan=${encodeURIComponent(plan)}`}
                 className={`block w-full py-3 text-center rounded-lg font-semibold transition-all ${highlighted
                     ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-xl hover:scale-105'
                     : 'bg-gray-100 text-gray-900 hover:bg-gray-200'

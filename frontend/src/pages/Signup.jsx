@@ -2,9 +2,14 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+const VALID_PLANS = new Set(['free', 'starter', 'growth']);
+
 export default function Signup() {
     const [searchParams] = useSearchParams();
-    const redirect = searchParams.get('redirect');
+    const requestedPlan = (searchParams.get('plan') || '').toLowerCase();
+    const selectedPlan = VALID_PLANS.has(requestedPlan)
+        ? requestedPlan
+        : 'free';
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -23,7 +28,7 @@ export default function Signup() {
             if (error) throw error;
 
             // Redirect to team setup onboarding
-            navigate('/onboarding/team-setup');
+            navigate(`/onboarding/team-setup?plan=${encodeURIComponent(selectedPlan)}`);
         } catch (err) {
             setError(err.message);
         } finally {
@@ -37,6 +42,9 @@ export default function Signup() {
                 <h2 className="text-3xl font-bold text-center text-gray-900 mb-8">
                     Create Account
                 </h2>
+                <p className="text-center text-sm text-gray-600 mb-6">
+                    Selected plan: <span className="font-semibold capitalize">{selectedPlan}</span>
+                </p>
 
                 {error && (
                     <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg">

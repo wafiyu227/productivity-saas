@@ -1,18 +1,57 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL;
+const VALID_PLANS = new Set(['free', 'starter', 'growth']);
 
 export default function TeamSetup() {
     const { user, refreshProfile } = useAuth();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const requestedPlan = (searchParams.get('plan') || '').toLowerCase();
+    const selectedPlan = VALID_PLANS.has(requestedPlan)
+        ? requestedPlan
+        : 'free';
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
         size_range: '',
         description: ''
     });
+
+    const startCheckoutForPlan = async (team) => {
+        const planCode = selectedPlan === 'starter'
+            ? import.meta.env.VITE_PAYSTACK_STARTER_PLAN
+            : import.meta.env.VITE_PAYSTACK_GROWTH_PLAN;
+
+        if (!planCode) {
+            alert(`Plan checkout is not configured for ${selectedPlan}. Continuing with Free for now.`);
+            navigate('/onboarding/connect-tools');
+            return;
+        }
+
+        const callbackPath = `/onboarding/connect-tools?payment=success&plan=${encodeURIComponent(selectedPlan)}`;
+        const billingRes = await fetch(`${API_URL}/api/paystack/initialize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: user.email,
+                plan: planCode,
+                planName: selectedPlan,
+                teamId: team.id,
+                userId: user.id,
+                callbackPath
+            })
+        });
+
+        const billingData = await billingRes.json();
+        if (!billingRes.ok || !billingData.checkoutUrl) {
+            throw new Error(billingData.error || 'Failed to start checkout');
+        }
+
+        window.location.href = billingData.checkoutUrl;
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -38,10 +77,15 @@ export default function TeamSetup() {
             // Refresh profile so AuthContext has the new team data
             await refreshProfile();
 
+            if (selectedPlan === 'starter' || selectedPlan === 'growth') {
+                await startCheckoutForPlan(team);
+                return;
+            }
+
             navigate('/onboarding/connect-tools');
         } catch (error) {
             console.error('Team creation error:', error);
-            alert('Failed to create team. Please try again.');
+            alert(error.message || 'Failed to complete setup. Please try again.');
         } finally {
             setLoading(false);
         }

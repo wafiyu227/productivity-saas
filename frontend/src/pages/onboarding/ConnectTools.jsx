@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { CheckCircle, Loader, ExternalLink } from 'lucide-react';
 
@@ -8,6 +8,7 @@ const API_URL = import.meta.env.VITE_API_URL;
 export default function ConnectTools() {
     const { user, profile } = useAuth();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [statuses, setStatuses] = useState({
         slack: { connected: false, loading: true },
         asana: { connected: false, loading: true },
@@ -15,6 +16,48 @@ export default function ConnectTools() {
     });
 
     const teamId = profile?.current_team_id || sessionStorage.getItem('onboarding_team_id');
+
+    const clearPaymentQueryParams = () => {
+        const url = new URL(window.location.href);
+        ['payment', 'reference', 'trxref', 'plan'].forEach((param) => {
+            url.searchParams.delete(param);
+        });
+        window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    };
+
+    useEffect(() => {
+        if (searchParams.get('payment') !== 'success') return;
+        const reference = searchParams.get('reference') || searchParams.get('trxref');
+        if (!reference) {
+            alert('Payment succeeded, but no transaction reference was returned. Please refresh in a few seconds.');
+            clearPaymentQueryParams();
+            return;
+        }
+
+        const verifyPaymentFromRedirect = async () => {
+            try {
+                const res = await fetch(`${API_URL}/api/paystack/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reference })
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || 'Failed to verify payment');
+                }
+
+                alert('Your subscription was updated successfully!');
+            } catch (error) {
+                console.error('Payment verification error:', error);
+                alert(`Payment succeeded, but plan update is still processing: ${error.message}`);
+            } finally {
+                clearPaymentQueryParams();
+            }
+        };
+
+        verifyPaymentFromRedirect();
+    }, [searchParams]);
 
     useEffect(() => {
         if (user && teamId) {

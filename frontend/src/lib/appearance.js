@@ -23,7 +23,8 @@ export function applyAppearancePreference(appearance) {
     const resolved = resolveAppearance(appearance);
     const root = document.documentElement;
     root.setAttribute('data-appearance', resolved);
-    root.style.colorScheme = resolved;
+    // Keep browser-native form controls in light mode for consistent input styling.
+    root.style.colorScheme = 'light';
 }
 
 export function saveAppearancePreference(appearance) {
