@@ -2,8 +2,30 @@ import express from 'express';
 import logger from '../utils/logger.js';
 import paystackService from '../services/paystack-service.js';
 import { db } from '../services/supabase-client.js';
+import { requireTeamAdmin } from '../utils/team-permissions.js';
 
 const router = express.Router();
+
+const DEFAULT_CALLBACK_PATH = '/app/team?payment=success';
+
+const resolveCheckoutCallbackUrl = (callbackPath) => {
+    const frontendBase = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+
+    if (typeof callbackPath !== 'string' || !callbackPath.startsWith('/')) {
+        return `${frontendBase}${DEFAULT_CALLBACK_PATH}`;
+    }
+
+    try {
+        const fullUrl = new URL(callbackPath, frontendBase);
+        const frontendOrigin = new URL(frontendBase).origin;
+        if (fullUrl.origin !== frontendOrigin) {
+            return `${frontendBase}${DEFAULT_CALLBACK_PATH}`;
+        }
+        return fullUrl.toString();
+    } catch {
+        return `${frontendBase}${DEFAULT_CALLBACK_PATH}`;
+    }
+};
 
 const normalizeMetadata = (metadataCandidate) => {
     if (!metadataCandidate) return {};
@@ -146,18 +168,20 @@ const backfillSubscriptionCodeFromCustomer = async (teamId, customerCode, curren
  */
 router.post('/initialize', async (req, res) => {
     try {
-        const { email, plan, planName, teamId, userId } = req.body;
+        const { email, plan, planName, teamId, userId, callbackPath } = req.body;
 
         if (!email || !plan || !teamId || !userId) {
             return res.status(400).json({ error: 'Missing required parameters' });
         }
+
+        await requireTeamAdmin(teamId, userId);
 
         const normalizedPlanName = ['starter', 'growth'].includes(String(planName || '').toLowerCase())
             ? String(planName).toLowerCase()
             : undefined;
 
         // Frontend URL where user returns after payment
-        const callback_url = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/app/team?payment=success`;
+        const callback_url = resolveCheckoutCallbackUrl(callbackPath);
 
         const metadata = {
             teamId,
@@ -188,11 +212,13 @@ router.post('/initialize', async (req, res) => {
  */
 router.post('/manage', async (req, res) => {
     try {
-        const { teamId } = req.body;
+        const { teamId, userId } = req.body;
 
-        if (!teamId) {
-            return res.status(400).json({ error: 'teamId required' });
+        if (!teamId || !userId) {
+            return res.status(400).json({ error: 'teamId and userId required' });
         }
+
+        await requireTeamAdmin(teamId, userId);
 
         const { data: team } = await db.supabase
             .from('teams')
