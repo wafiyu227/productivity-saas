@@ -44,7 +44,7 @@ const About = () => {
                             We're building the future of team productivity
                         </h1>
                         <p className="text-xl text-purple-100 leading-relaxed">
-                            Teama AI helps teams cut through the noise with AI-powered insights from Slack, Asana, and more.
+                            Teama AI helps teams cut through the noise with AI-powered insights from Slack, one project platform (Jira/Asana/Trello), and more.
                             No more endless meetings or lost context—just clarity and focus.
                         </p>
                     </div>

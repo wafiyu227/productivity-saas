@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 
 export default function Meetings() {
     const { user, profile } = useAuth();
@@ -190,7 +190,7 @@ export default function Meetings() {
                         <div className="lg:col-span-2">
                             <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
                                 <Calendar className="w-6 h-6 text-blue-600" />
-                                Upcoming Meetings
+                                Upcoming Events
                             </h2>
 
                             {loading && !calendarEvents.length ? (

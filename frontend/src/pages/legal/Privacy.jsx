@@ -16,7 +16,7 @@ const Privacy = () => {
                 },
                 {
                     subtitle: "Workspace Data",
-                    text: "We collect data from the integrations you connect (Slack, Asana, Google Calendar) to provide AI-powered insights. This includes messages, tasks, projects, and calendar events as authorized by you."
+                    text: "We collect data from the integrations you connect (Slack, one project platform such as Jira/Asana/Trello, and Google Calendar) to provide AI-powered insights. This includes messages, tasks, projects, and calendar events as authorized by you."
                 },
                 {
                     subtitle: "Usage Information",
@@ -47,6 +47,33 @@ const Privacy = () => {
                 {
                     subtitle: "AI Training",
                     text: "Your workspace data is NEVER used to train our AI models. We use only anonymized, aggregated usage patterns for product improvements. Your team's conversations, tasks, and documents remain private to your organization."
+                }
+            ]
+        },
+        {
+            id: "third-party-integrations",
+            title: "Third-Party Integrations & OAuth Scopes",
+            icon: <Eye className="w-6 h-6" />,
+            content: [
+                {
+                    subtitle: "Google Calendar Integration",
+                    text: "When you connect Google Calendar to Teama AI, we request the following OAuth scopes to provide our services:"
+                },
+                {
+                    subtitle: "Google Calendar Read Access (calendar.readonly)",
+                    text: "We access your calendar events to: (1) Generate AI-powered meeting summaries and action items; (2) Identify scheduling conflicts and resource constraints impacting team productivity; (3) Provide insights on team availability and workload distribution; (4) Send you daily productivity reports and recommendations. We never modify your calendar or share event details with third parties."
+                },
+                {
+                    subtitle: "How Your Calendar Data Is Protected",
+                    text: "Calendar data is encrypted in transit and at rest. It is stored securely in our databases and accessed only when generating insights. You can revoke access at any time through your Google Account settings, and we will immediately stop accessing new events while securely deleting stored calendar data within 30 days."
+                },
+                {
+                    subtitle: "Other Integrations",
+                    text: "Similar protections apply to other integrations you authorize (Slack, Jira, Asana, Trello, GitHub, Paystack, etc.). We request only the minimum permissions necessary to provide our services and maintain the same security standards across all integrations."
+                },
+                {
+                    subtitle: "No Data Resale or Secondary Use",
+                    text: "Your integrated data from any third-party service is never sold, shared with advertisers, or used for purposes other than providing Teama AI services."
                 }
             ]
         },
@@ -182,6 +209,7 @@ const Privacy = () => {
     const quickLinks = [
         { label: "Information We Collect", href: "#information-we-collect" },
         { label: "How We Use Information", href: "#how-we-use-information" },
+        { label: "Third-Party Integrations", href: "#third-party-integrations" },
         { label: "Data Sharing", href: "#data-sharing" },
         { label: "Data Security", href: "#data-security" },
         { label: "Your Rights", href: "#your-rights" },

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AppShell from './layouts/AppShell';
 import Landing from './pages/Landing';
@@ -21,8 +21,8 @@ import InviteTeam from './pages/onboarding/InviteTeam';
 import OnboardingComplete from './pages/onboarding/OnboardingComplete';
 import WelcomeMember from './pages/onboarding/WelcomeMember';
 import JoinTeam from './pages/auth/JoinTeam';
+import AuthCallback from './pages/auth/AuthCallback';
 import About from './pages/company/About';
-import Blog from './pages/company/Blog';
 import Contact from './pages/company/Contact';
 import Privacy from './pages/legal/Privacy';
 import Terms from './pages/legal/Terms';
@@ -31,8 +31,42 @@ import DemoWorkspace from './pages/DemoWorkspace';
 import Waitlist from './pages/Waitlist';
 
 function ProtectedRoute({ children }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  
+  // ✅ FIX: Wait for auth state to load before checking user
+  // This prevents premature redirect to /login during OAuth callback processing
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
   return user ? children : <Navigate to="/login" />;
+}
+
+function LandingRoute() {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+
+  const hasOAuthParams = searchParams.has('code')
+    || searchParams.has('error')
+    || searchParams.has('error_description')
+    || hashParams.has('access_token')
+    || hashParams.has('refresh_token')
+    || hashParams.has('error')
+    || hashParams.has('error_description');
+
+  if (hasOAuthParams) {
+    return <Navigate to={`/auth/callback${location.search}${location.hash}`} replace />;
+  }
+
+  return <Landing />;
 }
 
 function App() {
@@ -40,9 +74,8 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/" element={<Landing />} />
+          <Route path="/" element={<LandingRoute />} />
           <Route path="/about" element={<About />} />
-          <Route path="/blog" element={<Blog />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
@@ -50,6 +83,7 @@ function App() {
           <Route path="/demo" element={<DemoWorkspace />} />
           <Route path="/waitlist" element={<Waitlist />} />
           <Route path="/join" element={<JoinTeam />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/onboarding" element={<Navigate to="/onboarding/team-setup" replace />} />

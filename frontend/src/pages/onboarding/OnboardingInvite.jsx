@@ -100,7 +100,7 @@ const OnboardingInvite = () => {
 
             <div className="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-100">
                 <p className="text-sm text-blue-800">
-                    <strong>Pro Tip:</strong> You can connect your team's Slack, Asana, and Calendar tools later in the <strong>Integrations</strong> page once you're in the dashboard.
+                    <strong>Pro Tip:</strong> You can connect your team's Slack, one project platform (Jira/Asana/Trello), and Calendar tools later in the <strong>Integrations</strong> page once you're in the dashboard.
                 </p>
             </div>
 

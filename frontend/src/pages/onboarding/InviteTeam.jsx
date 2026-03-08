@@ -3,36 +3,122 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { X, Loader, CheckCircle, AlertCircle } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 export default function InviteTeam() {
     const { user, profile } = useAuth();
     const navigate = useNavigate();
-    const [emailsText, setEmailsText] = useState('');
+    const [emails, setEmails] = useState([]);
+    const [emailInput, setEmailInput] = useState('');
+    const [invalidEntries, setInvalidEntries] = useState([]);
     const [loading, setLoading] = useState(false);
     const [invitations, setInvitations] = useState([]);
+    const [resentInvitations, setResentInvitations] = useState([]);
     const [errors, setErrors] = useState([]);
 
     const teamId = profile?.current_team_id || sessionStorage.getItem('onboarding_team_id');
 
-    const parseEmails = (text) => {
-        return text
-            .split(/[\\n,;]+/)
-            .map(email => email.trim())
-            .filter(email => email && email.includes('@'));
+    const parseEntries = (text) => (
+        String(text || '')
+            .split(/[\n,;]+/)
+            .map((value) => value.trim())
+            .filter(Boolean)
+    );
+
+    const addEmailsFromText = (text) => {
+        const candidates = parseEntries(text);
+        if (candidates.length === 0) return;
+
+        const invalid = [];
+        const valid = [];
+
+        candidates.forEach((entry) => {
+            const normalized = entry.toLowerCase();
+            if (!EMAIL_REGEX.test(normalized)) {
+                invalid.push(entry);
+                return;
+            }
+            valid.push(normalized);
+        });
+
+        setEmails((previous) => {
+            const deduped = new Set(previous);
+            valid.forEach((value) => deduped.add(value));
+            return Array.from(deduped);
+        });
+
+        setInvalidEntries((previous) => Array.from(new Set([...previous, ...invalid])));
+    };
+
+    const removeEmail = (emailToRemove) => {
+        setEmails((previous) => previous.filter((email) => email !== emailToRemove));
+    };
+
+    const handleAddEmail = () => {
+        if (!emailInput.trim()) return;
+        addEmailsFromText(emailInput);
+        setEmailInput('');
+    };
+
+    const handleInputKeyDown = (event) => {
+        if (['Enter', 'Tab', ',', ';'].includes(event.key)) {
+            event.preventDefault();
+            handleAddEmail();
+        }
+    };
+
+    const handleInputPaste = (event) => {
+        const pastedText = event.clipboardData?.getData('text') || '';
+        if (!pastedText) return;
+
+        if (/[\n,;]+/.test(pastedText)) {
+            event.preventDefault();
+            addEmailsFromText(pastedText);
+        }
     };
 
     const handleSendInvitations = async () => {
-        const emails = parseEmails(emailsText);
+        const draftCandidates = parseEntries(emailInput);
+        const draftValid = [];
+        const draftInvalid = [];
 
-        if (emails.length === 0) {
+        draftCandidates.forEach((entry) => {
+            const normalized = entry.toLowerCase();
+            if (EMAIL_REGEX.test(normalized)) {
+                draftValid.push(normalized);
+            } else {
+                draftInvalid.push(entry);
+            }
+        });
+
+        const mergedEmails = Array.from(new Set([...emails, ...draftValid]));
+
+        if (draftInvalid.length > 0) {
+            setInvalidEntries((previous) => Array.from(new Set([...previous, ...draftInvalid])));
+        }
+
+        if (mergedEmails.length === 0) {
             alert('Please enter at least one email address');
+            return;
+        }
+        if (!user?.id) {
+            alert('You need to be logged in to send invitations.');
+            return;
+        }
+        if (!teamId) {
+            alert('No active team found. Complete team setup first.');
             return;
         }
 
         setLoading(true);
         setInvitations([]);
+        setResentInvitations([]);
         setErrors([]);
+        setEmailInput('');
+        if (draftValid.length > 0) {
+            setEmails(mergedEmails);
+        }
 
         try {
             const res = await fetch(`${API_URL}/api/invitations`, {
@@ -40,29 +126,36 @@ export default function InviteTeam() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     teamId,
-                    emails,
+                    emails: mergedEmails,
                     invitedBy: user.id,
                     role: 'member'
                 })
             });
 
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to send invitations');
+            }
 
             if (data.invitations) {
                 setInvitations(data.invitations);
+            }
+            if (data.resent) {
+                setResentInvitations(data.resent);
             }
 
             if (data.errors) {
                 setErrors(data.errors);
             }
 
-            // Clear input if successful
+            // Clear input if at least one invitation was created.
             if (data.invitations && data.invitations.length > 0) {
-                setEmailsText('');
+                setEmails([]);
+                setInvalidEntries([]);
             }
         } catch (error) {
             console.error('Failed to send invitations:', error);
-            alert('Failed to send invitations. Please try again.');
+            alert(error.message || 'Failed to send invitations. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -85,24 +178,66 @@ export default function InviteTeam() {
                     {/* Email Input */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Email addresses (one per line)
+                            Email addresses
                         </label>
-                        <textarea
-                            value={emailsText}
-                            onChange={(e) => setEmailsText(e.target.value)}
-                            placeholder="sarah@company.com\\nmike@company.com\\nlisa@company.com"
-                            rows={6}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm"
-                        />
+                        <div className="w-full border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-purple-500 focus-within:border-transparent px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                                {emails.map((email) => (
+                                    <span
+                                        key={email}
+                                        className="inline-flex items-center gap-1 rounded-full bg-purple-100 text-purple-800 text-xs px-2.5 py-1"
+                                    >
+                                        {email}
+                                        <button
+                                            type="button"
+                                            onClick={() => removeEmail(email)}
+                                            className="text-purple-700 hover:text-purple-900"
+                                            aria-label={`Remove ${email}`}
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </span>
+                                ))}
+                                <input
+                                    type="text"
+                                    value={emailInput}
+                                    onChange={(event) => setEmailInput(event.target.value)}
+                                    onKeyDown={handleInputKeyDown}
+                                    onPaste={handleInputPaste}
+                                    placeholder={emails.length === 0 ? 'Type email and press Enter' : 'Add another email'}
+                                    className="flex-1 min-w-[220px] py-1 outline-none text-sm"
+                                />
+                            </div>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs text-gray-500">
+                                    Press Enter, comma, or semicolon. You can also paste multiple emails.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={handleAddEmail}
+                                    className="px-3 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700"
+                                >
+                                    Add
+                                </button>
+                            </div>
+                        </div>
                         <p className="text-xs text-gray-500 mt-2">
-                            You can also paste emails separated by commas or semicolons
+                            {emails.length} valid email{emails.length === 1 ? '' : 's'} ready to invite
                         </p>
+                        {invalidEntries.length > 0 && (
+                            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                <p className="text-xs font-medium text-amber-800 mb-1">Ignored invalid entries:</p>
+                                <p className="text-xs text-amber-700 break-words">
+                                    {invalidEntries.join(', ')}
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Send Button */}
                     <button
                         onClick={handleSendInvitations}
-                        disabled={loading || !emailsText.trim()}
+                        disabled={loading || emails.length === 0}
                         className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {loading ? (
@@ -125,6 +260,19 @@ export default function InviteTeam() {
                             <ul className="text-sm text-green-700 space-y-1">
                                 {invitations.map((inv, i) => (
                                     <li key={i}>✓ {inv.email}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                    {resentInvitations.length > 0 && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div className="flex items-center gap-2 text-blue-800 font-medium mb-2">
+                                <CheckCircle size={20} />
+                                Existing invitations resent
+                            </div>
+                            <ul className="text-sm text-blue-700 space-y-1">
+                                {resentInvitations.map((inv, i) => (
+                                    <li key={i}>• {inv.email}</li>
                                 ))}
                             </ul>
                         </div>

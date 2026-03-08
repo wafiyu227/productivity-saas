@@ -24,7 +24,7 @@ const Terms = () => {
             icon: <FileText className="w-6 h-6" />,
             content: [
                 {
-                    text: "Teama AI provides AI-powered productivity tools that integrate with your existing workplace applications (Slack, Asana, Google Calendar) to deliver insights, summaries, and analytics. The Service includes:",
+                    text: "Teama AI provides AI-powered productivity tools that integrate with your existing workplace applications (Slack, one project platform such as Jira/Asana/Trello, and Google Calendar) to deliver insights, summaries, and analytics. The Service includes:",
                     list: [
                         "AI-generated summaries of Slack conversations",
                         "Project health monitoring and blocker detection",
@@ -216,7 +216,7 @@ const Terms = () => {
             title: "Third-Party Services",
             content: [
                 {
-                    text: "The Service integrates with third-party platforms (Slack, Asana, Google). Use of these integrations is subject to their respective terms of service. We are not responsible for third-party services, their availability, or their data practices."
+                    text: "The Service integrates with third-party platforms (Slack, Jira, Asana, Trello, Google). Use of these integrations is subject to their respective terms of service. We are not responsible for third-party services, their availability, or their data practices."
                 },
                 {
                     text: "You are responsible for maintaining valid credentials and permissions for integrated services. We are not liable for issues arising from third-party service changes or interruptions."

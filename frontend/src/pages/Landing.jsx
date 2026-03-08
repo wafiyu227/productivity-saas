@@ -176,7 +176,7 @@ export default function Landing() {
                         <FeatureCard
                             icon={<Zap className="text-indigo-600" size={32} />}
                             title="Instant Integration"
-                            description="Connect Slack, Asana, and your tools in seconds. No technical setup required."
+                            description="Connect Slack, one project platform (Jira/Asana/Trello), and your tools in seconds. No technical setup required."
                             features={['One-click setup', 'All major tools', 'API access']}
                         />
                     </div>
@@ -215,6 +215,79 @@ export default function Landing() {
                 </div>
             </section>
 
+            {/* Data Transparency Section */}
+            <section className="py-16 md:py-24 px-4 md:px-6 bg-white">
+                <div className="container mx-auto max-w-6xl">
+                    <div className="text-center mb-10 md:mb-16">
+                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
+                            Your data. Your control. Always.
+                        </h2>
+                        <p className="text-lg md:text-xl text-gray-600">
+                            We're transparent about how we use your data
+                        </p>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-8 md:gap-12 mb-12">
+                        <div className="bg-blue-50 p-6 md:p-8 rounded-2xl border border-blue-100">
+                            <h3 className="text-2xl font-bold text-gray-900 mb-4">Why We Request Calendar Access</h3>
+                            <p className="text-gray-700 mb-4">
+                                Teama AI integrates with your Google Calendar to:
+                            </p>
+                            <ul className="space-y-3">
+                                <li className="flex items-start gap-3">
+                                    <CheckCircle size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-gray-700"><strong>Summarize meetings</strong> — Provide AI-generated summaries of video calls and scheduled events</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <CheckCircle size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-gray-700"><strong>Identify blockers</strong> — Detect scheduling conflicts and resource constraints impacting team productivity</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <CheckCircle size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-gray-700"><strong>Boost productivity</strong> — Provide insights on team availability and workload distribution</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div className="bg-purple-50 p-6 md:p-8 rounded-2xl border border-purple-100">
+                            <h3 className="text-2xl font-bold text-gray-900 mb-4">Integrations & Data Usage</h3>
+                            <p className="text-gray-700 mb-4">
+                                We securely connect to your workspace tools:
+                            </p>
+                            <ul className="space-y-3">
+                                <li className="flex items-start gap-3">
+                                    <CheckCircle size={20} className="text-purple-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-gray-700"><strong>Slack</strong> — Summarize channels and identify team discussions</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <CheckCircle size={20} className="text-purple-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-gray-700"><strong>Google Calendar</strong> — Analyze schedules and meeting patterns</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <CheckCircle size={20} className="text-purple-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-gray-700"><strong>Jira, Asana, Trello, GitHub & more</strong> — Track projects and code activity</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 md:p-8 rounded-2xl border border-green-200">
+                        <div className="flex items-start gap-4">
+                            <Shield className="text-green-600 flex-shrink-0 mt-1" size={28} />
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900 mb-3">Privacy & Security Commitment</h3>
+                                <p className="text-gray-700 mb-4">
+                                    Your workspace data is never shared, sold, or used to train AI models. We use bank-level encryption, maintain SOC 2 compliance, and comply with GDPR. You control exactly what data we access and can revoke permissions at any time.
+                                </p>
+                                <Link to="/privacy" className="text-blue-600 hover:text-blue-700 font-medium underline underline-offset-2">
+                                    Read our full Privacy Policy →
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             {/* Pricing */}
             <section id="pricing" className="py-16 md:py-24 px-4 md:px-6 bg-gray-50 scroll-mt-24">
                 <div className="container mx-auto max-w-6xl">
@@ -236,7 +309,7 @@ export default function Landing() {
                             features={[
                                 'Up to 5 team members',
                                 '50 AI summaries per month',
-                                'All integrations (Slack, Asana, Calendar, GitHub)',
+                                'All integrations (Slack, one project platform, Calendar, GitHub)',
                                 'Blocker detection',
                                 '7-day history',
                                 'Basic analytics',
@@ -341,7 +414,6 @@ export default function Landing() {
                             <h4 className="text-white font-semibold mb-4">Company</h4>
                             <ul className="space-y-2 text-sm">
                                 <li><a href="/about" className="hover:text-white transition">About</a></li>
-                                <li><a href="/blog" className="hover:text-white transition">Blog</a></li>
                                 <li><a href="/contact" className="hover:text-white transition">Contact</a></li>
                             </ul>
                         </div>

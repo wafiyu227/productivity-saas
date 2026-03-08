@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -14,11 +14,26 @@ export default function TeamSetup() {
         ? requestedPlan
         : 'free';
     const [loading, setLoading] = useState(false);
+    const [successMessage, setSuccessMessage] = useState('');
     const [formData, setFormData] = useState({
         name: '',
         size_range: '',
         description: ''
     });
+
+    useEffect(() => {
+        // ✅ NEW: Show success message if user just signed up via Google
+        const signupSuccessStr = sessionStorage.getItem('signup_success');
+        if (signupSuccessStr) {
+            try {
+                const signupSuccess = JSON.parse(signupSuccessStr);
+                setSuccessMessage(signupSuccess.message);
+                sessionStorage.removeItem('signup_success');
+            } catch (e) {
+                console.error('Error parsing signup success:', e);
+            }
+        }
+    }, []);
 
     const startCheckoutForPlan = async (team) => {
         const planCode = selectedPlan === 'starter'
@@ -98,6 +113,12 @@ export default function TeamSetup() {
                 <p className="text-gray-600 mb-8">
                     Set up your team workspace to get started with Teama AI.
                 </p>
+
+                {successMessage && (
+                    <div className="mb-6 p-4 bg-green-100 text-green-800 rounded-lg border border-green-300">
+                        <p className="font-medium">✅ {successMessage}</p>
+                    </div>
+                )}
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>

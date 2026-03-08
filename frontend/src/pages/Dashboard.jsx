@@ -7,7 +7,27 @@ import {
     Sparkles, Clock, CheckCircle, ArrowRight, Zap, Activity, Target
 } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
+const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_LABELS = {
+    jira: 'Jira',
+    asana: 'Asana',
+    trello: 'Trello'
+};
+const PROJECT_PLATFORM_EXTRACTORS = {
+    jira: {
+        fetchProjects: (teamId) => api.getJiraProjects(teamId),
+        fetchDeadlines: (teamId) => api.getJiraDeadlines(teamId)
+    },
+    asana: {
+        fetchProjects: (teamId) => api.getAsanaProjects(teamId),
+        fetchDeadlines: (teamId) => api.getAsanaDeadlines(teamId)
+    },
+    trello: {
+        fetchProjects: (teamId) => api.getTrelloProjects(teamId),
+        fetchDeadlines: (teamId) => api.getTrelloDeadlines(teamId)
+    }
+};
 
 export default function Dashboard() {
     const { user, profile } = useAuth();
@@ -19,7 +39,13 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
     const [selectedChannel, setSelectedChannel] = useState('');
     const [refreshing, setRefreshing] = useState(false);
-    const [asanaStats, setAsanaStats] = useState({ projects: 0, overdue: 0 });
+    const [projectStats, setProjectStats] = useState({
+        connected: false,
+        platform: null,
+        projects: 0,
+        atRisk: 0,
+        extractorReady: false
+    });
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -42,9 +68,24 @@ export default function Dashboard() {
             loadSummaries();
             loadActivities();
             loadBlockerStats();
-            loadAsanaStats();
+            loadProjectStats();
         }
     }, [user, profile?.current_team_id]);
+
+    const getActiveProjectPlatform = async (teamId) => {
+        const statuses = await Promise.all(
+            PROJECT_PLATFORM_PRIORITY.map(async (platform) => ({
+                platform,
+                status: await api.getIntegrationStatus(platform, teamId)
+            }))
+        );
+
+        const connected = statuses
+            .filter((entry) => entry.status?.connected)
+            .map((entry) => entry.platform);
+
+        return connected.length > 0 ? connected[0] : null;
+    };
 
     const loadChannels = async () => {
         if (!user) return;
@@ -75,10 +116,15 @@ export default function Dashboard() {
         try {
             const teamId = profile?.current_team_id;
 
-            // Fetch Slack blockers and Asana deadlines in parallel
-            const [slackRes, asanaData] = await Promise.all([
+            const activeProjectPlatform = await getActiveProjectPlatform(teamId);
+            const extractor = PROJECT_PLATFORM_EXTRACTORS[activeProjectPlatform];
+            const projectDeadlinePromise = extractor
+                ? extractor.fetchDeadlines(teamId).catch(() => ({ overdue: { count: 0 }, dueToday: { count: 0 } }))
+                : Promise.resolve({ overdue: { count: 0 }, dueToday: { count: 0 } });
+
+            const [slackRes, projectPlatformDeadlines] = await Promise.all([
                 fetch(`${API_URL}/api/blockers?userId=${user.id}${teamId ? `&teamId=${teamId}` : ''}`).then(r => r.json()).catch(() => []),
-                api.getAsanaDeadlines(teamId).catch(() => ({ overdue: { count: 0 }, dueToday: { count: 0 } }))
+                projectDeadlinePromise
             ]);
 
             const summariesWithBlockers = Array.isArray(slackRes) ? slackRes : [];
@@ -102,10 +148,10 @@ export default function Dashboard() {
                 }
             });
 
-            // Add Asana overdue + due-today as active blockers
-            const asanaActive = (asanaData?.overdue?.count || 0) + (asanaData?.dueToday?.count || 0);
-            activeCount += asanaActive;
-            totalCount += asanaActive;
+            // Add project platform blockers where extractor is available.
+            const projectPlatformActive = (projectPlatformDeadlines?.overdue?.count || 0) + (projectPlatformDeadlines?.dueToday?.count || 0);
+            activeCount += projectPlatformActive;
+            totalCount += projectPlatformActive;
 
             setBlockerStats({
                 active: activeCount,
@@ -117,23 +163,51 @@ export default function Dashboard() {
         }
     };
 
-    const loadAsanaStats = async () => {
+    const loadProjectStats = async () => {
         if (!user) return;
 
         try {
             const teamId = profile?.current_team_id;
+            const activeProjectPlatform = await getActiveProjectPlatform(teamId);
+
+            if (!activeProjectPlatform) {
+                setProjectStats({
+                    connected: false,
+                    platform: null,
+                    projects: 0,
+                    atRisk: 0,
+                    extractorReady: false
+                });
+                return;
+            }
+
+            const extractor = PROJECT_PLATFORM_EXTRACTORS[activeProjectPlatform];
+            if (!extractor) {
+                setProjectStats({
+                    connected: true,
+                    platform: activeProjectPlatform,
+                    projects: 0,
+                    atRisk: 0,
+                    extractorReady: false
+                });
+                return;
+            }
+
             const [projectsData, deadlinesData] = await Promise.all([
-                api.getAsanaProjects(teamId).catch(() => ({ projects: [] })),
-                api.getAsanaDeadlines(teamId).catch(() => ({ totalAtRisk: 0 }))
+                extractor.fetchProjects(teamId).catch(() => ({ projects: [] })),
+                extractor.fetchDeadlines(teamId).catch(() => ({ totalAtRisk: 0 }))
             ]);
 
-            setAsanaStats({
+            setProjectStats({
+                connected: true,
+                platform: activeProjectPlatform,
                 projects: projectsData.projects?.length || 0,
-                overdue: deadlinesData.totalAtRisk || 0
+                atRisk: deadlinesData.totalAtRisk || 0,
+                extractorReady: true
             });
         } catch (error) {
             if (!error.message?.includes('401')) {
-                console.error('Failed to load Asana stats:', error);
+                console.error('Failed to load project platform stats:', error);
             }
         }
     };
@@ -218,7 +292,8 @@ export default function Dashboard() {
         await Promise.all([
             loadSummaries(),
             loadActivities(),
-            loadBlockerStats()
+            loadBlockerStats(),
+            loadProjectStats()
         ]);
         setRefreshing(false);
     };
@@ -276,11 +351,15 @@ export default function Dashboard() {
                             trend="up"
                         />
                         <StatCard
-                            title="Asana Projects"
-                            value={asanaStats.projects}
+                            title={projectStats.platform ? `${PROJECT_PLATFORM_LABELS[projectStats.platform]} Projects` : 'Project Platform'}
+                            value={projectStats.extractorReady ? projectStats.projects : (projectStats.connected ? '—' : 0)}
                             icon={<Target className="text-cyan-600" size={24} />}
-                            change={asanaStats.overdue > 0 ? `${asanaStats.overdue} at risk` : 'All on track'}
-                            trend={asanaStats.overdue > 0 ? "down" : "up"}
+                            change={projectStats.connected
+                                ? (projectStats.extractorReady
+                                    ? (projectStats.atRisk > 0 ? `${projectStats.atRisk} at risk` : 'All on track')
+                                    : 'Extractor not wired yet')
+                                : 'Not connected'}
+                            trend={projectStats.connected && projectStats.extractorReady && projectStats.atRisk > 0 ? "down" : "up"}
                             onClick={() => navigate('/app/projects')}
                         />
                     </div>
@@ -491,7 +570,7 @@ function QuickActionsCard({ navigate }) {
                 <QuickAction
                     icon={<Target size={18} className="text-cyan-600" />}
                     title="View Projects"
-                    description="Check Asana project health"
+                    description="Check project platform health"
                     onClick={() => navigate('/app/projects')}
                 />
                 <QuickAction

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://teama-ai.vercel.app';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 
 // Get current user from Supabase auth
 let currentUser = null;
@@ -131,6 +131,30 @@ export const api = {
         } catch (error) {
             console.error('Fetch summaries error:', error);
             throw error;
+        }
+    },
+
+    async getIntegrationStatus(platform, teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            return { connected: false, platform, error: 'Not authenticated' };
+        }
+
+        try {
+            const url = new URL(`${API_BASE_URL}/api/auth/status`);
+            url.searchParams.append('userId', userId);
+            url.searchParams.append('platform', platform);
+            if (teamId) url.searchParams.append('teamId', teamId);
+
+            const res = await fetch(url.toString());
+            const data = await res.json();
+            if (!res.ok) {
+                return { connected: false, platform, error: data?.error || 'Failed to fetch integration status' };
+            }
+
+            return data;
+        } catch (error) {
+            return { connected: false, platform, error: error.message };
         }
     },
 
@@ -337,6 +361,238 @@ export const api = {
             return data;
         } catch (error) {
             console.error('Fetch Asana tasks error:', error);
+            return { tasks: [], error: error.message };
+        }
+    },
+
+    // ==================== JIRA API ====================
+    async getJiraProjects(teamId = null) {
+        const userId = getUserId();
+
+        if (!userId) {
+            const error = 'Not authenticated - no user ID';
+            console.error(error);
+            return { projects: [], error };
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/jira/projects`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                return { projects: [], error: data.error || 'Failed to fetch Jira projects' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { projects: [], error: error.message };
+        }
+    },
+
+    async getJiraProjectHealth(projectId, teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            throw new Error('Not authenticated - cannot fetch project health');
+        }
+        if (!projectId) {
+            throw new Error('Project ID is required');
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/jira/projects/${projectId}/health`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Failed to fetch Jira project health');
+        }
+        return await res.json();
+    },
+
+    async getJiraWorkload(teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            return { workload: [], error: 'Not authenticated - no user ID' };
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/jira/workload`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                return { workload: [], error: data.error || 'Failed to fetch Jira workload' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { workload: [], error: error.message };
+        }
+    },
+
+    async getJiraDeadlines(teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            return { error: 'Not authenticated - no user ID' };
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/jira/deadlines`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                return { error: data.error || 'Failed to fetch Jira deadlines' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { error: error.message };
+        }
+    },
+
+    async getJiraTasks(filters = {}, teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            return { tasks: [], error: 'Not authenticated - no user ID' };
+        }
+
+        const params = new URLSearchParams({ userId });
+        if (teamId) params.append('teamId', teamId);
+        if (filters.status) params.append('status', filters.status);
+        if (filters.projectId) params.append('projectId', filters.projectId);
+
+        const url = `${API_BASE_URL}/api/jira/tasks?${params}`;
+
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const data = await res.json();
+                return { tasks: [], error: data.error || 'Failed to fetch Jira tasks' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { tasks: [], error: error.message };
+        }
+    },
+
+    // ==================== TRELLO API ====================
+    async getTrelloProjects(teamId = null) {
+        const userId = getUserId();
+
+        if (!userId) {
+            const error = 'Not authenticated - no user ID';
+            console.error(error);
+            return { projects: [], error };
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/trello/projects`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                return { projects: [], error: data.error || 'Failed to fetch Trello projects' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { projects: [], error: error.message };
+        }
+    },
+
+    async getTrelloProjectHealth(projectId, teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            throw new Error('Not authenticated - cannot fetch project health');
+        }
+        if (!projectId) {
+            throw new Error('Project ID is required');
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/trello/projects/${projectId}/health`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Failed to fetch Trello project health');
+        }
+        return await res.json();
+    },
+
+    async getTrelloWorkload(teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            return { workload: [], error: 'Not authenticated - no user ID' };
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/trello/workload`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                return { workload: [], error: data.error || 'Failed to fetch Trello workload' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { workload: [], error: error.message };
+        }
+    },
+
+    async getTrelloDeadlines(teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            return { error: 'Not authenticated - no user ID' };
+        }
+
+        const url = new URL(`${API_BASE_URL}/api/trello/deadlines`);
+        url.searchParams.append('userId', userId);
+        if (teamId) url.searchParams.append('teamId', teamId);
+
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                return { error: data.error || 'Failed to fetch Trello deadlines' };
+            }
+            return await res.json();
+        } catch (error) {
+            return { error: error.message };
+        }
+    },
+
+    async getTrelloTasks(filters = {}, teamId = null) {
+        const userId = getUserId();
+        if (!userId) {
+            return { tasks: [], error: 'Not authenticated - no user ID' };
+        }
+
+        const params = new URLSearchParams({ userId });
+        if (teamId) params.append('teamId', teamId);
+        if (filters.status) params.append('status', filters.status);
+        if (filters.projectId) params.append('projectId', filters.projectId);
+
+        const url = `${API_BASE_URL}/api/trello/tasks?${params}`;
+
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const data = await res.json();
+                return { tasks: [], error: data.error || 'Failed to fetch Trello tasks' };
+            }
+            return await res.json();
+        } catch (error) {
             return { tasks: [], error: error.message };
         }
     },

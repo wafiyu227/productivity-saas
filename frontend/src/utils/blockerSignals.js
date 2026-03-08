@@ -65,12 +65,28 @@ export function extractSlackBlockers(summaries) {
 }
 
 export function extractAsanaBlockers(deadlines) {
+    return extractProjectPlatformBlockers(deadlines, 'asana');
+}
+
+export function extractTrelloBlockers(deadlines) {
+    return extractProjectPlatformBlockers(deadlines, 'trello');
+}
+
+export function extractProjectPlatformBlockers(deadlines, platform = 'asana') {
+    const platformKey = String(platform || '').toLowerCase();
+    const normalizedPlatform = ['asana', 'trello', 'jira'].includes(platformKey) ? platformKey : 'asana';
+    const platformLabelMap = {
+        asana: 'Asana',
+        trello: 'Trello',
+        jira: 'Jira'
+    };
+    const platformLabel = platformLabelMap[normalizedPlatform];
     const overdueTasks = normalizeList(deadlines?.overdue?.tasks);
     const dueTodayTasks = normalizeList(deadlines?.dueToday?.tasks);
     const byTask = new Map();
 
     overdueTasks.forEach((task) => {
-        const taskId = task?.gid;
+        const taskId = task?.gid || task?.id;
         if (!taskId) return;
 
         const dueDate = task?.due_on ? new Date(task.due_on) : null;
@@ -78,35 +94,35 @@ export function extractAsanaBlockers(deadlines) {
         const daysOverdue = Math.max(1, Math.ceil((Date.now() - dueTimestamp) / (1000 * 60 * 60 * 24)));
 
         byTask.set(taskId, {
-            id: `asana-${taskId}`,
-            title: task?.name || 'Overdue Asana task',
-            source: task?.project?.name || 'Asana',
-            sourceType: 'asana',
+            id: `${normalizedPlatform}-${taskId}`,
+            title: task?.name || `Overdue ${platformLabel} task`,
+            source: task?.project?.name || platformLabel,
+            sourceType: normalizedPlatform,
             createdAt: task?.due_on || new Date().toISOString(),
             status: 'active',
             priority: 'high',
             description: `Overdue by ${daysOverdue} day${daysOverdue === 1 ? '' : 's'} - Assigned to ${task?.assignee?.name || 'Unassigned'}`,
-            asanaGid: taskId,
-            externalUrl: `https://app.asana.com/0/0/${taskId}`,
+            asanaGid: normalizedPlatform === 'asana' ? taskId : null,
+            externalUrl: task?.externalUrl || (normalizedPlatform === 'asana' ? `https://app.asana.com/0/0/${taskId}` : null),
             resolvedAt: null
         });
     });
 
     dueTodayTasks.forEach((task) => {
-        const taskId = task?.gid;
+        const taskId = task?.gid || task?.id;
         if (!taskId || byTask.has(taskId)) return;
 
         byTask.set(taskId, {
-            id: `asana-${taskId}`,
-            title: task?.name || 'Asana task due today',
-            source: task?.project?.name || 'Asana',
-            sourceType: 'asana',
+            id: `${normalizedPlatform}-${taskId}`,
+            title: task?.name || `${platformLabel} task due today`,
+            source: task?.project?.name || platformLabel,
+            sourceType: normalizedPlatform,
             createdAt: task?.due_on || new Date().toISOString(),
             status: 'active',
             priority: 'medium',
             description: `Due today - Assigned to ${task?.assignee?.name || 'Unassigned'}`,
-            asanaGid: taskId,
-            externalUrl: `https://app.asana.com/0/0/${taskId}`,
+            asanaGid: normalizedPlatform === 'asana' ? taskId : null,
+            externalUrl: task?.externalUrl || (normalizedPlatform === 'asana' ? `https://app.asana.com/0/0/${taskId}` : null),
             resolvedAt: null
         });
     });

@@ -32,7 +32,7 @@ import {
     createEmptyAsanaDeadlines,
     createEmptyCalendarSignals,
     createEmptyGithubPulls,
-    extractAsanaBlockers,
+    extractProjectPlatformBlockers,
     extractCalendarBlockers,
     extractGithubBlockers,
     extractSlackBlockers,
@@ -43,17 +43,45 @@ const CHART_COLORS = ['#2563EB', '#06B6D4', '#0EA5E9', '#6366F1', '#14B8A6', '#0
 const GITHUB_STALE_DAYS = 7;
 const GITHUB_BLOCKER_LIMIT = 25;
 const CALENDAR_BLOCKER_WINDOW_DAYS = 14;
+const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_LABELS = {
+    jira: 'Jira',
+    asana: 'Asana',
+    trello: 'Trello'
+};
+const PROJECT_PLATFORM_DEADLINE_FETCHERS = {
+    jira: (teamId) => api.getJiraDeadlines(teamId),
+    asana: (teamId) => api.getAsanaDeadlines(teamId),
+    trello: (teamId) => api.getTrelloDeadlines(teamId)
+};
 
 export default function Analytics() {
     const { user, profile } = useAuth();
     const [summaries, setSummaries] = useState([]);
-    const [asanaDeadlines, setAsanaDeadlines] = useState(createEmptyAsanaDeadlines());
+    const [projectDeadlines, setProjectDeadlines] = useState(createEmptyAsanaDeadlines());
     const [githubPulls, setGithubPulls] = useState(createEmptyGithubPulls());
     const [calendarSignals, setCalendarSignals] = useState(createEmptyCalendarSignals());
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState('7days');
     const [refreshing, setRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState(null);
+    const [activeProjectPlatform, setActiveProjectPlatform] = useState(null);
+    const [projectPlatformNotice, setProjectPlatformNotice] = useState('');
+
+    const getActiveProjectPlatform = useCallback(async (teamId) => {
+        const statuses = await Promise.all(
+            PROJECT_PLATFORM_PRIORITY.map(async (platform) => ({
+                platform,
+                status: await api.getIntegrationStatus(platform, teamId)
+            }))
+        );
+
+        const connected = statuses
+            .filter((entry) => entry.status?.connected)
+            .map((entry) => entry.platform);
+
+        return connected.length > 0 ? connected[0] : null;
+    }, []);
 
     const loadAnalytics = useCallback(async ({ showLoader = true } = {}) => {
         if (!user) return;
@@ -61,19 +89,27 @@ export default function Analytics() {
         if (showLoader) setLoading(true);
         try {
             const teamId = profile?.current_team_id;
-            const [summaryData, asanaData, githubData, calendarData] = await Promise.all([
+            const connectedProjectPlatform = await getActiveProjectPlatform(teamId);
+            setActiveProjectPlatform(connectedProjectPlatform);
+
+            const projectDeadlineFetcher = PROJECT_PLATFORM_DEADLINE_FETCHERS[connectedProjectPlatform];
+            const projectDeadlinesPromise = projectDeadlineFetcher
+                ? projectDeadlineFetcher(teamId).catch(() => createEmptyAsanaDeadlines())
+                : Promise.resolve(createEmptyAsanaDeadlines());
+
+            const [summaryData, projectDeadlineData, githubData, calendarData] = await Promise.all([
                 api.getSummaries(teamId, { limit: 500 }),
-                api.getAsanaDeadlines(teamId).catch(() => createEmptyAsanaDeadlines()),
+                projectDeadlinesPromise,
                 api.getGithubPulls(teamId, { limit: GITHUB_BLOCKER_LIMIT, staleDays: GITHUB_STALE_DAYS }).catch(() => createEmptyGithubPulls()),
                 api.getGoogleCalendarActionItems(teamId, CALENDAR_BLOCKER_WINDOW_DAYS).catch(() => createEmptyCalendarSignals())
             ]);
 
             setSummaries(Array.isArray(summaryData) ? summaryData : []);
 
-            if (asanaData?.error) {
-                setAsanaDeadlines(createEmptyAsanaDeadlines());
+            if (projectDeadlineData?.error) {
+                setProjectDeadlines(createEmptyAsanaDeadlines());
             } else {
-                setAsanaDeadlines(asanaData || createEmptyAsanaDeadlines());
+                setProjectDeadlines(projectDeadlineData || createEmptyAsanaDeadlines());
             }
 
             if (githubData?.error) {
@@ -87,16 +123,24 @@ export default function Analytics() {
             } else {
                 setCalendarSignals(calendarData || createEmptyCalendarSignals());
             }
+
+            if (connectedProjectPlatform && !projectDeadlineFetcher) {
+                setProjectPlatformNotice(`${PROJECT_PLATFORM_LABELS[connectedProjectPlatform]} is connected as your project platform. Analytics extraction for this platform will appear after its endpoint rollout.`);
+            } else {
+                setProjectPlatformNotice('');
+            }
             setLastUpdated(new Date());
         } catch (error) {
             console.error('Failed to load analytics:', error);
-            setAsanaDeadlines(createEmptyAsanaDeadlines());
+            setProjectDeadlines(createEmptyAsanaDeadlines());
             setGithubPulls(createEmptyGithubPulls());
             setCalendarSignals(createEmptyCalendarSignals());
+            setActiveProjectPlatform(null);
+            setProjectPlatformNotice('');
         } finally {
             if (showLoader) setLoading(false);
         }
-    }, [user, profile?.current_team_id]);
+    }, [user, profile?.current_team_id, getActiveProjectPlatform]);
 
     useEffect(() => {
         if (user && profile) {
@@ -148,12 +192,13 @@ export default function Analytics() {
 
     const analytics = useMemo(
         () => calculateAnalytics(summaries, timeRange, {
-            asanaDeadlines,
+            projectDeadlines,
+            activeProjectPlatform,
             githubPulls,
             calendarSignals,
             githubStaleDays: GITHUB_STALE_DAYS
         }),
-        [summaries, timeRange, asanaDeadlines, githubPulls, calendarSignals]
+        [summaries, timeRange, projectDeadlines, activeProjectPlatform, githubPulls, calendarSignals]
     );
     const activityData = useMemo(
         () => buildActivityData(filteredSummaries, timeRange),
@@ -166,12 +211,12 @@ export default function Analytics() {
     const blockerData = useMemo(() => {
         const combined = mergeBlockers(
             extractSlackBlockers(filteredSummaries),
-            extractAsanaBlockers(asanaDeadlines),
+            extractProjectPlatformBlockers(projectDeadlines, activeProjectPlatform),
             extractGithubBlockers(githubPulls, GITHUB_STALE_DAYS),
             extractCalendarBlockers(calendarSignals)
         );
         return buildTopActiveBlockerData(combined, 8);
-    }, [filteredSummaries, asanaDeadlines, githubPulls, calendarSignals]);
+    }, [filteredSummaries, projectDeadlines, activeProjectPlatform, githubPulls, calendarSignals]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -190,6 +235,11 @@ export default function Analytics() {
                                     Updated {lastUpdated.toLocaleTimeString()}
                                 </p>
                             )}
+                            {activeProjectPlatform && (
+                                <p className="text-sm text-gray-500 mt-1">
+                                    Active project platform: {PROJECT_PLATFORM_LABELS[activeProjectPlatform]}
+                                </p>
+                            )}
                         </div>
                         <button
                             onClick={handleRefresh}
@@ -203,6 +253,11 @@ export default function Analytics() {
                             />
                         </button>
                     </div>
+                    {projectPlatformNotice && (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                            {projectPlatformNotice}
+                        </div>
+                    )}
 
                     <div className="mb-6 md:mb-8 flex flex-wrap gap-2">
                         {[
@@ -535,7 +590,8 @@ function filterSummariesByRange(summaries, timeRange) {
 
 function calculateAnalytics(summaries, timeRange, signals) {
     const {
-        asanaDeadlines,
+        projectDeadlines,
+        activeProjectPlatform,
         githubPulls,
         calendarSignals,
         githubStaleDays
@@ -546,7 +602,7 @@ function calculateAnalytics(summaries, timeRange, signals) {
 
     const currentMessages = sumMessages(currentPeriod);
     const externalSignals = mergeBlockers(
-        extractAsanaBlockers(asanaDeadlines),
+        extractProjectPlatformBlockers(projectDeadlines, activeProjectPlatform),
         extractGithubBlockers(githubPulls, githubStaleDays || GITHUB_STALE_DAYS),
         extractCalendarBlockers(calendarSignals)
     );

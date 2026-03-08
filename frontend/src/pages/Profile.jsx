@@ -1,15 +1,13 @@
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Calendar, Shield, Bell, Palette, Key, Trash2 } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, Key, Trash2 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { applyAppearancePreference, saveAppearancePreference } from '../lib/appearance';
 
 const API_URL = import.meta.env.VITE_API_URL;
 const DEFAULT_SETTINGS = {
     email_notifications: true,
     slack_notifications: true,
     blocker_alerts: false,
-    daily_digest: false,
-    appearance: 'light'
+    daily_digest: false
 };
 
 export default function Profile() {
@@ -27,8 +25,7 @@ export default function Profile() {
         email_notifications: raw?.email_notifications ?? DEFAULT_SETTINGS.email_notifications,
         slack_notifications: raw?.slack_notifications ?? DEFAULT_SETTINGS.slack_notifications,
         blocker_alerts: raw?.blocker_alerts ?? DEFAULT_SETTINGS.blocker_alerts,
-        daily_digest: raw?.daily_digest ?? DEFAULT_SETTINGS.daily_digest,
-        appearance: raw?.appearance ?? DEFAULT_SETTINGS.appearance
+        daily_digest: raw?.daily_digest ?? DEFAULT_SETTINGS.daily_digest
     }), []);
 
     const fetchSettings = useCallback(async () => {
@@ -40,11 +37,9 @@ export default function Profile() {
             const data = res.ok ? await res.json() : DEFAULT_SETTINGS;
             const safeSettings = sanitizeSettings(data);
             setSettings(safeSettings);
-            applyAppearancePreference(safeSettings.appearance);
         } catch (error) {
             console.error('Failed to fetch settings:', error);
             setSettings(DEFAULT_SETTINGS);
-            applyAppearancePreference(DEFAULT_SETTINGS.appearance);
         } finally {
             setLoading(false);
         }
@@ -73,10 +68,6 @@ export default function Profile() {
         setSaveError('');
         setSaving(true);
 
-        if (key === 'appearance') {
-            saveAppearancePreference(value);
-        }
-
         try {
             const res = await fetch(`${API_URL}/api/auth/settings`, {
                 method: 'POST',
@@ -97,9 +88,6 @@ export default function Profile() {
         } catch (error) {
             console.error('Failed to save settings:', error);
             setSettings(previousSettings);
-            if (key === 'appearance') {
-                applyAppearancePreference(previousSettings.appearance);
-            }
             setSaveError(error.message || 'Failed to save settings');
         } finally {
             setSaving(false);
@@ -150,7 +138,27 @@ export default function Profile() {
     };
 
     const handleDeleteAccount = async () => {
-        if (!window.confirm('CRITICAL: Are you sure you want to delete your account? This action is permanent and will remove ALL your data.')) {
+        const confirmed = window.confirm(
+            'CRITICAL WARNING\n\n' +
+            'You are about to permanently delete your account and ALL associated data:\n\n' +
+            '• Your profile and all settings\n' +
+            '• All meetings, summaries, and analytics\n' +
+            '• All integrations and API connections\n' +
+            '• Team memberships and data\n\n' +
+            'This action CANNOT be undone.\n\n' +
+            'Click OK to continue with deletion steps.'
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        const confirmDelete = prompt(
+            'To permanently delete your account, type DELETE (all caps):'
+        );
+
+        if (confirmDelete !== 'DELETE') {
+            alert('Account deletion cancelled. You did not type DELETE correctly.');
             return;
         }
 
@@ -160,7 +168,7 @@ export default function Profile() {
             });
 
             if (res.ok) {
-                alert('Account deleted successfully.');
+                alert('Your account and all data have been permanently deleted. You will now be logged out.');
                 await signOut();
                 window.location.href = '/';
             } else {
@@ -251,42 +259,6 @@ export default function Profile() {
                                         Enable Email notifications to receive digest emails.
                                     </p>
                                 )}
-                            </SettingsSection>
-
-                            <SettingsSection
-                                icon={<Palette className="text-purple-600" size={24} />}
-                                title="Appearance"
-                                description="Choose light, dark, or follow system preference"
-                            >
-                                <div className="flex gap-4">
-                                    <button
-                                        onClick={() => updateSettings('appearance', 'light')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'light'
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        Light
-                                    </button>
-                                    <button
-                                        onClick={() => updateSettings('appearance', 'dark')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'dark'
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        Dark
-                                    </button>
-                                    <button
-                                        onClick={() => updateSettings('appearance', 'auto')}
-                                        className={`px-4 py-2 rounded-lg font-medium transition ${settings?.appearance === 'auto'
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        Auto
-                                    </button>
-                                </div>
                             </SettingsSection>
 
                             <SettingsSection

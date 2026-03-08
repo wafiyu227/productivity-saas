@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { CheckCircle, Loader, ExternalLink } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 
 export default function ConnectTools() {
     const { user, profile } = useAuth();
@@ -12,6 +12,8 @@ export default function ConnectTools() {
     const [statuses, setStatuses] = useState({
         slack: { connected: false, loading: true },
         asana: { connected: false, loading: true },
+        jira: { connected: false, loading: true },
+        trello: { connected: false, loading: true },
         google: { connected: false, loading: true }
     });
 
@@ -66,7 +68,7 @@ export default function ConnectTools() {
     }, [user, teamId]);
 
     const checkAllStatuses = async () => {
-        const platforms = ['slack', 'asana', 'google'];
+        const platforms = ['slack', 'asana', 'jira', 'trello', 'google'];
 
         for (const platform of platforms) {
             try {
@@ -90,11 +92,32 @@ export default function ConnectTools() {
     };
 
     const handleConnect = (platform) => {
+        if (!['slack', 'asana', 'jira', 'trello', 'google'].includes(platform)) {
+            return;
+        }
+
+        const isProjectPlatform = ['asana', 'jira', 'trello'].includes(platform);
+        if (isProjectPlatform && connectedProjectPlatform && connectedProjectPlatform.toLowerCase() !== platform) {
+            alert(`Only one project platform can be connected at once. Disconnect ${connectedProjectPlatform} first from Integrations.`);
+            return;
+        }
+
         // Note: oauth callback should lead back here or to next onboarding step
         window.location.href = `${API_URL}/api/auth/${platform}/connect?userId=${user.id}&teamId=${teamId}&scope=team`;
     };
 
-    const connectedCount = Object.values(statuses).filter(s => s.connected).length;
+    const connectedProjectPlatform = statuses.jira.connected
+        ? 'Jira'
+        : statuses.asana.connected
+            ? 'Asana'
+            : statuses.trello.connected
+                ? 'Trello'
+                : null;
+    const connectedCount = [
+        statuses.slack.connected,
+        !!connectedProjectPlatform,
+        statuses.google.connected
+    ].filter(Boolean).length;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
@@ -143,39 +166,58 @@ export default function ConnectTools() {
                         </div>
                     </div>
 
-                    {/* Asana */}
+                    {/* Project Platform */}
                     <div className="border border-gray-200 rounded-xl p-6 hover:border-purple-300 transition">
                         <div className="flex items-start justify-between">
                             <div className="flex items-start gap-4 flex-1">
                                 <img
                                     src="https://upload.wikimedia.org/wikipedia/commons/3/3b/Asana_logo.svg"
-                                    alt="Asana"
+                                    alt="Project Platform"
                                     className="w-12 h-12 rounded-lg"
                                 />
                                 <div className="flex-1">
-                                    <h3 className="text-lg font-semibold text-gray-900">Asana</h3>
+                                    <h3 className="text-lg font-semibold text-gray-900">Project Platform</h3>
                                     <p className="text-sm text-gray-600 mt-1">
-                                        Track tasks and project progress with AI insights
+                                        Use one platform at a time (Jira, Asana, or Trello)
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        Active: {connectedProjectPlatform || 'None'}
                                     </p>
                                 </div>
                             </div>
 
                             <div className="flex items-center gap-3">
-                                {statuses.asana.loading ? (
+                                {statuses.asana.loading || statuses.jira.loading || statuses.trello.loading ? (
                                     <Loader className="animate-spin text-gray-400" size={20} />
-                                ) : statuses.asana.connected ? (
+                                ) : connectedProjectPlatform ? (
                                     <div className="flex items-center gap-2 text-green-600">
                                         <CheckCircle size={20} />
-                                        <span className="text-sm font-medium">Connected</span>
+                                        <span className="text-sm font-medium">{connectedProjectPlatform} Connected</span>
                                     </div>
                                 ) : (
-                                    <button
-                                        onClick={() => handleConnect('asana')}
-                                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center gap-2"
-                                    >
-                                        Connect
-                                        <ExternalLink size={16} />
-                                    </button>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            onClick={() => handleConnect('jira')}
+                                            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm flex items-center gap-2"
+                                        >
+                                            Jira
+                                            <ExternalLink size={14} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleConnect('asana')}
+                                            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm flex items-center gap-2"
+                                        >
+                                            Asana
+                                            <ExternalLink size={14} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleConnect('trello')}
+                                            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm flex items-center gap-2"
+                                        >
+                                            Trello
+                                            <ExternalLink size={14} />
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </div>

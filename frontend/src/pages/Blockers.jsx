@@ -16,16 +16,27 @@ import {
     createEmptyAsanaDeadlines,
     createEmptyCalendarSignals,
     createEmptyGithubPulls,
-    extractAsanaBlockers,
+    extractProjectPlatformBlockers,
     extractCalendarBlockers,
     extractGithubBlockers,
     extractSlackBlockers,
     mergeBlockers
 } from '../utils/blockerSignals';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 const GITHUB_STALE_DAYS = 7;
 const CALENDAR_BLOCKER_WINDOW_DAYS = 14;
+const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_LABELS = {
+    jira: 'Jira',
+    asana: 'Asana',
+    trello: 'Trello'
+};
+const PROJECT_PLATFORM_DEADLINE_FETCHERS = {
+    jira: (teamId) => api.getJiraDeadlines(teamId),
+    asana: (teamId) => api.getAsanaDeadlines(teamId),
+    trello: (teamId) => api.getTrelloDeadlines(teamId)
+};
 
 const SOURCE_META = {
     slack: {
@@ -37,12 +48,28 @@ const SOURCE_META = {
         openLabel: 'Open Source'
     },
     asana: {
-        label: 'Asana',
+        label: 'Project Platform',
         icon: Target,
         chipClass: 'bg-orange-100 text-orange-700',
         activeClass: 'bg-orange-600 text-white',
         buttonClass: 'bg-orange-600 hover:bg-orange-700',
-        openLabel: 'Open in Asana'
+        openLabel: 'Open Task'
+    },
+    jira: {
+        label: 'Jira',
+        icon: Target,
+        chipClass: 'bg-blue-100 text-blue-700',
+        activeClass: 'bg-blue-600 text-white',
+        buttonClass: 'bg-blue-600 hover:bg-blue-700',
+        openLabel: 'Open Issue'
+    },
+    trello: {
+        label: 'Trello',
+        icon: Target,
+        chipClass: 'bg-sky-100 text-sky-700',
+        activeClass: 'bg-sky-600 text-white',
+        buttonClass: 'bg-sky-600 hover:bg-sky-700',
+        openLabel: 'Open Card'
     },
     github: {
         label: 'GitHub',
@@ -70,6 +97,8 @@ export default function Blockers() {
     const [sourceFilter, setSourceFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [resolving, setResolving] = useState(null);
+    const [activeProjectPlatform, setActiveProjectPlatform] = useState(null);
+    const [projectPlatformNotice, setProjectPlatformNotice] = useState('');
     const currentMembership = profile?.teams?.find((membership) => membership.team_id === profile?.current_team_id);
     const canManageBlockers = !profile?.current_team_id || ['owner', 'admin'].includes(currentMembership?.role);
 
@@ -79,22 +108,44 @@ export default function Blockers() {
         }
     }, [user, profile?.current_team_id]);
 
+    const getActiveProjectPlatform = async (teamId) => {
+        const statuses = await Promise.all(
+            PROJECT_PLATFORM_PRIORITY.map(async (platform) => ({
+                platform,
+                status: await api.getIntegrationStatus(platform, teamId)
+            }))
+        );
+
+        const connected = statuses
+            .filter((entry) => entry.status?.connected)
+            .map((entry) => entry.platform);
+
+        return connected.length > 0 ? connected[0] : null;
+    };
+
     const fetchBlockers = async () => {
         try {
             setLoading(true);
             const teamId = profile?.current_team_id;
+            const connectedProjectPlatform = await getActiveProjectPlatform(teamId);
+            setActiveProjectPlatform(connectedProjectPlatform);
 
-            const [summariesRes, asanaData, githubData, calendarData] = await Promise.all([
+            const projectDeadlineFetcher = PROJECT_PLATFORM_DEADLINE_FETCHERS[connectedProjectPlatform];
+            const projectDeadlinePromise = projectDeadlineFetcher
+                ? projectDeadlineFetcher(teamId).catch(() => createEmptyAsanaDeadlines())
+                : Promise.resolve(createEmptyAsanaDeadlines());
+
+            const [summariesRes, projectDeadlineData, githubData, calendarData] = await Promise.all([
                 fetch(`${API_URL}/api/summaries?userId=${user.id}${teamId ? `&teamId=${teamId}` : ''}`)
                     .then((response) => response.json())
                     .catch(() => []),
-                api.getAsanaDeadlines(teamId).catch(() => createEmptyAsanaDeadlines()),
+                projectDeadlinePromise,
                 api.getGithubPulls(teamId, { staleDays: GITHUB_STALE_DAYS, limit: 25 }).catch(() => createEmptyGithubPulls()),
                 api.getGoogleCalendarActionItems(teamId, CALENDAR_BLOCKER_WINDOW_DAYS).catch(() => createEmptyCalendarSignals())
             ]);
 
             const summaries = Array.isArray(summariesRes) ? summariesRes : [];
-            const normalizedAsana = asanaData?.error ? createEmptyAsanaDeadlines() : (asanaData || createEmptyAsanaDeadlines());
+            const normalizedProjectDeadlines = projectDeadlineData?.error ? createEmptyAsanaDeadlines() : (projectDeadlineData || createEmptyAsanaDeadlines());
             const normalizedGithub = githubData?.error ? createEmptyGithubPulls() : (githubData || createEmptyGithubPulls());
             const normalizedCalendar = (calendarData?.error || calendarData?.needsReauth)
                 ? createEmptyCalendarSignals()
@@ -102,12 +153,17 @@ export default function Blockers() {
 
             const extracted = mergeBlockers(
                 extractSlackBlockers(summaries),
-                extractAsanaBlockers(normalizedAsana),
+                projectDeadlineFetcher ? extractProjectPlatformBlockers(normalizedProjectDeadlines, connectedProjectPlatform) : [],
                 extractGithubBlockers(normalizedGithub, GITHUB_STALE_DAYS),
                 extractCalendarBlockers(normalizedCalendar)
             );
 
             setBlockers(sortBlockers(extracted));
+            if (connectedProjectPlatform && !projectDeadlineFetcher) {
+                setProjectPlatformNotice(`${PROJECT_PLATFORM_LABELS[connectedProjectPlatform]} is connected as your project platform. Blockers extraction for this platform will appear after its endpoint rollout.`);
+            } else {
+                setProjectPlatformNotice('');
+            }
         } catch (error) {
             console.error('Failed to fetch blockers:', error);
             setBlockers([]);
@@ -186,8 +242,18 @@ export default function Blockers() {
                             Team Blockers
                         </h1>
                         <p className="text-base md:text-lg text-gray-600">
-                            Track and resolve blockers across Slack, Asana, GitHub, and Calendar
+                            Track and resolve blockers across Slack, project platforms, GitHub, and Calendar
                         </p>
+                        {activeProjectPlatform && (
+                            <p className="mt-2 text-sm text-gray-600">
+                                Active project platform: <span className="font-semibold">{PROJECT_PLATFORM_LABELS[activeProjectPlatform]}</span>
+                            </p>
+                        )}
+                        {projectPlatformNotice && (
+                            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                                {projectPlatformNotice}
+                            </div>
+                        )}
                         {!canManageBlockers && (
                             <p className="mt-3 text-sm text-gray-600">
                                 Resolution controls are read-only for members.

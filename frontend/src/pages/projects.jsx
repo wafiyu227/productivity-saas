@@ -7,7 +7,6 @@ import {
     Clock,
     Users,
     Sparkles,
-    ChevronRight,
     Calendar,
     Target,
     Activity,
@@ -21,6 +20,33 @@ import {
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
+const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_LABELS = {
+    jira: 'Jira',
+    asana: 'Asana',
+    trello: 'Trello'
+};
+const PROJECT_PLATFORM_EXTRACTORS = {
+    jira: {
+        fetchProjects: (apiClient, teamId) => apiClient.getJiraProjects(teamId),
+        fetchWorkload: (apiClient, teamId) => apiClient.getJiraWorkload(teamId),
+        fetchDeadlines: (apiClient, teamId) => apiClient.getJiraDeadlines(teamId),
+        fetchProjectHealth: (apiClient, projectId, teamId) => apiClient.getJiraProjectHealth(projectId, teamId)
+    },
+    asana: {
+        fetchProjects: (apiClient, teamId) => apiClient.getAsanaProjects(teamId),
+        fetchWorkload: (apiClient, teamId) => apiClient.getAsanaWorkload(teamId),
+        fetchDeadlines: (apiClient, teamId) => apiClient.getAsanaDeadlines(teamId),
+        fetchProjectHealth: (apiClient, projectId, teamId) => apiClient.getAsanaProjectHealth(projectId, teamId)
+    },
+    trello: {
+        fetchProjects: (apiClient, teamId) => apiClient.getTrelloProjects(teamId),
+        fetchWorkload: (apiClient, teamId) => apiClient.getTrelloWorkload(teamId),
+        fetchDeadlines: (apiClient, teamId) => apiClient.getTrelloDeadlines(teamId),
+        fetchProjectHealth: (apiClient, projectId, teamId) => apiClient.getTrelloProjectHealth(projectId, teamId)
+    }
+};
+
 const Projects = () => {
     const { user, profile } = useAuth();
     const [projects, setProjects] = useState([]);
@@ -33,8 +59,11 @@ const Projects = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [activeView, setActiveView] = useState('grid');
     const [error, setError] = useState(null);
+    const [activeProjectPlatform, setActiveProjectPlatform] = useState(null);
+    const [connectedProjectPlatforms, setConnectedProjectPlatforms] = useState([]);
     const [showDeadlines, setShowDeadlines] = useState(true);
     const [taskFilter, setTaskFilter] = useState('all');
+    const [loadingProjectInsightsId, setLoadingProjectInsightsId] = useState(null);
 
     useEffect(() => {
         if (user && profile) {
@@ -42,13 +71,70 @@ const Projects = () => {
         }
     }, [user, profile?.current_team_id]);
 
+    const getPlatformLabel = (platform) => PROJECT_PLATFORM_LABELS[platform] || platform;
+
+    const fetchProjectPlatformStatus = async () => {
+        const teamId = profile?.current_team_id;
+        const statuses = await Promise.all(
+            PROJECT_PLATFORM_PRIORITY.map(async (platform) => {
+                const status = await api.getIntegrationStatus(platform, teamId);
+                return {
+                    platform,
+                    connected: !!status?.connected
+                };
+            })
+        );
+
+        const connected = statuses
+            .filter((status) => status.connected)
+            .map((status) => status.platform);
+
+        setConnectedProjectPlatforms(connected);
+        return connected;
+    };
+
+    const resetProjectData = () => {
+        setProjects([]);
+        setSelectedProject(null);
+        setProjectHealth(null);
+        setWorkload([]);
+        setWorkloadSummary(null);
+        setDeadlines(null);
+    };
+
     const fetchAllData = async () => {
         setLoading(true);
         try {
+            const connectedPlatforms = await fetchProjectPlatformStatus();
+
+            if (connectedPlatforms.length === 0) {
+                setActiveProjectPlatform(null);
+                resetProjectData();
+                setError(null);
+                return;
+            }
+
+            if (connectedPlatforms.length > 1) {
+                setActiveProjectPlatform(null);
+                resetProjectData();
+                setError(`Only one project platform can be active at once. Connected now: ${connectedPlatforms.map(getPlatformLabel).join(', ')}. Disconnect extras from Integrations.`);
+                return;
+            }
+
+            const activePlatform = connectedPlatforms[0];
+            setActiveProjectPlatform(activePlatform);
+
+            const extractor = PROJECT_PLATFORM_EXTRACTORS[activePlatform];
+            if (!extractor) {
+                resetProjectData();
+                setError(`${getPlatformLabel(activePlatform)} is connected, but its project extractor is not wired yet. Add ${getPlatformLabel(activePlatform)} extractor handlers to enable full support.`);
+                return;
+            }
+
             await Promise.all([
-                fetchProjects(),
-                fetchWorkload(),
-                fetchDeadlines()
+                fetchProjects(activePlatform),
+                fetchWorkload(activePlatform),
+                fetchDeadlines(activePlatform)
             ]);
             setError(null);
         } catch (err) {
@@ -64,9 +150,11 @@ const Projects = () => {
         setRefreshing(false);
     };
 
-    const fetchProjects = async () => {
+    const fetchProjects = async (platform = activeProjectPlatform) => {
+        const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
+        if (!extractor) throw new Error('Project extractor not configured');
         try {
-            const data = await api.getAsanaProjects(profile?.current_team_id);
+            const data = await extractor.fetchProjects(api, profile?.current_team_id);
             if (data.error) throw new Error(data.error);
             setProjects(data.projects || []);
         } catch (err) {
@@ -75,9 +163,11 @@ const Projects = () => {
         }
     };
 
-    const fetchWorkload = async () => {
+    const fetchWorkload = async (platform = activeProjectPlatform) => {
+        const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
+        if (!extractor) return;
         try {
-            const data = await api.getAsanaWorkload(profile?.current_team_id);
+            const data = await extractor.fetchWorkload(api, profile?.current_team_id);
             if (data.error) {
                 console.error('Error fetching workload:', data.error);
                 setWorkload([]);
@@ -91,9 +181,11 @@ const Projects = () => {
         }
     };
 
-    const fetchDeadlines = async () => {
+    const fetchDeadlines = async (platform = activeProjectPlatform) => {
+        const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
+        if (!extractor) return;
         try {
-            const data = await api.getAsanaDeadlines(profile?.current_team_id);
+            const data = await extractor.fetchDeadlines(api, profile?.current_team_id);
             if (data.error) {
                 console.error('Error fetching deadlines:', data.error);
                 setDeadlines(null);
@@ -106,14 +198,31 @@ const Projects = () => {
         }
     };
 
-    const fetchProjectHealth = async (projectId) => {
+    const fetchProjectHealth = async (projectOrId) => {
+        const extractor = PROJECT_PLATFORM_EXTRACTORS[activeProjectPlatform];
+        if (!extractor) return;
+        const projectId = typeof projectOrId === 'object'
+            ? (projectOrId?.gid || projectOrId?.id)
+            : projectOrId;
+        if (!projectId) return;
+        const normalizedProjectId = String(projectId);
+
         try {
-            const data = await api.getAsanaProjectHealth(projectId, profile?.current_team_id);
+            setLoadingProjectInsightsId(normalizedProjectId);
+            const data = await extractor.fetchProjectHealth(api, projectId, profile?.current_team_id);
             setProjectHealth(data);
-            setSelectedProject(projects.find(p => p.gid === projectId));
+            if (typeof projectOrId === 'object' && projectOrId) {
+                setSelectedProject(projectOrId);
+            } else {
+                setSelectedProject(
+                    projects.find((project) => String(project.gid || project.id) === normalizedProjectId) || null
+                );
+            }
         } catch (err) {
             console.error('Error fetching project health:', err);
             alert('Failed to fetch project details: ' + err.message);
+        } finally {
+            setLoadingProjectInsightsId(null);
         }
     };
 
@@ -152,6 +261,37 @@ const Projects = () => {
         return Math.ceil((now - date) / (1000 * 60 * 60 * 24));
     };
 
+    const getNormalizedInsights = (details) => {
+        const rawInsights = details?.aiInsights ?? details?.aiAnalysis;
+        if (!rawInsights) return null;
+
+        if (typeof rawInsights === 'string') {
+            return {
+                summary: rawInsights,
+                blockers: [],
+                overdueHighlight: [],
+                recommendations: [],
+                evidence: null
+            };
+        }
+
+        if (typeof rawInsights !== 'object') return null;
+
+        return {
+            summary: typeof rawInsights.summary === 'string'
+                ? rawInsights.summary
+                : (typeof details?.aiAnalysis === 'string' ? details.aiAnalysis : ''),
+            blockers: Array.isArray(rawInsights.blockers) ? rawInsights.blockers : [],
+            overdueHighlight: Array.isArray(rawInsights.overdueHighlight) ? rawInsights.overdueHighlight : [],
+            recommendations: Array.isArray(rawInsights.recommendations) ? rawInsights.recommendations : [],
+            evidence: rawInsights.evidence && typeof rawInsights.evidence === 'object'
+                ? rawInsights.evidence
+                : null
+        };
+    };
+
+    const projectInsights = getNormalizedInsights(projectHealth);
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center">
@@ -189,6 +329,42 @@ const Projects = () => {
         );
     }
 
+    if (!activeProjectPlatform) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center p-4">
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-gray-100 rounded-2xl p-8 max-w-2xl w-full shadow-sm"
+                >
+                    <h2 className="text-2xl font-bold text-gray-900 mb-3">Connect A Project Platform</h2>
+                    <p className="text-gray-600 mb-6">
+                        Projects supports one active platform at a time to keep analytics consistent.
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                        {PROJECT_PLATFORM_PRIORITY.map((platform) => {
+                            const connected = connectedProjectPlatforms.includes(platform);
+                            return (
+                                <div key={platform} className={`rounded-xl border p-4 ${connected ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                                    <p className="font-semibold text-gray-900">{getPlatformLabel(platform)}</p>
+                                    <p className="text-sm text-gray-500 mt-1">{connected ? 'Connected' : 'Not connected'}</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <a
+                        href="/app/integrations"
+                        className="inline-flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                        Go To Integrations
+                    </a>
+                </motion.div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 text-gray-900">
             {/* Header */}
@@ -204,7 +380,7 @@ const Projects = () => {
                                 Projects Overview
                             </h1>
                             <p className="text-gray-600 font-mono text-sm">
-                                AI-powered insights for {projects.length} active projects
+                                {getPlatformLabel(activeProjectPlatform)} source • AI-powered insights for {projects.length} active projects
                             </p>
                         </div>
 
@@ -434,12 +610,11 @@ const Projects = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {projects.map((project, index) => (
                             <motion.div
-                                key={project.gid}
+                                key={project.gid || project.id}
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: index * 0.05 }}
-                                onClick={() => fetchProjectHealth(project.gid)}
-                                className="group relative bg-white border border-gray-100 rounded-2xl p-6 hover:border-blue-500/50 transition-all cursor-pointer hover:scale-[1.02] hover:shadow-xl hover:shadow-blue-500/10"
+                                className="group relative bg-white border border-gray-100 rounded-2xl p-6 hover:border-blue-500/50 transition-all hover:scale-[1.02] hover:shadow-xl hover:shadow-blue-500/10"
                             >
                                 {/* Project Header */}
                                 <div className="flex items-start justify-between mb-4">
@@ -455,7 +630,6 @@ const Projects = () => {
                                         )}
                                     </div>
 
-                                    <ChevronRight className="w-5 h-5 text-gray-500 group-hover:text-[#00ff87] group-hover:translate-x-1 transition-all" />
                                 </div>
 
                                 {/* Project Info */}
@@ -476,7 +650,7 @@ const Projects = () => {
                                 )}
 
                                 {/* Status Badge */}
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center justify-between gap-2">
                                     {project.completed ? (
                                         <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-mono rounded-full border border-green-200">
                                             Completed
@@ -486,6 +660,23 @@ const Projects = () => {
                                             In Progress
                                         </span>
                                     )}
+                                    <button
+                                        onClick={() => fetchProjectHealth(project)}
+                                        disabled={loadingProjectInsightsId === String(project.gid || project.id)}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        {loadingProjectInsightsId === String(project.gid || project.id) ? (
+                                            <>
+                                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles className="w-3 h-3" />
+                                                View AI Insights
+                                            </>
+                                        )}
+                                    </button>
                                 </div>
 
                                 {/* Hover Effect */}
@@ -497,12 +688,11 @@ const Projects = () => {
                     <div className="space-y-3">
                         {projects.map((project, index) => (
                             <motion.div
-                                key={project.gid}
+                                key={project.gid || project.id}
                                 initial={{ opacity: 0, x: -20 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 transition={{ delay: index * 0.03 }}
-                                onClick={() => fetchProjectHealth(project.gid)}
-                                className="bg-white border border-gray-100 rounded-xl p-4 hover:border-blue-500/50 transition-all cursor-pointer group shadow-sm"
+                                className="bg-white border border-gray-100 rounded-xl p-4 hover:border-blue-500/50 transition-all group shadow-sm"
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-4 flex-1">
@@ -530,6 +720,23 @@ const Projects = () => {
                                     </div>
 
                                     <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => fetchProjectHealth(project)}
+                                            disabled={loadingProjectInsightsId === String(project.gid || project.id)}
+                                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        >
+                                            {loadingProjectInsightsId === String(project.gid || project.id) ? (
+                                                <>
+                                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                                    Loading...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Sparkles className="w-3 h-3" />
+                                                    View AI Insights
+                                                </>
+                                            )}
+                                        </button>
                                         {project.completed ? (
                                             <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-mono rounded-full border border-green-200">
                                                 Completed
@@ -539,7 +746,6 @@ const Projects = () => {
                                                 Active
                                             </span>
                                         )}
-                                        <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
                                     </div>
                                 </div>
                             </motion.div>
@@ -714,15 +920,47 @@ const Projects = () => {
                             </div>
 
                             {/* AI Analysis */}
-                            {projectHealth.aiAnalysis && (
+                            {projectInsights && (
                                 <div className="bg-purple-50 border border-purple-100 rounded-xl p-6 mb-8">
                                     <div className="flex items-center gap-2 mb-4">
                                         <Sparkles className="w-5 h-5 text-purple-600" />
                                         <h3 className="text-lg font-bold text-gray-900">AI Insights</h3>
                                     </div>
                                     <div className="prose max-w-none">
-                                        <p className="text-gray-700 whitespace-pre-line">{projectHealth.aiAnalysis}</p>
+                                        <p className="text-gray-700 whitespace-pre-line">
+                                            {projectInsights.summary || 'Insights generated from fetched project tasks.'}
+                                        </p>
+                                        {projectInsights.evidence && (
+                                            <p className="text-sm text-gray-500 mt-2">
+                                                Based on {projectInsights.evidence.taskCount || 0} fetched tasks
+                                                ({projectInsights.evidence.overdueCount || 0} overdue,
+                                                {' '}{projectInsights.evidence.dueSoonCount || 0} due soon,
+                                                {' '}{projectInsights.evidence.unassignedCount || 0} unassigned).
+                                            </p>
+                                        )}
                                     </div>
+
+                                    {projectInsights.blockers.length > 0 && (
+                                        <div className="mt-4">
+                                            <h4 className="text-sm font-semibold text-gray-800 mb-2">Risk Signals</h4>
+                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+                                                {projectInsights.blockers.map((blocker, index) => (
+                                                    <li key={`insight-blocker-${index}`}>{blocker}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    {projectInsights.recommendations.length > 0 && (
+                                        <div className="mt-4">
+                                            <h4 className="text-sm font-semibold text-gray-800 mb-2">Recommendations</h4>
+                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+                                                {projectInsights.recommendations.map((recommendation, index) => (
+                                                    <li key={`insight-recommendation-${index}`}>{recommendation}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -733,7 +971,7 @@ const Projects = () => {
                                     <div className="space-y-2">
                                         {projectHealth.tasks.map((task, index) => (
                                             <motion.div
-                                                key={task.gid}
+                                                key={task.gid || task.id || index}
                                                 initial={{ opacity: 0, x: -20 }}
                                                 animate={{ opacity: 1, x: 0 }}
                                                 transition={{ delay: index * 0.05 }}

@@ -52,7 +52,7 @@ export default function WelcomeMember() {
                             <div>
                                 <h4 className="font-semibold text-gray-900">Team Projects</h4>
                                 <p className="text-sm text-gray-600">
-                                    Track Asana projects, tasks, and team workload
+                                    Track projects, tasks, and team workload from your connected project platform
                                 </p>
                             </div>
                         </div>

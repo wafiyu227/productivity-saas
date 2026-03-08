@@ -1,55 +1,73 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Layers, Check, ArrowRight, Loader2, Calendar, Users } from 'lucide-react';
+import { Layers, Check, ArrowRight, Calendar, Users } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
-const IntegrationCard = ({ name, description, icon: Icon, connected, onConnect }) => (
-    <div className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all">
-        <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${connected ? 'bg-green-100 text-green-600' : 'bg-white text-slate-400 border border-slate-100'}`}>
-                <Icon size={24} />
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
+
+const IntegrationCard = ({ name, description, icon, connected, onConnect }) => {
+    const IconComponent = icon;
+
+    return (
+        <div className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all">
+            <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${connected ? 'bg-green-100 text-green-600' : 'bg-white text-slate-400 border border-slate-100'}`}>
+                    <IconComponent size={24} />
+                </div>
+                <div>
+                    <h3 className="font-semibold text-slate-900">{name}</h3>
+                    <p className="text-xs text-slate-500">{description}</p>
+                </div>
             </div>
-            <div>
-                <h3 className="font-semibold text-slate-900">{name}</h3>
-                <p className="text-xs text-slate-500">{description}</p>
-            </div>
+            <button
+                onClick={() => {
+                    if (connected) return;
+                    onConnect();
+                }}
+                disabled={connected}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${connected
+                    ? 'bg-green-50 text-green-600 cursor-default flex items-center gap-1 border border-green-100'
+                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+            >
+                {connected ? (
+                    <>
+                        <Check size={16} />
+                        Connected
+                    </>
+                ) : 'Connect'}
+            </button>
         </div>
-        <button
-            onClick={onConnect}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${connected
-                ? 'bg-green-50 text-green-600 cursor-default flex items-center gap-1 border border-green-100'
-                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                }`}
-        >
-            {connected ? (
-                <>
-                    <Check size={16} />
-                    Connected
-                </>
-            ) : 'Connect'}
-        </button>
-    </div>
-);
+    );
+};
 
 const OnboardingIntegrations = () => {
     const { user, profile } = useAuth();
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(false);
     const [integrations, setIntegrations] = useState({
         slack: false,
         asana: false,
+        jira: false,
+        trello: false,
         google: false
     });
+    const teamId = profile?.current_team_id;
 
     useEffect(() => {
         const checkStatus = async () => {
             if (!user) return;
             try {
-                const apiUrl = import.meta.env.VITE_API_URL;
-                const platforms = ['slack', 'asana', 'google'];
+                const platforms = ['slack', 'asana', 'jira', 'trello', 'google'];
                 const status = {};
                 for (const platform of platforms) {
-                    const res = await fetch(`${apiUrl}/api/auth/status?userId=${user.id}&platform=${platform}`);
+                    const url = new URL(`${API_URL}/api/auth/status`);
+                    url.searchParams.append('userId', user.id);
+                    url.searchParams.append('platform', platform);
+                    if (teamId) {
+                        url.searchParams.append('teamId', teamId);
+                    }
+
+                    const res = await fetch(url.toString());
                     if (res.ok) {
                         const data = await res.json();
                         status[platform] = data.connected;
@@ -61,14 +79,32 @@ const OnboardingIntegrations = () => {
             }
         };
         checkStatus();
-    }, [user]);
+    }, [user, teamId]);
 
     const handleConnect = (platform) => {
-        const apiUrl = import.meta.env.VITE_API_URL;
+        if (!['slack', 'asana', 'jira', 'trello', 'google'].includes(platform)) {
+            return;
+        }
+
+        const isProjectPlatform = ['asana', 'jira', 'trello'].includes(platform);
+        if (isProjectPlatform && connectedProjectPlatform && connectedProjectPlatform.toLowerCase() !== platform) {
+            alert(`Only one project platform can be connected at once. Disconnect ${connectedProjectPlatform} first from Integrations.`);
+            return;
+        }
+
         const scope = 'team';
-        const teamId = profile?.current_team_id;
-        window.location.href = `${apiUrl}/api/auth/${platform}/connect?userId=${user.id}&teamId=${teamId}&scope=${scope}`;
+        window.location.assign(`${API_URL}/api/auth/${platform}/connect?userId=${user.id}&teamId=${teamId}&scope=${scope}`);
     };
+
+    const connectedProjectPlatforms = ['jira', 'asana', 'trello'].filter((platform) => integrations[platform]);
+    const connectedProjectPlatform = connectedProjectPlatforms.includes('jira')
+        ? 'Jira'
+        : connectedProjectPlatforms.includes('asana')
+            ? 'Asana'
+            : connectedProjectPlatforms.includes('trello')
+                ? 'Trello'
+                : null;
+    const hasProjectPlatformConflict = connectedProjectPlatforms.length > 1;
 
     return (
         <div className="space-y-6 animate-fadeIn">
@@ -87,12 +123,36 @@ const OnboardingIntegrations = () => {
                     onConnect={() => handleConnect('slack')}
                 />
                 <IntegrationCard
-                    name="Asana"
-                    description="Track projects and team workload"
+                    name="Project Platform"
+                    description={`Use one at a time (active: ${connectedProjectPlatform || 'None'})`}
                     icon={Users}
-                    connected={integrations.asana}
+                    connected={!!connectedProjectPlatform}
                     onConnect={() => handleConnect('asana')}
                 />
+                {!connectedProjectPlatform ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                            onClick={() => handleConnect('jira')}
+                            className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                            Connect Jira
+                        </button>
+                        <button
+                            onClick={() => handleConnect('asana')}
+                            className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                            Connect Asana
+                        </button>
+                        <button
+                            onClick={() => handleConnect('trello')}
+                            className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                            Connect Trello
+                        </button>
+                    </div>
+                ) : (
+                    <p className="text-xs text-green-700 mt-2">{connectedProjectPlatform} is connected.</p>
+                )}
                 <IntegrationCard
                     name="Google Calendar"
                     description="Sync meetings and schedules"
@@ -101,6 +161,11 @@ const OnboardingIntegrations = () => {
                     onConnect={() => handleConnect('google')}
                 />
             </div>
+            {hasProjectPlatformConflict && (
+                <p className="text-xs text-red-600">
+                    Multiple project platforms are connected. Keep only one active to avoid inconsistent project analytics.
+                </p>
+            )}
 
             <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
                 <p className="text-xs text-slate-400 italic">You can add more or skip for now</p>

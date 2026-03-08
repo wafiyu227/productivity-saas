@@ -1,15 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { CheckCircle, XCircle, Loader, ExternalLink, AlertCircle } from 'lucide-react';
+import { CheckCircle, Loader, ExternalLink, AlertCircle } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
+const PROJECT_PLATFORMS = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_LABELS = {
+    jira: 'Jira',
+    asana: 'Asana',
+    trello: 'Trello'
+};
+const CONNECTABLE_PROJECT_PLATFORMS = new Set(['jira', 'asana', 'trello']);
+const EXTRACTOR_READY_PROJECT_PLATFORMS = new Set(['jira', 'asana', 'trello']);
 
 export default function Integrations() {
     const { user, profile } = useAuth();
     const navigate = useNavigate();
     const [slackStatus, setSlackStatus] = useState({ connected: false, loading: true });
     const [asanaStatus, setAsanaStatus] = useState({ connected: false, loading: true });
+    const [jiraStatus, setJiraStatus] = useState({ connected: false, loading: true });
+    const [trelloStatus, setTrelloStatus] = useState({ connected: false, loading: true });
     const [googleStatus, setGoogleStatus] = useState({ connected: false, loading: true });
     const [githubStatus, setGithubStatus] = useState({ connected: false, loading: true });
     const [notification, setNotification] = useState(null);
@@ -34,6 +44,8 @@ export default function Integrations() {
 
             if (platform === 'slack') setSlackStatus({ ...data, loading: false });
             if (platform === 'asana') setAsanaStatus({ ...data, loading: false });
+            if (platform === 'jira') setJiraStatus({ ...data, loading: false });
+            if (platform === 'trello') setTrelloStatus({ ...data, loading: false });
             if (platform === 'google') setGoogleStatus({ ...data, loading: false });
             if (platform === 'github') setGithubStatus({ ...data, loading: false });
         } catch (error) {
@@ -41,6 +53,8 @@ export default function Integrations() {
             const fallback = { connected: false, loading: false };
             if (platform === 'slack') setSlackStatus(fallback);
             if (platform === 'asana') setAsanaStatus(fallback);
+            if (platform === 'jira') setJiraStatus(fallback);
+            if (platform === 'trello') setTrelloStatus(fallback);
             if (platform === 'google') setGoogleStatus(fallback);
             if (platform === 'github') setGithubStatus(fallback);
         }
@@ -50,6 +64,8 @@ export default function Integrations() {
         if (user) {
             checkStatus('slack');
             checkStatus('asana');
+            checkStatus('jira');
+            checkStatus('trello');
             checkStatus('google');
             checkStatus('github');
         }
@@ -60,6 +76,66 @@ export default function Integrations() {
 
         const error = searchParams.get('error');
         const success = searchParams.get('success');
+        const trelloOauth = searchParams.get('trello_oauth');
+        const trelloState = searchParams.get('state');
+
+        if (trelloOauth === '1') {
+            setOauthProcessed(true);
+
+            const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            const trelloToken = hashParams.get('token') || hashParams.get('access_token');
+
+            if (!trelloToken || !trelloState) {
+                setNotification({
+                    type: 'error',
+                    message: 'Trello authorization did not return a valid token. Please try again.'
+                });
+                setSearchParams({});
+                window.history.replaceState({}, '', window.location.pathname);
+                return;
+            }
+
+            const saveTrelloToken = async () => {
+                try {
+                    const response = await fetch(`${API_URL}/api/auth/trello/token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            token: trelloToken,
+                            state: trelloState
+                        })
+                    });
+
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Failed to store Trello token');
+                    }
+
+                    setNotification({
+                        type: 'success',
+                        message: 'Trello workspace connected successfully!',
+                        action: 'dashboard'
+                    });
+
+                    if (user) {
+                        checkStatus('asana');
+                        checkStatus('jira');
+                        checkStatus('trello');
+                    }
+                } catch (tokenError) {
+                    setNotification({
+                        type: 'error',
+                        message: tokenError.message || 'Failed to complete Trello authentication.'
+                    });
+                } finally {
+                    setSearchParams({});
+                    window.history.replaceState({}, '', window.location.pathname);
+                }
+            };
+
+            saveTrelloToken();
+            return;
+        }
 
         if (error || success) {
             setOauthProcessed(true);
@@ -68,7 +144,11 @@ export default function Integrations() {
                 const errorMessages = {
                     'oauth_failed': 'Failed to complete authentication. Please try again.',
                     'slack_auth_failed': 'Slack authentication was denied. Please try again.',
+                    'asana_auth_failed': 'Asana authentication was denied. Please try again.',
+                    'jira_auth_failed': 'Jira authentication was denied. Please try again.',
+                    'trello_auth_failed': 'Trello authentication was denied. Please try again.',
                     'google_auth_failed': 'Google authentication was denied. Please try again.',
+                    'github_auth_failed': 'GitHub authentication was denied. Please try again.',
                     'missing_params': 'Missing required parameters. Please try again.'
                 };
 
@@ -86,6 +166,8 @@ export default function Integrations() {
                 const successMessages = {
                     'slack_connected': 'Slack workspace connected successfully!',
                     'asana_connected': 'Asana workspace connected successfully!',
+                    'jira_connected': 'Jira workspace connected successfully!',
+                    'trello_connected': 'Trello workspace connected successfully!',
                     'google_connected': 'Google Calendar connected successfully!',
                     'github_connected': 'GitHub account connected successfully!'
                 };
@@ -97,6 +179,8 @@ export default function Integrations() {
                 if (user) {
                     checkStatus('slack');
                     checkStatus('asana');
+                    checkStatus('jira');
+                    checkStatus('trello');
                     checkStatus('google');
                     checkStatus('github');
                 }
@@ -111,6 +195,25 @@ export default function Integrations() {
             alert('Only team owners and admins can manage integrations.');
             return;
         }
+
+        if (PROJECT_PLATFORMS.includes(platform) && !CONNECTABLE_PROJECT_PLATFORMS.has(platform)) {
+            alert(`${PROJECT_PLATFORM_LABELS[platform]} integration is coming soon.`);
+            return;
+        }
+
+        const connectedProjectPlatforms = PROJECT_PLATFORMS.filter((candidate) => {
+            if (candidate === 'asana') return asanaStatus.connected;
+            if (candidate === 'jira') return jiraStatus.connected;
+            if (candidate === 'trello') return trelloStatus.connected;
+            return false;
+        });
+
+        if (PROJECT_PLATFORMS.includes(platform) && connectedProjectPlatforms.length > 0 && !connectedProjectPlatforms.includes(platform)) {
+            const activePlatform = connectedProjectPlatforms[0];
+            alert(`Only one project platform can be connected at a time. Disconnect ${PROJECT_PLATFORM_LABELS[activePlatform]} first.`);
+            return;
+        }
+
         const teamId = profile?.current_team_id;
         const url = new URL(`${API_URL}/api/auth/${platform}/connect`);
         url.searchParams.append('userId', user.id);
@@ -128,6 +231,10 @@ export default function Integrations() {
             alert('Only team owners and admins can manage integrations.');
             return;
         }
+        if (PROJECT_PLATFORMS.includes(platform) && !CONNECTABLE_PROJECT_PLATFORMS.has(platform)) {
+            alert(`${PROJECT_PLATFORM_LABELS[platform]} disconnect endpoint is not wired yet.`);
+            return;
+        }
         if (!confirm(`Disconnect ${platform}?`)) return;
         try {
             const teamId = profile?.current_team_id;
@@ -142,11 +249,25 @@ export default function Integrations() {
             });
             if (res.ok) {
                 checkStatus(platform);
+                if (PROJECT_PLATFORMS.includes(platform)) {
+                    checkStatus('asana');
+                    checkStatus('jira');
+                    checkStatus('trello');
+                }
             }
         } catch (error) {
             console.error(`Failed to disconnect ${platform}:`, error);
         }
     };
+
+    const projectPlatformStatuses = {
+        jira: jiraStatus,
+        asana: asanaStatus,
+        trello: trelloStatus
+    };
+    const connectedProjectPlatforms = PROJECT_PLATFORMS.filter((platform) => projectPlatformStatuses[platform]?.connected);
+    const hasProjectPlatformConflict = connectedProjectPlatforms.length > 1;
+    const activeProjectPlatform = connectedProjectPlatforms.length === 1 ? connectedProjectPlatforms[0] : null;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
@@ -187,6 +308,19 @@ export default function Integrations() {
                             Integrations are read-only for members. Team owners/admins can connect or disconnect tools.
                         </div>
                     )}
+                    <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                        Project Management integrations are single-select: only one of Jira, Asana, or Trello can be active at once.
+                    </div>
+                    {hasProjectPlatformConflict && (
+                        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                            Multiple project platforms are currently connected ({connectedProjectPlatforms.map((platform) => PROJECT_PLATFORM_LABELS[platform]).join(', ')}). Disconnect extras to avoid inconsistent project analytics.
+                        </div>
+                    )}
+                    {activeProjectPlatform && !EXTRACTOR_READY_PROJECT_PLATFORMS.has(activeProjectPlatform) && (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                            {PROJECT_PLATFORM_LABELS[activeProjectPlatform]} is connected as your project platform. Data extraction endpoints for it are not wired yet.
+                        </div>
+                    )}
 
                     <div className="space-y-6">
                         <IntegrationCard
@@ -206,8 +340,24 @@ export default function Integrations() {
                         />
 
                         <IntegrationCard
+                            name="Jira"
+                            description="Project management platform (single active project platform)"
+                            icon="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/jira/jira-original.svg"
+                            status={jiraStatus}
+                            onConnect={() => handleConnect('jira')}
+                            onDisconnect={() => handleDisconnect('jira')}
+                            canManage={canManageIntegrations}
+                            features={[
+                                'Issue tracking',
+                                'Sprint and velocity insights',
+                                'Workload and deadline monitoring',
+                                'Project health analytics'
+                            ]}
+                        />
+
+                        <IntegrationCard
                             name="Asana"
-                            description="Track tasks and project progress with AI insights"
+                            description="Project management platform (single active project platform)"
                             icon="https://upload.wikimedia.org/wikipedia/commons/3/3b/Asana_logo.svg"
                             status={asanaStatus}
                             onConnect={() => handleConnect('asana')}
@@ -218,6 +368,22 @@ export default function Integrations() {
                                 'Task tracking & analysis',
                                 'Deadline alerts',
                                 'Team workload insights'
+                            ]}
+                        />
+
+                        <IntegrationCard
+                            name="Trello"
+                            description="Project management platform (single active project platform)"
+                            icon="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/trello/trello-plain.svg"
+                            status={trelloStatus}
+                            onConnect={() => handleConnect('trello')}
+                            onDisconnect={() => handleDisconnect('trello')}
+                            canManage={canManageIntegrations}
+                            features={[
+                                'Board and card tracking',
+                                'Due-date risk detection',
+                                'Team workload visibility',
+                                'Cross-board project insights'
                             ]}
                         />
 
@@ -259,7 +425,7 @@ export default function Integrations() {
     );
 }
 
-function IntegrationCard({ name, description, icon, status, onConnect, onDisconnect, features, canManage }) {
+function IntegrationCard({ name, description, icon, status, onConnect, onDisconnect, features, canManage, comingSoon = false }) {
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6 hover:shadow-md transition">
             <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-4">
@@ -274,10 +440,6 @@ function IntegrationCard({ name, description, icon, status, onConnect, onDisconn
                 <div className="flex items-center gap-3">
                     {status.loading ? (
                         <Loader className="animate-spin text-gray-400" size={20} />
-                    ) : status.comingSoon ? (
-                        <span className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium">
-                            Coming Soon
-                        </span>
                     ) : status.connected ? (
                         <>
                             <div className="flex items-center gap-2 text-green-600">
@@ -297,6 +459,10 @@ function IntegrationCard({ name, description, icon, status, onConnect, onDisconn
                                 </span>
                             )}
                         </>
+                    ) : comingSoon ? (
+                        <span className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium">
+                            Coming Soon
+                        </span>
                     ) : (
                         canManage ? (
                             <button
