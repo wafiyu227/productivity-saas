@@ -66,6 +66,9 @@ export const db = {
     if (!tokens?.accessToken) {
       throw new Error('saveIntegration requires accessToken');
     }
+    if (scope === 'team' && !tokens?.teamId) {
+      throw new Error('saveIntegration requires teamId for team-scoped integrations');
+    }
 
     const integrationData = {
       user_id: userId,
@@ -84,24 +87,58 @@ export const db = {
     if (tokens.teamName !== undefined) integrationData.team_name = tokens.teamName;
 
     // Add team_id only for team-scoped integrations
-    if (scope === 'team' && tokens.teamId !== undefined) {
+    if (scope === 'team') {
       integrationData.team_id = tokens.teamId;
     }
 
     console.log('Saving integration:', integrationData);
 
-    // Use the composite unique constraint: (user_id, platform, scope)
+    let existingQuery = supabase
+      .from('integrations')
+      .select('id')
+      .eq('platform', platform)
+      .eq('scope', scope);
+
+    if (scope === 'team') {
+      existingQuery = existingQuery.eq('team_id', tokens.teamId);
+    } else {
+      existingQuery = existingQuery.eq('user_id', userId);
+    }
+
+    const { data: existing, error: existingError } = await existingQuery
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingError && existingError.code !== 'PGRST116') {
+      console.error('Integration lookup error:', existingError);
+      throw existingError;
+    }
+
+    if (existing?.id) {
+      const { data, error } = await supabase
+        .from('integrations')
+        .update(integrationData)
+        .eq('id', existing.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Integration update error:', error);
+        throw error;
+      }
+
+      return data;
+    }
+
     const { data, error } = await supabase
       .from('integrations')
-      .upsert(integrationData, {
-        onConflict: 'user_id,platform,scope',
-        ignoreDuplicates: false
-      })
+      .insert(integrationData)
       .select()
       .single();
 
     if (error) {
-      console.error('Integration save error:', error);
+      console.error('Integration insert error:', error);
       throw error;
     }
 
@@ -376,10 +413,44 @@ export const db = {
   },
 
   async deleteUserAccount(userId) {
+    // Delete all user-related data in cascade order to avoid foreign key issues
+    
+    // 1. Delete user integrations and settings
     await supabase.from('integrations').delete().eq('user_id', userId);
     await supabase.from('user_settings').delete().eq('user_id', userId);
+
+    // 2. Delete user data from meetings, summaries, and analytics
+    await supabase.from('slack_summaries').delete().eq('user_id', userId);
+    
+    // 3. Delete blockers and other user-generated content
+    const { data: userBlockers } = await supabase
+      .from('blockers')
+      .select('id')
+      .eq('user_id', userId);
+    
+    if (userBlockers && userBlockers.length > 0) {
+      const blockerIds = userBlockers.map(b => b.id);
+      await supabase.from('blockers').delete().in('id', blockerIds);
+    }
+
+    // 4. Remove user from team memberships
+    const { data: teamMemberships } = await supabase
+      .from('team_members')
+      .select('team_id')
+      .eq('user_id', userId);
+    
+    if (teamMemberships && teamMemberships.length > 0) {
+      await supabase.from('team_members').delete().eq('user_id', userId);
+    }
+
+    // 5. Delete team invitations (sent by or to this user)
+    await supabase.from('team_invitations').delete().eq('invited_by', userId);
+    await supabase.from('team_invitations').delete().eq('user_id', userId);
+
+    // 6. Delete user profile
     await supabase.from('profiles').delete().eq('id', userId);
 
+    // 7. Delete Supabase auth user (must be last)
     const { error } = await supabase.auth.admin.deleteUser(userId);
     if (error) throw error;
 

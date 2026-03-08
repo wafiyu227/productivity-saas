@@ -22,7 +22,7 @@ async function testResend() {
         console.log('📧 Sending test email...');
 
         const { data, error } = await resend.emails.send({
-            from: 'Teama AI <onboarding@resend.dev>', // ✅ Resend's test domain
+            from: 'Teama AI <noreply@mail.teamaai.xyz>', // ✅ Custom verified domain
             to: ['ibrahimwafiyudeen@gmail.com'], // ❌ REPLACE WITH YOUR EMAIL!
             subject: 'Test Email from Teama AI',
             html: `

@@ -3,6 +3,7 @@ import asanaService from '../services/asana-service.js';
 import aiProcessor from '../services/ai-processor.js';
 import { db } from '../services/supabase-client.js';
 import logger from '../utils/logger.js';
+import { buildProjectInsightsFromTasks, mergeProjectInsights } from '../utils/project-insights.js';
 
 const router = express.Router();
 
@@ -117,12 +118,28 @@ router.get('/projects/:projectId/health', async (req, res) => {
         // Calculate health metrics
         const health = asanaService.calculateProjectHealth(tasks);
 
-        // Get AI analysis
-        const aiAnalysis = await aiProcessor.analyzeAsanaTasks(tasks, 'Project');
+        const projectName = tasks?.[0]?.project?.name || 'Project';
+        const dataInsights = buildProjectInsightsFromTasks(tasks, health, {
+            platformLabel: 'Asana',
+            projectName
+        });
+
+        let aiResponse = null;
+        try {
+            aiResponse = await aiProcessor.analyzeAsanaTasks(tasks, projectName);
+        } catch (analysisError) {
+            logger.warn('Asana AI analysis failed, falling back to data-derived insights', {
+                projectId,
+                error: analysisError.message
+            });
+        }
+
+        const aiInsights = mergeProjectInsights(dataInsights, aiResponse);
 
         res.json({
             health,
-            aiAnalysis,
+            aiAnalysis: aiInsights.summary,
+            aiInsights,
             tasks: tasks.slice(0, 10) // Return first 10 tasks
         });
     } catch (error) {

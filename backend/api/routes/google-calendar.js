@@ -38,15 +38,89 @@ function buildGoogleTokenUpdate(integration, newTokens) {
     };
 }
 
-// Helper to handle token refresh on error
+/**
+ * Check if token is near expiration
+ * In test mode, we're more conservative (5 min buffer)
+ * In production, we use 10 min buffer
+ */
+function isTokenNearExpiration(expiresAt) {
+    if (!expiresAt) return false;
+    
+    const bufferMs = process.env.NODE_ENV === 'production' ? 10 * 60 * 1000 : 5 * 60 * 1000;
+    const expirationTime = new Date(expiresAt).getTime();
+    const currentTime = Date.now();
+    
+    return currentTime + bufferMs > expirationTime;
+}
+
+/**
+ * Proactively refresh token if near expiration
+ */
+async function proactiveTokenRefresh(userId, teamId, integration) {
+    if (!integration || !integration.refresh_token) {
+        return integration;
+    }
+
+    if (!isTokenNearExpiration(integration.expires_at)) {
+        return integration;
+    }
+
+    try {
+        logger.info('Proactively refreshing Google token (near expiration)', { userId });
+        const newTokens = await googleCalendarService.refreshAccessToken(integration.refresh_token);
+
+        const updatedIntegration = {
+            ...integration,
+            ...buildGoogleTokenUpdate(integration, newTokens)
+        };
+
+        await db.saveIntegration(
+            userId,
+            'google_calendar',
+            buildGoogleTokenUpdate(integration, newTokens),
+            integration.scope || 'team'
+        );
+
+        return updatedIntegration;
+    } catch (refreshError) {
+        const isInvalidGrant = refreshError?.code === 'invalid_grant';
+        
+        if (isInvalidGrant) {
+            logger.warn('Refresh token invalid, disconnecting integration', { userId });
+            const deleteTeamId = integration?.scope === 'team'
+                ? (integration.team_id || teamId || null)
+                : null;
+            await disconnectInvalidGoogleIntegration(userId, integration, teamId);
+            return null;
+        }
+
+        logger.warn('Proactive token refresh failed, will retry on API call', {
+            userId,
+            error: refreshError.message
+        });
+        return integration;
+    }
+}
+
+// Helper to handle token refresh on error and proactive refresh
 async function handleServiceCall(userId, teamId, serviceCall) {
-    const integration = await db.getIntegration(userId, 'google_calendar', teamId);
+    let integration = await db.getIntegration(userId, 'google_calendar', teamId);
 
     if (!integration) {
         const error = new Error('Google Calendar not connected');
         error.status = 401;
         throw error;
     }
+
+    // Proactively refresh token if near expiration
+    const refreshedIntegration = await proactiveTokenRefresh(userId, teamId, integration);
+    if (refreshedIntegration === null) {
+        const error = new Error('Google Calendar authorization expired. Please reconnect from Integrations.');
+        error.status = 401;
+        error.needsReauth = true;
+        throw error;
+    }
+    integration = refreshedIntegration || integration;
 
     try {
         return await serviceCall(integration.access_token);

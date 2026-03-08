@@ -10,6 +10,8 @@ import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
 import blockersRoutes from './routes/blockers.js';
 import asanaRoutes from './routes/asana.js';
+import jiraRoutes from './routes/jira.js';
+import trelloRoutes from './routes/trello.js';
 import googleCalendarRouter from './routes/google-calendar.js';
 import githubRoutes from './routes/github.js';
 import userRoutes from './routes/user.js';
@@ -84,6 +86,8 @@ app.get('/', (req, res) => {
       auth: '/api/auth',
       blockers: '/api/blockers',
       asana: '/api/asana',
+      jira: '/api/jira',
+      trello: '/api/trello',
       summaries: '/api/summaries',
       googleCalendar: '/api/google-calendar',
       user: '/api/user',
@@ -103,6 +107,8 @@ app.use('/api/slack', slackRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/blockers', blockersRoutes);
 app.use('/api/asana', asanaRoutes);
+app.use('/api/jira', jiraRoutes);
+app.use('/api/trello', trelloRoutes);
 app.use('/api/google-calendar', googleCalendarRouter);
 app.use('/api/github', githubRoutes);
 app.use('/api/user', userRoutes);

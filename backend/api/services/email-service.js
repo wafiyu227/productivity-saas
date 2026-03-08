@@ -1,22 +1,28 @@
-// FIXED: backend/services/email-service.js
-// Replace your entire email-service.js with this
-
 import { Resend } from 'resend';
 import 'dotenv/config';
 import logger from '../utils/logger.js';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://productivity-saas-frontend.vercel.app';
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Teama AI <onboarding@resend.dev>';
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://teamaai.xyz';
 
 class EmailService {
   constructor() {
-    // ✅ FIX: Use Resend's test domain until you verify your custom domain
-    // Change to 'Teama AI <noreply@teama.ai>' after domain verification
-    this.fromEmail = 'Teama AI <onboarding@resend.dev>';
+    // ✅ VERIFIED: Custom domain verified at Resend
+    this.fromEmail = RESEND_FROM_EMAIL;
+  }
+
+  ensureResendConfigured() {
+    if (!resend) {
+      throw new Error('RESEND_API_KEY is not configured');
+    }
   }
 
   async sendTeamInvitation(invitation, teamName, inviterName) {
     try {
+      this.ensureResendConfigured();
+
       logger.info('Attempting to send invitation email', {
         to: invitation.email,
         teamName,
@@ -57,6 +63,8 @@ class EmailService {
 
   async sendWelcomeEmail(userEmail, userName, teamName) {
     try {
+      this.ensureResendConfigured();
+
       logger.info('Sending welcome email', { userEmail, userName, teamName });
 
       const { data, error } = await resend.emails.send({
@@ -81,6 +89,8 @@ class EmailService {
 
   async sendDailyDigest(userEmail, summaries) {
     try {
+      this.ensureResendConfigured();
+
       const { data, error } = await resend.emails.send({
         from: this.fromEmail,
         to: [userEmail],
@@ -98,6 +108,8 @@ class EmailService {
 
   async sendWaitlistWelcome(email, name, position) {
   try {
+    this.ensureResendConfigured();
+
     logger.info('Sending waitlist welcome email', { email, position });
 
     const { data, error } = await resend.emails.send({
@@ -454,7 +466,7 @@ class EmailService {
             </div>
             
             <div style="text-align: center; margin-top: 30px;">
-              <a href="https://productivity-saas-frontend.vercel.app" class="button">
+              <a href="https://teamaai.xyz" class="button">
                 Learn More About Teama AI
               </a>
             </div>
