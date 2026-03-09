@@ -32,7 +32,7 @@ import Waitlist from './pages/Waitlist';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
-  
+
   // ✅ FIX: Wait for auth state to load before checking user
   // This prevents premature redirect to /login during OAuth callback processing
   if (loading) {
@@ -45,11 +45,12 @@ function ProtectedRoute({ children }) {
       </div>
     );
   }
-  
+
   return user ? children : <Navigate to="/login" />;
 }
 
 function LandingRoute() {
+  const { user, loading } = useAuth();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
@@ -63,7 +64,28 @@ function LandingRoute() {
     || hashParams.has('error_description');
 
   if (hasOAuthParams) {
-    return <Navigate to={`/auth/callback${location.search}${location.hash}`} replace />;
+    // Forward to /auth/callback, preserving all params
+    // Build query string with next/plan if available from hash or search
+    const next = searchParams.get('next') || hashParams.get('next') || '';
+    const plan = searchParams.get('plan') || hashParams.get('plan') || '';
+
+    let callbackUrl = `/auth/callback${location.search}${location.hash}`;
+
+    // If we only have hash params (like implicit flow), ensure we still route correctly
+    if (!searchParams.has('code') && hashParams.has('access_token')) {
+      const newSearch = new URLSearchParams();
+      if (next) newSearch.set('next', next);
+      if (plan) newSearch.set('plan', plan);
+      const qs = newSearch.toString();
+      callbackUrl = `/auth/callback${qs ? '?' + qs : ''}${location.hash}`;
+    }
+
+    return <Navigate to={callbackUrl} replace />;
+  }
+
+  // ✅ New Logic: If user is already logged in and hits landing page, send them to app
+  if (!loading && user) {
+    return <Navigate to="/app" replace />;
   }
 
   return <Landing />;

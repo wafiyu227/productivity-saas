@@ -48,7 +48,7 @@ const SOURCE_META = {
         openLabel: 'Open Source'
     },
     asana: {
-        label: 'Project Platform',
+        label: 'Asana',
         icon: Target,
         chipClass: 'bg-orange-100 text-orange-700',
         activeClass: 'bg-orange-600 text-white',
