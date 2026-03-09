@@ -22,6 +22,7 @@ async function getValidAccessToken(integration, userId) {
             await db.saveIntegration(userId, 'asana', {
                 accessToken: newTokens.accessToken,
                 refreshToken: newTokens.refreshToken,
+                teamId: integration.team_id,
                 workspaceId: integration.workspace_id,
                 workspaceName: integration.workspace_name
             });
@@ -71,6 +72,7 @@ router.get('/projects', async (req, res) => {
                 await db.saveIntegration(userId, 'asana', {
                     accessToken: newTokens.accessToken,
                     refreshToken: newTokens.refreshToken,
+                    teamId: integration.team_id,
                     workspaceId: integration.workspace_id,
                     workspaceName: integration.workspace_name
                 });
@@ -182,6 +184,7 @@ router.get('/workload', async (req, res) => {
                 await db.saveIntegration(userId, 'asana', {
                     accessToken: newTokens.accessToken,
                     refreshToken: newTokens.refreshToken,
+                    teamId: integration.team_id,
                     workspaceId: integration.workspace_id,
                     workspaceName: integration.workspace_name
                 });
@@ -286,6 +289,7 @@ router.get('/deadlines', async (req, res) => {
                 await db.saveIntegration(userId, 'asana', {
                     accessToken: newTokens.accessToken,
                     refreshToken: newTokens.refreshToken,
+                    teamId: integration.team_id,
                     workspaceId: integration.workspace_id,
                     workspaceName: integration.workspace_name
                 });
@@ -337,6 +341,7 @@ router.get('/tasks', async (req, res) => {
                 await db.saveIntegration(userId, 'asana', {
                     accessToken: newTokens.accessToken,
                     refreshToken: newTokens.refreshToken,
+                    teamId: integration.team_id,
                     workspaceId: integration.workspace_id,
                     workspaceName: integration.workspace_name
                 });

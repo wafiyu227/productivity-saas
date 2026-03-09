@@ -49,6 +49,27 @@ router.put('/me', async (req, res) => {
     }
 });
 
+// Check if a user with a given email exists (used by Google OAuth signin flow)
+router.get('/check-email', async (req, res) => {
+    const { email } = req.query;
+
+    if (!email) {
+        return res.status(400).json({ error: 'email required' });
+    }
+
+    try {
+        const profile = await db.getProfileByEmail(email);
+        if (profile) {
+            res.json({ exists: true, email, userId: profile.id });
+        } else {
+            res.status(404).json({ exists: false, email });
+        }
+    } catch (error) {
+        logger.error('Check email error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Legacy routes for backward compatibility (optional, but good for transition)
 router.get('/profile', async (req, res) => {
     const { userId } = req.query;
@@ -66,36 +87,6 @@ router.put('/profile', async (req, res) => {
         const profile = await db.updateProfile(userId, profileData);
         res.json(profile);
     } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// ✅ NEW: Check if a user exists by email (for OAuth signin validation)
-router.get('/check-email', async (req, res) => {
-    const { email } = req.query;
-
-    if (!email) {
-        return res.status(400).json({ error: 'email required' });
-    }
-
-    try {
-        const { data, error } = await db.supabase
-            .from('profiles')
-            .select('id, email, full_name')
-            .eq('email', email.toLowerCase())
-            .single();
-
-        if (error) {
-            if (error.code === 'PGRST116') {
-                // User not found
-                return res.status(404).json({ exists: false, email });
-            }
-            throw error;
-        }
-
-        res.json({ exists: true, email, userId: data?.id });
-    } catch (error) {
-        logger.error('Check email error:', error);
         res.status(500).json({ error: error.message });
     }
 });

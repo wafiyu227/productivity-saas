@@ -214,6 +214,17 @@ export const db = {
     return data;
   },
 
+  async getProfileByEmail(email) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  },
+
   async getUserTeams(userId) {
     const { data, error } = await supabase
       .from('team_members')
@@ -414,20 +425,20 @@ export const db = {
 
   async deleteUserAccount(userId) {
     // Delete all user-related data in cascade order to avoid foreign key issues
-    
+
     // 1. Delete user integrations and settings
     await supabase.from('integrations').delete().eq('user_id', userId);
     await supabase.from('user_settings').delete().eq('user_id', userId);
 
     // 2. Delete user data from meetings, summaries, and analytics
     await supabase.from('slack_summaries').delete().eq('user_id', userId);
-    
+
     // 3. Delete blockers and other user-generated content
     const { data: userBlockers } = await supabase
       .from('blockers')
       .select('id')
       .eq('user_id', userId);
-    
+
     if (userBlockers && userBlockers.length > 0) {
       const blockerIds = userBlockers.map(b => b.id);
       await supabase.from('blockers').delete().in('id', blockerIds);
@@ -438,7 +449,7 @@ export const db = {
       .from('team_members')
       .select('team_id')
       .eq('user_id', userId);
-    
+
     if (teamMemberships && teamMemberships.length > 0) {
       await supabase.from('team_members').delete().eq('user_id', userId);
     }
