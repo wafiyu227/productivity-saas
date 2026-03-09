@@ -12,6 +12,11 @@ router.get('/me', async (req, res) => {
         return res.status(400).json({ error: 'userId required' });
     }
 
+    // Prevent browser/CDN from caching profile responses — stale data causes
+    // incorrect new-vs-returning user detection in the OAuth callback flow
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+
     try {
         const profile = await db.getProfile(userId);
 
@@ -70,7 +75,7 @@ router.get('/check-email', async (req, res) => {
     }
 });
 
-// Legacy routes for backward compatibility (optional, but good for transition)
+// Legacy routes for backward compatibility
 router.get('/profile', async (req, res) => {
     const { userId } = req.query;
     try {
