@@ -142,6 +142,16 @@ router.post('/summarize', express.json(), async (req, res) => {
       time_period_end: new Date().toISOString()
     });
 
+    // Native Database Notification Check Trigger
+    if (aiAnalysis.blockers && aiAnalysis.blockers.length > 0) {
+      try {
+        const { default: slackService } = await import('../services/slack-service.js');
+        await slackService.sendBlockerAlert(userId, channelId, aiAnalysis.blockers, integration.access_token);
+      } catch (alertError) {
+        logger.error('Failed to process blocker alert:', alertError);
+      }
+    }
+
     res.json(savedSummary);
 
   } catch (error) {

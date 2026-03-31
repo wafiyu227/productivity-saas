@@ -236,6 +236,27 @@ export const db = {
     return data || [];
   },
 
+  async getUserSettings(userId) {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching user settings:', error);
+      return null;
+    }
+
+    // Default settings if none found
+    return data || {
+      email_notifications: true,
+      slack_notifications: true,
+      blocker_alerts: false,
+      daily_digest: false
+    };
+  },
+
   async upsertProfile(userId, profileData) {
     const { data, error } = await supabase
       .from('profiles')

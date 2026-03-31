@@ -193,8 +193,13 @@ router.post('/initialize', async (req, res) => {
             metadata.plan_name = normalizedPlanName;
         }
 
+        const amount = String(planName).toLowerCase() === 'growth'
+            ? process.env.PAYSTACK_GROWTH_AMOUNT
+            : (String(planName).toLowerCase() === 'starter' ? process.env.PAYSTACK_STARTER_AMOUNT : null);
+
         const transaction = await paystackService.initializeTransaction({
             email,
+            amount, // Added mandatory amount for GHS accounts
             plan, // This should be the PLN_... code
             callback_url,
             metadata

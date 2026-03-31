@@ -8,6 +8,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import slackRoutes from './routes/slack.js';
 import authRoutes from './routes/auth.js';
+import contactRoutes from './routes/contact.js';
 import blockersRoutes from './routes/blockers.js';
 import asanaRoutes from './routes/asana.js';
 import jiraRoutes from './routes/jira.js';
@@ -20,6 +21,7 @@ import invitationsRoutes from './routes/invitations.js';
 import emailRoutes from './routes/email.js';
 import logger from './utils/logger.js';
 import waitlistRoutes from './routes/waitlist.js';
+import webhooksRoutes from './routes/webhooks.js';
 import { db } from './services/supabase-client.js';
 import { requireTeamAdmin, requireTeamMember } from './utils/team-permissions.js';
 
@@ -50,8 +52,8 @@ app.use(compression());
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  // Skip rate limiting for Paystack webhooks
-  skip: (req) => req.originalUrl === '/api/paystack/webhook'
+  // Skip rate limiting for webhooks
+  skip: (req) => req.originalUrl.startsWith('/webhooks')
 });
 app.use('/api/', limiter);
 
@@ -94,13 +96,18 @@ app.get('/', (req, res) => {
       teams: '/api/teams',
       invitations: '/api/invitations',
       email: '/api/email',
-      paystack: '/api/paystack'
+      paddle: '/api/paddle',
+      webhooks: '/webhooks',
+      contact: '/api/contact'
     }
   });
 });
 
-// Import Paystack Routes
-import paystackRoutes from './routes/paystack.js';
+// Import Paddle Routes
+import paddleRoutes from './routes/paddle.js';
+
+import messagesRoutes from './routes/messages.js';
+import debugInsertRoutes from './routes/debug-insert.js';
 
 // API Routes
 app.use('/api/slack', slackRoutes);
@@ -115,14 +122,18 @@ app.use('/api/user', userRoutes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/messages', messagesRoutes);
+app.use('/api/debug-insert', debugInsertRoutes);
 app.use('/api/waitlist', waitlistRoutes);
-app.use('/api/paystack', paystackRoutes);
+app.use('/api/paddle', paddleRoutes);
+app.use('/webhooks', webhooksRoutes);
+app.use('/api/contact', contactRoutes);
 
 // Summaries endpoint
 app.get('/api/summaries', async (req, res) => {
   try {
-    const { userId, teamId } = req.query;
-    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const { limit: requestedLimitStr, userId, teamId } = req.query;
+    const requestedLimit = parseInt(requestedLimitStr, 10);
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
       ? Math.min(requestedLimit, 500)
       : 100;

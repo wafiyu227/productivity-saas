@@ -31,9 +31,11 @@ export const initializeTransaction = async ({ email, amount, plan, callback_url,
 
         if (plan) {
             body.plan = plan;
-            // Paystack requires amount even with a plan — use plan amount or a fallback
-            // The plan's configured amount will be used at checkout regardless
-            body.amount = amount || 500; // Minimum valid amount in pesewas/kobo
+            // Paystack docs: "If you are using a plan, this amount will override the plan amount. 
+            // If you want to use the plan amount, do not send the amount field."
+            if (amount) {
+                body.amount = amount;
+            }
         } else if (amount) {
             body.amount = amount;
         } else {
@@ -52,7 +54,12 @@ export const initializeTransaction = async ({ email, amount, plan, callback_url,
         const data = await response.json();
 
         if (!response.ok || !data.status) {
-            throw new Error(data.message || 'Failed to initialize Paystack transaction');
+            logger.error('Paystack API Error Details:', {
+                status: response.status,
+                statusText: response.statusText,
+                data
+            });
+            throw new Error(data.message || `Failed to initialize Paystack transaction (Status: ${response.status})`);
         }
 
         return data.data; // contains authorization_url, access_code, reference

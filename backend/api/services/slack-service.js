@@ -102,6 +102,55 @@ class SlackService {
     const oldest = Math.floor((Date.now() - hours * 60 * 60 * 1000) / 1000);
     return this.getChannelMessages(channelId, { oldest: oldest.toString() }, accessToken);
   }
+
+  async sendBlockerAlert(userId, channelId, blockers, accessToken = null) {
+    // Native Database Check
+    const { db } = await import('./supabase-client.js');
+    const settings = await db.getUserSettings(userId);
+    
+    if (!settings || !settings.slack_notifications || !settings.blocker_alerts) {
+      logger.info('Slack blocker alert skipped due to user settings', { userId });
+      return { success: true, skipped: true, reason: 'user_preferences' };
+    }
+
+    const token = accessToken || SLACK_BOT_TOKEN;
+    if (!token) {
+      logger.warn('Slack not configured - no access token available for blocker alert');
+      return { success: false, error: 'No Slack token' };
+    }
+
+    const client = new WebClient(token);
+
+    const blocks = [
+      {
+        "type": "header",
+        "text": {
+          "type": "plain_text",
+          "text": "🚨 New Blockers Detected",
+          "emoji": true
+        }
+      },
+      ...blockers.map(b => ({
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": `• ${b}`
+        }
+      }))
+    ];
+
+    try {
+      const result = await client.chat.postMessage({
+        channel: channelId,
+        blocks: blocks,
+        text: "New blockers detected in recent summary." // Fallback text
+      });
+      return { success: true, messageId: result.ts };
+    } catch (error) {
+      logger.error('Failed to send Slack blocker alert:', error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 export default new SlackService();

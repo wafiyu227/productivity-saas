@@ -1,0 +1,11 @@
+{
+  "from": "tester@gmail.com",
+  "to": ["team@mail.teamaai.xyz"],
+  "subject": "Webhook Test Email",
+  "text": "This is a test body from the webhook",
+  "html": "<p>This is a test body from the webhook</p>",
+  "message_id": "msg_test_webhook_123",
+  "headers": {
+    "Message-ID": "<test123@example.com>"
+  }
+}

@@ -40,7 +40,7 @@ router.post('/daily-digest', express.json(), async (req, res) => {
     const profileTeamId = profile?.current_team_id || profile?.team_id || null;
     const effectiveTeamId = teamId || profileTeamId;
     const summaries = await db.getSummaries(effectiveTeamId, userId, 10);
-    const result = await emailService.sendDailyDigest(profile.email, summaries || []);
+    const result = await emailService.sendDailyDigest(userId, profile.email, summaries || []);
 
     if (!result.success) {
       return res.status(500).json({ error: result.error || 'Failed to send digest email' });
