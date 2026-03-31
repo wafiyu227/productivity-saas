@@ -1,5 +1,7 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Users, Target, Zap, Heart, Linkedin, Twitter } from 'lucide-react';
+import SEO from '../../components/common/SEO';
 
 const About = () => {
     const values = [
@@ -36,6 +38,10 @@ const About = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+            <SEO 
+                title="About Us" 
+                description="Learn about Teama AI and our mission to supercharge remote productivity using ethical artificial intelligence."
+            />
             {/* Hero Section */}
             <div className="bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700 text-white">
                 <div className="max-w-6xl mx-auto px-8 py-24">
@@ -163,12 +169,12 @@ const About = () => {
                         Be among the first teams to experience AI-powered clarity.
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <a href="/signup" className="bg-white text-purple-600 px-8 py-3 rounded-lg font-semibold hover:shadow-xl transition-shadow">
+                        <Link to="/signup" className="bg-white text-purple-600 px-8 py-3 rounded-lg font-semibold hover:shadow-xl transition-shadow">
                             Get Started
-                        </a>
-                        <a href="/contact" className="bg-purple-500/30 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-500/50 transition-colors">
+                        </Link>
+                        <Link to="/contact" className="bg-purple-500/30 backdrop-blur-sm border-2 border-white/20 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-500/50 transition-colors">
                             Get in Touch
-                        </a>
+                        </Link>
                     </div>
                 </div>
             </div>

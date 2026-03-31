@@ -1,5 +1,6 @@
 import React from 'react';
 import { FileText, AlertCircle, CheckCircle, XCircle, Scale } from 'lucide-react';
+import SEO from '../../components/common/SEO';
 
 const Terms = () => {
     const lastUpdated = "February 15, 2026";
@@ -126,11 +127,11 @@ const Terms = () => {
                 },
                 {
                     subtitle: "Refunds",
-                    text: "Fees are non-refundable except as required by law or as stated in our refund policy."
+                    text: "We offer a full, unconditional 14-day money-back guarantee on all paid plans. If you are not satisfied for any reason, you may request a full refund within 14 days of any charge — no questions asked, no conditions. See our full Refund Policy at /refund-policy for details."
                 },
                 {
                     subtitle: "Cancellation",
-                    text: "You may cancel your subscription at any time. Cancellation takes effect at the end of the current billing period. You will retain access until that time. No refunds for partial periods."
+                    text: "You may cancel your subscription at any time. Cancellation takes effect at the end of the current billing period. You will retain access until that time. If you cancel within 14 days of your most recent charge, you are also entitled to a full refund."
                 },
                 {
                     subtitle: "Overdue Payments",
@@ -254,7 +255,7 @@ const Terms = () => {
             content: [
                 {
                     subtitle: "Informal Resolution",
-                    text: "Before filing any legal claim, you agree to contact us at legal@teama.ai to resolve the dispute informally. We commit to good-faith efforts to resolve disputes within 60 days."
+                    text: "Before filing any legal claim, you agree to contact us at team@mail.teamaai.xyz to resolve the dispute informally. We commit to good-faith efforts to resolve disputes within 60 days."
                 },
                 {
                     subtitle: "Arbitration",
@@ -313,6 +314,10 @@ const Terms = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+            <SEO 
+                title="Terms of Service" 
+                description="The legal terms and conditions for using Teama AI. Please read carefully."
+            />
             {/* Hero Section */}
             <div className="bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700 text-white">
                 <div className="max-w-6xl mx-auto px-8 py-20">
@@ -365,10 +370,10 @@ const Terms = () => {
                                     Contact our legal team
                                 </p>
                                 <a
-                                    href="mailto:legal@teama.ai"
+                                    href="mailto:team@mail.teamaai.xyz"
                                     className="text-purple-600 font-semibold hover:text-purple-700 text-sm"
                                 >
-                                    legal@teama.ai →
+                                    team@mail.teamaai.xyz →
                                 </a>
                             </div>
 
@@ -378,7 +383,7 @@ const Terms = () => {
                                 <ul className="space-y-3 text-sm text-slate-600">
                                     <li className="flex items-start gap-2">
                                         <span className="text-blue-600 mt-1">•</span>
-                                        <span>Refund terms are covered by our refund policy</span>
+                                        <span>14-day unconditional refund guarantee (<a href="/refund-policy" className="text-purple-600 hover:underline">view full policy</a>)</span>
                                     </li>
                                     <li className="flex items-start gap-2">
                                         <span className="text-blue-600 mt-1">•</span>
@@ -455,7 +460,7 @@ const Terms = () => {
                                 If you have questions about these Terms of Service, please contact us:
                             </p>
                             <div className="space-y-2 text-slate-700">
-                                <p className="font-medium">Email: <a href="mailto:legal@teama.ai" className="text-purple-600 hover:underline">legal@teama.ai</a></p>
+                                <p className="font-medium">Email: <a href="mailto:team@mail.teamaai.xyz" className="text-purple-600 hover:underline">team@mail.teamaai.xyz</a></p>
                                 <p className="font-medium">Mail: Teama AI, Inc. - Legal Department</p>
                                 <p className="text-sm text-slate-600">123 Market Street, Suite 400</p>
                                 <p className="text-sm text-slate-600">San Francisco, CA 94103</p>

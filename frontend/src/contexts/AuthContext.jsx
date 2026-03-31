@@ -1,41 +1,78 @@
 // src/contexts/AuthContext.jsx
-// Redirects are suppressed while AuthCallback is processing (authCallbackState.isProcessing).
-// This eliminates the race condition where onAuthStateChange fired mid-OAuth and
-// redirected before AuthCallback could determine new-vs-returning user status.
-
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { setCurrentUser } from '../api/client';
 import { authCallbackState } from '../lib/authCallbackState';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+
+const PROFILE_CACHE_KEY = 'teamaai_cached_profile';
 
 const AuthContext = createContext({});
 export const useAuth = () => useContext(AuthContext);
+
+/** Read cached profile from localStorage (returns null if missing/corrupt). */
+function loadCachedProfile() {
+    try {
+        const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && parsed.userId) return parsed;
+        }
+    } catch { /* ignore */ }
+    return null;
+}
+
+/** Persist profile to localStorage. */
+function saveCachedProfile(profile) {
+    try {
+        if (profile && profile.userId) {
+            localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
+        }
+    } catch { /* ignore — quota exceeded, private mode, etc. */ }
+}
+
+/** Clear the cached profile (e.g. on sign-out). */
+function clearCachedProfile() {
+    try { localStorage.removeItem(PROFILE_CACHE_KEY); } catch { /* ignore */ }
+}
 
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isOffline, setIsOffline] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
+    const { isOnline } = useNetworkStatus();
 
-    // Pages that should NEVER trigger an auto-redirect
-    const REDIRECT_BLOCKED_PATHS = new Set([
-        '/auth/callback',
-        '/join',
-    ]);
+    // Sync network status into context-level flag
+    useEffect(() => {
+        setIsOffline(!isOnline);
+    }, [isOnline]);
 
-    const isRedirectBlocked = () =>
-        REDIRECT_BLOCKED_PATHS.has(location.pathname) ||
-        authCallbackState.isProcessing; // ← key addition
+    const REDIRECT_BLOCKED_PATHS = new Set(['/auth/callback', '/join']);
 
-    // ── Redirect helpers ────────────────────────────────────────────────────────
+    const isRedirectBlocked = () => {
+        const searchParams = new URLSearchParams(location.search);
+        const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+        const hasOAuthParams =
+            searchParams.has('code') ||
+            searchParams.has('error') ||
+            hashParams.has('access_token') ||
+            hashParams.has('error');
+
+        return (
+            REDIRECT_BLOCKED_PATHS.has(location.pathname) ||
+            authCallbackState.isProcessing ||
+            hasOAuthParams
+        );
+    };
 
     const redirectToDashboard = (profileData = profile) => {
         if (isRedirectBlocked()) return;
         const currentPath = window.location.pathname;
-        const isPublicPage = ['/', '/login', '/signup'].includes(currentPath);
-        if (!isPublicPage) return;
+        if (!['/', '/login', '/signup'].includes(currentPath)) return;
 
         if (profileData?.userId && (profileData.current_team_id || profileData.teams?.length > 0)) {
             navigate('/app/dashboard', { replace: true });
@@ -51,30 +88,25 @@ export function AuthProvider({ children }) {
         navigate('/onboarding/team-setup', { replace: true });
     };
 
-    // ── Profile helpers ─────────────────────────────────────────────────────────
-
     const ensureProfileFromAuth = async (userId, sessionUser = null) => {
         const authUser = sessionUser || user;
-        const fallbackName = authUser?.email?.split('@')?.[0] || null;
-
-        const { error: upsertError } = await supabase
+        const { error } = await supabase
             .from('profiles')
             .upsert(
                 {
                     id: userId,
                     email: authUser?.email || null,
-                    full_name: authUser?.user_metadata?.full_name ||
+                    full_name:
+                        authUser?.user_metadata?.full_name ||
                         authUser?.user_metadata?.name ||
-                        fallbackName,
+                        authUser?.email?.split('@')?.[0] ||
+                        null,
                     updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'id' }
             );
-
-        if (upsertError) throw upsertError;
+        if (error) throw error;
     };
-
-    // ── Bootstrap ───────────────────────────────────────────────────────────────
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -85,6 +117,11 @@ export function AuthProvider({ children }) {
             if (currentUser && !isRedirectBlocked()) {
                 fetchProfile(currentUser.id);
             } else {
+                // No session — try to hydrate from cache so we don't flash-redirect
+                if (!currentUser) {
+                    const cached = loadCachedProfile();
+                    if (cached) setProfile(cached);
+                }
                 setLoading(false);
             }
         });
@@ -98,18 +135,15 @@ export function AuthProvider({ children }) {
                 fetchProfile(currentUser.id);
             } else if (!currentUser) {
                 setProfile(null);
+                clearCachedProfile();
                 setLoading(false);
             } else {
-                // Callback is processing — don't touch loading/profile here
                 setLoading(false);
             }
         });
 
         return () => subscription.unsubscribe();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    // ↑ intentionally empty deps — we re-read isRedirectBlocked() at call time
-
-    // ── fetchProfile ────────────────────────────────────────────────────────────
 
     const fetchProfile = async (userId) => {
         try {
@@ -118,7 +152,9 @@ export function AuthProvider({ children }) {
             if (res.ok) {
                 const data = await res.json();
                 setProfile(data || {});
-
+                setIsOffline(false);
+                // Cache the profile for offline resilience
+                if (data) saveCachedProfile(data);
                 if (data?.userId) {
                     const hasTeam = !!(data.current_team_id || data.teams?.length > 0);
                     if (hasTeam) {
@@ -129,44 +165,52 @@ export function AuthProvider({ children }) {
                 }
             } else if (res.status === 404) {
                 const { data: { session } } = await supabase.auth.getSession();
-
                 if (session) {
                     try {
                         await ensureProfileFromAuth(userId, session.user);
-                        const retryRes = await fetch(`${import.meta.env.VITE_API_URL}/api/user/me?userId=${userId}`);
-                        if (retryRes.ok) {
-                            const retryData = await retryRes.json();
+                        const retry = await fetch(`${import.meta.env.VITE_API_URL}/api/user/me?userId=${userId}`);
+                        if (retry.ok) {
+                            const retryData = await retry.json();
                             setProfile(retryData || {});
+                            if (retryData) saveCachedProfile(retryData);
                             redirectToOnboardingIfNeeded();
                             return;
                         }
-                    } catch (profileSyncError) {
-                        console.error('Failed to auto-create profile:', profileSyncError);
+                    } catch (e) {
+                        console.error('Profile sync error:', e);
                     }
                     setProfile({ id: userId, is_new_user: true });
                     redirectToOnboardingIfNeeded();
                 } else {
                     setProfile(null);
+                    clearCachedProfile();
                     navigate('/login');
                 }
             } else {
-                console.error('Error fetching profile:', res.status);
                 setProfile({});
             }
         } catch (error) {
-            console.error('Error fetching profile:', error);
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) {
-                setProfile({});
+            console.error('fetchProfile error:', error);
+
+            // ── OFFLINE RESILIENCE ──
+            // If the fetch failed due to a network error, use the cached profile
+            // instead of wiping state and redirecting away.
+            const cached = loadCachedProfile();
+            if (cached) {
+                console.info('Using cached profile while offline');
+                setProfile(cached);
+                setIsOffline(true);
+                // Do NOT redirect — keep the user where they are
             } else {
-                navigate('/login');
+                // No cache available — fall back to the original behavior
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) navigate('/login');
+                else setProfile({});
             }
         } finally {
             setLoading(false);
         }
     };
-
-    // ── Auth actions ────────────────────────────────────────────────────────────
 
     const signUp = async (email, password, fullName) => {
         try {
@@ -176,15 +220,11 @@ export function AuthProvider({ children }) {
                 options: { data: { full_name: fullName } },
             });
             if (error) throw error;
-
             if (data.user) {
-                const { error: profileError } = await supabase
-                    .from('profiles')
-                    .upsert(
-                        { id: data.user.id, full_name: fullName, email, updated_at: new Date().toISOString() },
-                        { onConflict: 'id' }
-                    );
-                if (profileError) console.error('Profile upsert failed:', profileError);
+                await supabase.from('profiles').upsert(
+                    { id: data.user.id, full_name: fullName, email, updated_at: new Date().toISOString() },
+                    { onConflict: 'id' }
+                );
             }
             return { user: data.user, error: null };
         } catch (error) {
@@ -199,7 +239,11 @@ export function AuthProvider({ children }) {
         try {
             const callbackUrl = new URL('/auth/callback', window.location.origin);
             callbackUrl.searchParams.set('next', nextPath);
-            if (plan) callbackUrl.searchParams.set('plan', plan);
+            if (plan) {
+                callbackUrl.searchParams.set('plan', plan);
+                // Store plan in sessionStorage as backup in case Supabase strips query params
+                sessionStorage.setItem('oauth_pending_plan', plan);
+            }
 
             const { data, error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
@@ -218,6 +262,7 @@ export function AuthProvider({ children }) {
     const signOut = async () => {
         setUser(null);
         setProfile(null);
+        clearCachedProfile();
         await supabase.auth.signOut();
         navigate('/login');
     };
@@ -227,7 +272,7 @@ export function AuthProvider({ children }) {
     };
 
     const value = {
-        user, profile, loading,
+        user, profile, loading, isOffline,
         refreshProfile,
         signUp, signIn, signOut,
         signInWithGoogle, signUpWithGoogle,
@@ -235,8 +280,12 @@ export function AuthProvider({ children }) {
     };
 
     return (
+        // ✅ Always render children — never block the tree on loading state.
+        // ProtectedRoute handles the loading spinner individually per route.
+        // This prevents the entire app from re-rendering and flash-redirecting
+        // when onAuthStateChange fires during the OAuth callback flow.
         <AuthContext.Provider value={value}>
-            {!loading && children}
+            {children}
         </AuthContext.Provider>
     );
 }

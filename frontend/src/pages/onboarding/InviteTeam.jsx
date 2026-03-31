@@ -169,7 +169,10 @@ export default function InviteTeam() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
             <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-8">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Invite Your Team</h1>
+                <div className="flex flex-col items-center mb-8">
+                    <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Invite Your Team</h1>
+                </div>
                 <p className="text-gray-600 mb-8">
                     Add team members via email. They'll get access to all connected integrations.
                 </p>

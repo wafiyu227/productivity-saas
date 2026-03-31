@@ -299,7 +299,10 @@ export default function Integrations() {
                         </div>
                     )}
 
-                    <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">Integrations</h1>
+                    <div className="flex flex-col items-center mb-8">
+                        <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
+                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">Integrations</h1>
+                    </div>
                     <p className="text-base md:text-lg text-gray-600 mb-6 md:mb-8">
                         Connect your tools to unlock AI-powered insights
                     </p>

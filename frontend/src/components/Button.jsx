@@ -1,5 +1,5 @@
 import React from "react"
-import { cn } from "../../lib/utils"
+import { cn } from "../lib/utils"
 
 const Button = React.forwardRef(({ className, variant = "default", size = "default", ...props }, ref) => {
     return (
@@ -28,3 +28,4 @@ const Button = React.forwardRef(({ className, variant = "default", size = "defau
 Button.displayName = "Button"
 
 export { Button }
+export default Button

@@ -29,36 +29,10 @@ export default function ConnectTools() {
 
     useEffect(() => {
         if (searchParams.get('payment') !== 'success') return;
-        const reference = searchParams.get('reference') || searchParams.get('trxref');
-        if (!reference) {
-            alert('Payment succeeded, but no transaction reference was returned. Please refresh in a few seconds.');
-            clearPaymentQueryParams();
-            return;
-        }
-
-        const verifyPaymentFromRedirect = async () => {
-            try {
-                const res = await fetch(`${API_URL}/api/paystack/verify`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ reference })
-                });
-
-                const data = await res.json();
-                if (!res.ok) {
-                    throw new Error(data.error || 'Failed to verify payment');
-                }
-
-                alert('Your subscription was updated successfully!');
-            } catch (error) {
-                console.error('Payment verification error:', error);
-                alert(`Payment succeeded, but plan update is still processing: ${error.message}`);
-            } finally {
-                clearPaymentQueryParams();
-            }
-        };
-
-        verifyPaymentFromRedirect();
+        
+        // Note: With Paddle, subscription updates happen via webhooks, not client-side verification
+        // No need to verify payment on redirect like Paystack
+        clearPaymentQueryParams();
     }, [searchParams]);
 
     useEffect(() => {
@@ -113,6 +87,7 @@ export default function ConnectTools() {
             : statuses.trello.connected
                 ? 'Trello'
                 : null;
+
     const connectedCount = [
         statuses.slack.connected,
         !!connectedProjectPlatform,
@@ -122,8 +97,11 @@ export default function ConnectTools() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
             <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-8">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Connect Your Team's Tools</h1>
-                <p className="text-gray-600 mb-8">
+                <div className="flex flex-col items-center mb-8">
+                    <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Connect Your Team's Tools</h1>
+                </div>
+                <p className="text-gray-600 mb-8 text-center sm:text-left">
                     These integrations will be shared with all team members. You can always add more later.
                 </p>
 

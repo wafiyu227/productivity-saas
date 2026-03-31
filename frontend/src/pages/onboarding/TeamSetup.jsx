@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePaddle } from '../../contexts/PaddleContext';
 
 const API_URL = import.meta.env.VITE_API_URL;
 const VALID_PLANS = new Set(['free', 'starter', 'growth']);
 
 export default function TeamSetup() {
     const { user, refreshProfile } = useAuth();
+    const { paddleReady, openCheckout } = usePaddle();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const requestedPlan = (searchParams.get('plan') || '').toLowerCase();
@@ -36,36 +38,53 @@ export default function TeamSetup() {
     }, []);
 
     const startCheckoutForPlan = async (team) => {
-        const planCode = selectedPlan === 'starter'
-            ? import.meta.env.VITE_PAYSTACK_STARTER_PLAN
-            : import.meta.env.VITE_PAYSTACK_GROWTH_PLAN;
-
-        if (!planCode) {
-            alert(`Plan checkout is not configured for ${selectedPlan}. Continuing with Free for now.`);
+        if (!paddleReady) {
+            alert('Payment system is not ready yet. Please try again in a moment.');
             navigate('/onboarding/connect-tools');
             return;
         }
 
-        const callbackPath = `/onboarding/connect-tools?payment=success&plan=${encodeURIComponent(selectedPlan)}`;
-        const billingRes = await fetch(`${API_URL}/api/paystack/initialize`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                email: user.email,
-                plan: planCode,
-                planName: selectedPlan,
-                teamId: team.id,
-                userId: user.id,
-                callbackPath
-            })
-        });
+        const priceId = selectedPlan === 'starter'
+            ? import.meta.env.VITE_PADDLE_STARTER_PRICE_ID
+            : import.meta.env.VITE_PADDLE_GROWTH_PRICE_ID;
 
-        const billingData = await billingRes.json();
-        if (!billingRes.ok || !billingData.checkoutUrl) {
-            throw new Error(billingData.error || 'Failed to start checkout');
+        if (!priceId) {
+            alert(`Price IDs not configured for ${selectedPlan}. Continuing with Free for now.`);
+            navigate('/onboarding/connect-tools');
+            return;
         }
 
-        window.location.href = billingData.checkoutUrl;
+        try {
+            // Prepare checkout on backend (stores metadata)
+            const prepareRes = await fetch(`${API_URL}/api/paddle/prepare-checkout`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: user.email,
+                    priceId,
+                    planName: selectedPlan,
+                    teamId: team.id,
+                    userId: user.id
+                })
+            });
+
+            if (!prepareRes.ok) {
+                const error = await prepareRes.json();
+                throw new Error(error.error || 'Failed to prepare checkout');
+            }
+
+            // Open Paddle checkout
+            openCheckout(priceId, {
+                email: user.email,
+                teamId: team.id,
+                userId: user.id,
+                planName: selectedPlan
+            });
+        } catch (error) {
+            console.error('Checkout error:', error);
+            alert(error.message || 'Failed to start checkout');
+            navigate('/onboarding/connect-tools');
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -109,7 +128,10 @@ export default function TeamSetup() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
             <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Your Team</h1>
+                <div className="flex flex-col items-center mb-8">
+                    <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2 text-center">Create Your Team</h1>
+                </div>
                 <p className="text-gray-600 mb-8">
                     Set up your team workspace to get started with Teama AI.
                 </p>

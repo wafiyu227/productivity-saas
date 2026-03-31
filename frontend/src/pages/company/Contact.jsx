@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Mail, Send, CheckCircle } from 'lucide-react';
+import { Mail, MessageSquare, MapPin, Send, CheckCircle2, AlertCircle, Phone, Globe, Github, Users } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import SEO from '../../components/common/SEO';
 
 const Contact = () => {
     const [formData, setFormData] = useState({
@@ -22,21 +24,40 @@ const Contact = () => {
         e.preventDefault();
         setSending(true);
 
-        // TODO: wire this to your backend contact endpoint.
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        try {
+            const response = await fetch(`${import.meta.env.VITE_API_URL}/api/contact`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData),
+            });
 
-        setSubmitted(true);
-        setSending(false);
-        setFormData({
-            name: '',
-            email: '',
-            company: '',
-            message: ''
-        });
+            if (!response.ok) {
+                throw new Error('Failed to send message');
+            }
+
+            setSubmitted(true);
+            setFormData({
+                name: '',
+                email: '',
+                company: '',
+                message: ''
+            });
+        } catch (error) {
+            console.error('Error sending message:', error);
+            alert('Sorry, something went wrong. Please try again later or email us directly at team@mail.teamaai.xyz');
+        } finally {
+            setSending(false);
+        }
     };
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+            <SEO
+                title="Contact Us"
+                description="Get in touch with the Teama AI team for support, partnerships, or any questions you may have."
+            />
             <div className="bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700 text-white">
                 <div className="max-w-5xl mx-auto px-8 py-20">
                     <h1 className="text-5xl font-bold mb-4">Contact Us</h1>
@@ -52,11 +73,11 @@ const Contact = () => {
                         <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
                             <h2 className="text-lg font-bold text-slate-900 mb-4">Email</h2>
                             <a
-                                href="mailto:hello@teama.ai"
+                                href="mailto:team@mail.teamaai.xyz"
                                 className="flex items-center gap-3 text-purple-600 hover:text-purple-700 font-medium break-all"
                             >
                                 <Mail size={18} />
-                                hello@teama.ai
+                                team@mail.teamaai.xyz
                             </a>
                             <p className="text-sm text-slate-600 mt-4">
                                 Typical response time: within 24 hours on business days.
@@ -74,7 +95,7 @@ const Contact = () => {
                             {submitted ? (
                                 <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center">
                                     <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                        <CheckCircle className="w-7 h-7 text-green-600" />
+                                        <CheckCircle2 className="w-7 h-7 text-green-600" />
                                     </div>
                                     <h3 className="text-lg font-bold text-green-900 mb-2">Message Sent</h3>
                                     <p className="text-green-700">Thanks. We will reply soon.</p>

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePaddle } from '../contexts/PaddleContext';
 import { Mail, Copy, Check, Users, AlertCircle, CreditCard, RefreshCw, X, UserMinus, LogOut } from 'lucide-react';
 
 const Team = () => {
     const { user, profile, refreshProfile } = useAuth(); // ✅ Added refreshProfile
+    const { paddleReady, openCheckout } = usePaddle();
     const [team, setTeam] = useState(null);
     const [members, setMembers] = useState([]);
     const [invitations, setInvitations] = useState([]);
@@ -26,43 +28,18 @@ const Team = () => {
         window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
     };
 
+    // Note: With Paddle, subscription updates happen via webhooks, not client-side verification
+    // No need to verify payment on redirect like Paystack
     const verifyPaymentFromRedirect = async () => {
-        const searchParams = new URLSearchParams(window.location.search);
-        if (searchParams.get('payment') !== 'success') return;
-
-        const reference = searchParams.get('reference') || searchParams.get('trxref');
-        if (!reference) {
-            alert('Payment succeeded, but no transaction reference was returned. Please refresh in a few seconds.');
-            clearPaymentQueryParams();
-            return;
-        }
-
-        setIsBillingLoading(true);
-        try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/paystack/verify`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reference })
-            });
-
-            const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to verify payment');
-            }
-
-            alert('Your subscription was updated successfully!');
-        } catch (error) {
-            console.error('Payment verification error:', error);
-            alert(`Payment succeeded, but plan update is still processing: ${error.message}`);
-        } finally {
-            setIsBillingLoading(false);
-            clearPaymentQueryParams();
+        // Paddle webhooks handle subscription creation automatically
+        // Just refresh the team data to get updated subscription status
+        if (user && profile) {
+            await fetchTeamData();
         }
     };
 
     useEffect(() => {
         const initializePage = async () => {
-            await verifyPaymentFromRedirect();
             if (user && profile) {
                 await fetchTeamData();
             }
@@ -301,40 +278,76 @@ const Team = () => {
     };
 
     const handleUpgrade = async (planName) => {
+        console.log('handleUpgrade called', {
+            team: team?.id,
+            canManageBilling,
+            paddleReady,
+            priceId: planName === 'starter'
+                ? import.meta.env.VITE_PADDLE_STARTER_PRICE_ID
+                : import.meta.env.VITE_PADDLE_GROWTH_PRICE_ID
+        });
+        
         if (!team || !canManageBilling) return;
-        setIsBillingLoading(true);
-        try {
-            // Note: Users should provide these in their .env
-            const planCode = planName === 'starter'
-                ? import.meta.env.VITE_PAYSTACK_STARTER_PLAN
-                : import.meta.env.VITE_PAYSTACK_GROWTH_PLAN;
+        
+        if (!paddleReady) {
+            alert('Paddle is not ready yet. Please try again in a moment.');
+            return;
+        }
 
-            if (!planCode) {
-                alert('Plan codes not configured in environment variables (.env)');
-                setIsBillingLoading(false);
+        setIsBillingLoading(true);
+
+        try {
+            // Get the price ID from environment
+            const priceId = planName === 'starter'
+                ? import.meta.env.VITE_PADDLE_STARTER_PRICE_ID
+                : import.meta.env.VITE_PADDLE_GROWTH_PRICE_ID;
+
+            if (!priceId) {
+                alert(`Price IDs not configured for ${planName} plan in environment variables`);
                 return;
             }
 
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/paystack/initialize`, {
+            console.log('📤 Preparing checkout with:', {
+                email: user.email,
+                priceId,
+                planName,
+                teamId: team.id,
+                userId: user.id
+            });
+
+            // Prepare checkout on backend (stores metadata)
+            const prepareRes = await fetch(`${import.meta.env.VITE_API_URL}/api/paddle/prepare-checkout`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     email: user.email,
-                    plan: planCode,
+                    priceId,
                     planName,
                     teamId: team.id,
                     userId: user.id
                 })
             });
-            const data = await res.json();
-            if (res.ok && data.checkoutUrl) {
-                window.location.href = data.checkoutUrl;
-            } else {
-                alert(data.error || 'Failed to initialize checkout');
+
+            console.log('📥 Backend response:', { status: prepareRes.status });
+
+            if (!prepareRes.ok) {
+                const error = await prepareRes.json();
+                console.error('❌ Backend error:', error);
+                throw new Error(error.error || 'Failed to prepare checkout');
             }
+
+            // Open Paddle checkout on frontend
+            console.log('🎯 Opening Paddle checkout...');
+            openCheckout(priceId, {
+                email: user.email,
+                teamId: team.id,
+                userId: user.id,
+                planName
+            });
+            console.log('✅ Checkout opened successfully');
         } catch (error) {
-            console.error('Upgrade error:', error);
-            alert('Failed to start upgrade process');
+            console.error('❌ Upgrade error:', error);
+            alert(error.message || 'Failed to start upgrade process');
         } finally {
             setIsBillingLoading(false);
         }
@@ -344,23 +357,21 @@ const Team = () => {
         if (!team || !canManageBilling) return;
         setIsBillingLoading(true);
         try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/paystack/manage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    teamId: team.id,
-                    userId: user.id
-                })
-            });
-            const data = await res.json();
-            if (res.ok && data.manageUrl) {
-                window.location.href = data.manageUrl;
-            } else {
-                alert(data.error || 'Failed to get management link');
-            }
+            // With Paddle, subscription management is typically done through email links
+            // or a customer portal. For now, show instructions to contact support
+            const message = 'Paddle subscription management is handled through your verified email address. ' +
+                'You can manage your subscription by:' +
+                '\n\n1. Check your email for Paddle billing notifications' +
+                '\n2. Click the manage link in any Paddle email' +
+                '\n3. Contact support if you need assistance';
+            
+            alert(message);
+            
+            // Optional: You can open Paddle's customer portal when available
+            // For now, we'll just show the alert above
         } catch (error) {
             console.error('Manage subscription error:', error);
-            alert('Failed to get management link');
+            alert('Failed to manage subscription');
         } finally {
             setIsBillingLoading(false);
         }

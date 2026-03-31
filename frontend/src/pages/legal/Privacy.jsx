@@ -1,5 +1,6 @@
 import React from 'react';
 import { Shield, Lock, Eye, Database, FileText, Mail } from 'lucide-react';
+import SEO from '../../components/common/SEO';
 
 const Privacy = () => {
     const lastUpdated = "February 15, 2026";
@@ -140,7 +141,7 @@ const Privacy = () => {
                 },
                 {
                     subtitle: "Exercising Your Rights",
-                    text: "To exercise these rights, contact us at privacy@teama.ai or use the data management tools in your account settings. We will respond within 30 days."
+                    text: "To exercise these rights, contact us at team@mail.teamaai.xyz or use the data management tools in your account settings. We will respond within 30 days."
                 }
             ]
         },
@@ -218,6 +219,10 @@ const Privacy = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+            <SEO 
+                title="Privacy Policy" 
+                description="Our commitment to your privacy. Learn how Teama AI collects, uses, and protects your data."
+            />
             {/* Hero Section */}
             <div className="bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700 text-white">
                 <div className="max-w-6xl mx-auto px-8 py-20">
@@ -273,10 +278,10 @@ const Privacy = () => {
                                     Contact our privacy team
                                 </p>
                                 <a
-                                    href="mailto:privacy@teama.ai"
+                                    href="mailto:team@mail.teamaai.xyz"
                                     className="text-purple-600 font-semibold hover:text-purple-700 text-sm"
                                 >
-                                    privacy@teama.ai →
+                                    team@mail.teamaai.xyz →
                                 </a>
                             </div>
 
@@ -353,7 +358,7 @@ const Privacy = () => {
                                 please contact our Data Protection Officer at:
                             </p>
                             <div className="space-y-2 text-slate-700">
-                                <p className="font-medium">Email: <a href="mailto:privacy@teama.ai" className="text-purple-600 hover:underline">privacy@teama.ai</a></p>
+                                <p className="font-medium">Email: <a href="mailto:team@mail.teamaai.xyz" className="text-purple-600 hover:underline">team@mail.teamaai.xyz</a></p>
                                 <p className="font-medium">Mail: Teama AI, Inc. - Privacy Team</p>
                                 <p className="text-sm text-slate-600">123 Market Street, Suite 400</p>
                                 <p className="text-sm text-slate-600">San Francisco, CA 94103</p>

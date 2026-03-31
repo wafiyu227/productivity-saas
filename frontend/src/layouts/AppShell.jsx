@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2, Code, BarChart3, Menu, X } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2, Code, BarChart3, Menu, X, Mail } from 'lucide-react';
+import OfflineBanner from '../components/OfflineBanner';
 
 export default function AppShell() {
-    const { user, profile, signOut } = useAuth();
+    const { user, profile, signOut, isOffline } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -12,6 +13,10 @@ export default function AppShell() {
     const team = profile?.teams?.[0]?.teams || null;
 
     useEffect(() => {
+        // Skip the onboarding redirect when offline — the profile may be
+        // stale/empty due to a failed network fetch, not because the user
+        // genuinely has no team.
+        if (isOffline) return;
         if (profile) {
             if (!profile.full_name && !profile.current_team_id) {
                 console.warn('Redirecting to onboarding. Missing data:', {
@@ -21,7 +26,7 @@ export default function AppShell() {
                 navigate('/onboarding/team-setup');
             }
         }
-    }, [profile, navigate]);
+    }, [profile, navigate, isOffline]);
 
     const handleSignOut = async () => {
         await signOut();
@@ -44,14 +49,15 @@ export default function AppShell() {
         );
     }
 
-    // Double check constraints before rendering content
-    if (!profile.full_name && !profile.current_team_id) {
+    // Double check constraints before rendering content (skip when offline)
+    if (!isOffline && !profile.full_name && !profile.current_team_id) {
         return null; // Will trigger redirect in useEffect
     }
 
     const SidebarContent = () => (
         <>
-            <div className="p-6 pb-2">
+            <div className="p-6 pb-2 flex items-center gap-2">
+                <img src="/logo.png" alt="Teama AI Logo" className="w-8 h-8 object-contain" />
                 <h1 className="text-2xl font-bold text-slate-900 mb-1">Teama AI</h1>
             </div>
 
@@ -167,6 +173,7 @@ export default function AppShell() {
 
             {/* Main Content */}
             <main className="flex-1 overflow-y-auto relative pt-14 lg:pt-0">
+                <OfflineBanner isOffline={isOffline} />
                 <Outlet />
             </main>
         </div>

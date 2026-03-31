@@ -1,5 +1,6 @@
 import React from 'react';
 import { Shield, Lock, Eye, Server, Key, AlertTriangle, Award, FileCheck } from 'lucide-react';
+import SEO from '../../components/common/SEO';
 
 const Security = () => {
     const certifications = [
@@ -198,11 +199,15 @@ const Security = () => {
         "Monitor audit logs for suspicious activity",
         "Review connected integrations and revoke unused ones",
         "Keep integration permissions minimal (principle of least privilege)",
-        "Report security concerns immediately to security@teama.ai"
+        "Report security concerns immediately to team@mail.teamaai.xyz"
     ];
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+            <SEO 
+                title="Security & Compliance" 
+                description="Learn about the enterprise-grade security measures and compliance certifications at Teama AI."
+            />
             {/* Hero Section */}
             <div className="bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700 text-white">
                 <div className="max-w-6xl mx-auto px-8 py-20">
@@ -232,8 +237,8 @@ const Security = () => {
                             <h3 className="font-bold text-slate-900 mb-2">{cert.title}</h3>
                             <p className="text-sm text-slate-600 mb-3">{cert.description}</p>
                             <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${cert.status === 'Certified' || cert.status === 'Compliant'
-                                    ? 'bg-green-100 text-green-700'
-                                    : 'bg-blue-100 text-blue-700'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-blue-100 text-blue-700'
                                 }`}>
                                 {cert.status}
                             </span>
@@ -325,10 +330,10 @@ const Security = () => {
                                 Found a security issue? We appreciate responsible disclosure and participate in a bug bounty program.
                             </p>
                             <a
-                                href="mailto:security@teama.ai"
+                                href="mailto:team@mail.teamaai.xyz"
                                 className="text-purple-600 font-semibold hover:text-purple-700"
                             >
-                                security@teama.ai →
+                                team@mail.teamaai.xyz →
                             </a>
                         </div>
 
@@ -361,7 +366,7 @@ const Security = () => {
                                 Have questions about our security practices?
                             </p>
                             <div className="space-y-2 text-sm text-slate-700">
-                                <p>Email: <a href="mailto:security@teama.ai" className="text-purple-600 hover:underline">security@teama.ai</a></p>
+                                <p>Email: <a href="mailto:team@mail.teamaai.xyz" className="text-purple-600 hover:underline">team@mail.teamaai.xyz</a></p>
                                 <p>Response time: Within 24 hours</p>
                             </div>
                         </div>

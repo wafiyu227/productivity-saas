@@ -273,7 +273,7 @@ export default function Dashboard() {
             setSelectedChannel('');
         } catch (error) {
             if (error.message?.includes('not_in_channel')) {
-                alert('⚠️ The bot is not in this channel!\n\nTo fix:\n1. Go to the channel in Slack\n2. Type: /invite @Teama Assistant\n3. Try again');
+                alert('⚠️ The bot is not in this channel!\n\nTo fix:\n1. Go to the channel in Slack\n2. Type: /invite @Teama AI Bot\n3. Try again');
             } else if (error.message?.includes('Monthly summary limit reached')) {
                 const wantsUpgrade = window.confirm(`🛑 ${error.message}\n\nWould you like to go to Team Settings to upgrade your plan?`);
                 if (wantsUpgrade) {
@@ -375,7 +375,7 @@ export default function Dashboard() {
                                     Get instant insights from any Slack channel
                                 </p>
                             </div>
-                            <Zap className="text-yellow-300" size={32} />
+                            <img src="/logo.png" alt="Teama AI Logo" className="w-8 h-8 object-contain" />
                         </div>
 
                         <div className="flex flex-col md:flex-row gap-4">

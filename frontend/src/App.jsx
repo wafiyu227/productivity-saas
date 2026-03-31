@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { PaddleProvider } from './contexts/PaddleContext';
 import AppShell from './layouts/AppShell';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -27,26 +28,52 @@ import Contact from './pages/company/Contact';
 import Privacy from './pages/legal/Privacy';
 import Terms from './pages/legal/Terms';
 import Security from './pages/legal/Security';
+import RefundPolicy from './pages/legal/RefundPolicy';
 import DemoWorkspace from './pages/DemoWorkspace';
 import Waitlist from './pages/Waitlist';
+import ForgotPassword from './pages/auth/ForgotPassword';
+import UpdatePassword from './pages/auth/UpdatePassword';
+import Inbox from './pages/Inbox';
 
+const Spinner = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
+// Requires login only
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
+  if (loading) return <Spinner />;
+  return user ? children : <Navigate to="/login" replace />;
+}
 
-  // ✅ FIX: Wait for auth state to load before checking user
-  // This prevents premature redirect to /login during OAuth callback processing
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
+// Requires login + team — offline-aware
+function TeamProtectedRoute({ children }) {
+  const { user, loading, profile, isOffline } = useAuth();
+  if (loading) return <Spinner />;
+  if (!user) return <Navigate to="/login" replace />;
+
+  const hasTeam = !!(profile?.current_team_id || profile?.teams?.length > 0);
+
+  if (!hasTeam) {
+    // When offline, check the cached profile before redirecting.
+    // The user may have a valid team but the fresh fetch failed.
+    if (isOffline) {
+      try {
+        const raw = localStorage.getItem('teamaai_cached_profile');
+        if (raw) {
+          const cached = JSON.parse(raw);
+          if (cached?.current_team_id || cached?.teams?.length > 0) {
+            return children; // trust the cache
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    return <Navigate to="/onboarding/team-setup?plan=free" replace />;
   }
 
-  return user ? children : <Navigate to="/login" />;
+  return children;
 }
 
 function LandingRoute() {
@@ -55,23 +82,16 @@ function LandingRoute() {
   const searchParams = new URLSearchParams(location.search);
   const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
 
-  const hasOAuthParams = searchParams.has('code')
-    || searchParams.has('error')
-    || searchParams.has('error_description')
-    || hashParams.has('access_token')
-    || hashParams.has('refresh_token')
-    || hashParams.has('error')
-    || hashParams.has('error_description');
+  const hasOAuthParams =
+    searchParams.has('code') || searchParams.has('error') ||
+    searchParams.has('error_description') ||
+    hashParams.has('access_token') || hashParams.has('refresh_token') ||
+    hashParams.has('error') || hashParams.has('error_description');
 
   if (hasOAuthParams) {
-    // Forward to /auth/callback, preserving all params
-    // Build query string with next/plan if available from hash or search
     const next = searchParams.get('next') || hashParams.get('next') || '';
     const plan = searchParams.get('plan') || hashParams.get('plan') || '';
-
     let callbackUrl = `/auth/callback${location.search}${location.hash}`;
-
-    // If we only have hash params (like implicit flow), ensure we still route correctly
     if (!searchParams.has('code') && hashParams.has('access_token')) {
       const newSearch = new URLSearchParams();
       if (next) newSearch.set('next', next);
@@ -79,22 +99,19 @@ function LandingRoute() {
       const qs = newSearch.toString();
       callbackUrl = `/auth/callback${qs ? '?' + qs : ''}${location.hash}`;
     }
-
     return <Navigate to={callbackUrl} replace />;
   }
 
-  // ✅ New Logic: If user is already logged in and hits landing page, send them to app
-  if (!loading && user) {
-    return <Navigate to="/app" replace />;
-  }
-
+  if (loading) return <Spinner />;
+  if (user) return <Navigate to="/app" replace />;
   return <Landing />;
 }
 
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
+      <PaddleProvider>
+        <AuthProvider>
         <Routes>
           <Route path="/" element={<LandingRoute />} />
           <Route path="/about" element={<About />} />
@@ -102,12 +119,15 @@ function App() {
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/security" element={<Security />} />
+          <Route path="/refund-policy" element={<RefundPolicy />} />
           <Route path="/demo" element={<DemoWorkspace />} />
           <Route path="/waitlist" element={<Waitlist />} />
           <Route path="/join" element={<JoinTeam />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/auth/update-password" element={<UpdatePassword />} />
           <Route path="/onboarding" element={<Navigate to="/onboarding/team-setup" replace />} />
           <Route path="/onboarding/team-setup" element={<ProtectedRoute><TeamSetup /></ProtectedRoute>} />
           <Route path="/onboarding/connect-tools" element={<ProtectedRoute><ConnectTools /></ProtectedRoute>} />
@@ -116,12 +136,13 @@ function App() {
           <Route path="/onboarding/welcome-member" element={<ProtectedRoute><WelcomeMember /></ProtectedRoute>} />
 
           <Route path="/app" element={
-            <ProtectedRoute>
+            <TeamProtectedRoute>
               <AppShell />
-            </ProtectedRoute>
+            </TeamProtectedRoute>
           }>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="inbox" element={<Inbox />} />
             <Route path="summaries" element={<Summaries />} />
             <Route path="blockers" element={<Blockers />} />
             <Route path="meetings" element={<Meetings />} />
@@ -135,6 +156,7 @@ function App() {
           </Route>
         </Routes>
       </AuthProvider>
+      </PaddleProvider>
     </BrowserRouter>
   );
 }

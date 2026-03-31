@@ -26,6 +26,7 @@ const Footer = () => {
         legal: [
             { label: 'Privacy Policy', to: '/privacy' },
             { label: 'Terms of Service', to: '/terms' },
+            { label: 'Refund Policy', to: '/refund-policy' },
             { label: 'Cookie Policy', to: '/cookies' },
             { label: 'GDPR', to: '/gdpr' }
         ]
@@ -35,7 +36,7 @@ const Footer = () => {
         { icon: <Twitter size={20} />, href: 'https://twitter.com/teamaai', label: 'Twitter' },
         { icon: <Linkedin size={20} />, href: 'https://linkedin.com/company/teamaai', label: 'LinkedIn' },
         { icon: <Github size={20} />, href: 'https://github.com/teamaai', label: 'GitHub' },
-        { icon: <Mail size={20} />, href: 'mailto:hello@teama.ai', label: 'Email' }
+        { icon: <Mail size={20} />, href: 'mailto:team@mail.teamaai.xyz', label: 'Email' }
     ];
 
     return (
@@ -46,7 +47,7 @@ const Footer = () => {
                     {/* Brand Column */}
                     <div className="col-span-2 md:col-span-1">
                         <div className="flex items-center gap-2 mb-4">
-                            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg"></div>
+                            <img src="/logo.png" alt="Teama AI Logo" className="w-8 h-8 object-contain" />
                             <span className="font-bold text-xl">Teama AI</span>
                         </div>
                         <p className="text-slate-400 text-sm mb-6">

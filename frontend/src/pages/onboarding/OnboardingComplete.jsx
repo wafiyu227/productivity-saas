@@ -14,13 +14,12 @@ export default function OnboardingComplete() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
             <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <CheckCircle className="text-green-600" size={48} />
+                <div className="flex flex-col items-center mb-8">
+                    <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
+                    <h1 className="text-3xl font-bold text-gray-900 mb-4">
+                        🎉 You're All Set!
+                    </h1>
                 </div>
-
-                <h1 className="text-3xl font-bold text-gray-900 mb-4">
-                    🎉 You're All Set!
-                </h1>
 
                 <p className="text-gray-600 mb-8">
                     Your team workspace is ready. Your team members will receive email invitations to join.
