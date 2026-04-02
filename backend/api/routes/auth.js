@@ -18,7 +18,7 @@ const ASANA_CLIENT_SECRET = process.env.ASANA_CLIENT_SECRET;
 // Jira OAuth routes
 const JIRA_CLIENT_ID = process.env.JIRA_CLIENT_ID;
 const JIRA_CLIENT_SECRET = process.env.JIRA_CLIENT_SECRET;
-const JIRA_SCOPES = (process.env.JIRA_SCOPES || 'read:jira-user read:jira-work')
+const JIRA_SCOPES = (process.env.JIRA_SCOPES || 'read:jira-user read:jira-work write:jira-work offline_access')
     .split(/[,\s]+/)
     .filter(Boolean)
     .join(' ');
@@ -26,7 +26,7 @@ const JIRA_SCOPES = (process.env.JIRA_SCOPES || 'read:jira-user read:jira-work')
 // Trello OAuth routes
 const TRELLO_API_KEY = process.env.TRELLO_API_KEY;
 const TRELLO_APP_NAME = process.env.TRELLO_APP_NAME || 'Teama AI';
-const TRELLO_SCOPES = (process.env.TRELLO_SCOPES || 'read')
+const TRELLO_SCOPES = (process.env.TRELLO_SCOPES || 'read,write')
     .split(/[,\s]+/)
     .filter(Boolean)
     .join(',');
@@ -37,6 +37,71 @@ const PROJECT_MANAGEMENT_PLATFORMS = ['jira', 'asana', 'trello'];
 // Google Calendar OAuth routes
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const DEFAULT_FRONTEND_RETURN_PATH = '/app/integrations';
+
+function normalizeFrontendReturnPath(returnTo) {
+    if (typeof returnTo !== 'string') {
+        return DEFAULT_FRONTEND_RETURN_PATH;
+    }
+
+    const trimmed = returnTo.trim();
+    if (!trimmed || trimmed.startsWith('//')) {
+        return DEFAULT_FRONTEND_RETURN_PATH;
+    }
+
+    if (trimmed.startsWith('/')) {
+        return trimmed;
+    }
+
+    try {
+        const parsed = new URL(trimmed, FRONTEND_URL);
+        const frontendOrigin = new URL(FRONTEND_URL).origin;
+
+        if (parsed.origin === frontendOrigin) {
+            return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+        }
+    } catch {
+        // Fall back to the default integrations page.
+    }
+
+    return DEFAULT_FRONTEND_RETURN_PATH;
+}
+
+function encodeOAuthState(payload) {
+    return Buffer.from(JSON.stringify(payload)).toString('base64');
+}
+
+function decodeOAuthState(rawState) {
+    if (typeof rawState !== 'string' || !rawState) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(Buffer.from(rawState, 'base64').toString());
+    } catch {
+        return null;
+    }
+}
+
+function resolveFrontendReturnPath(req, statePayload = null) {
+    const requestedReturnTo = typeof req.query.returnTo === 'string'
+        ? req.query.returnTo
+        : statePayload?.returnTo;
+
+    return normalizeFrontendReturnPath(requestedReturnTo);
+}
+
+function buildFrontendRedirectUrl(returnTo, params = {}) {
+    const redirectUrl = new URL(normalizeFrontendReturnPath(returnTo), FRONTEND_URL);
+
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+            redirectUrl.searchParams.set(key, value);
+        }
+    });
+
+    return redirectUrl.toString();
+}
 
 function resolvePublicApiBaseUrl(req) {
     const forwardedProto = req.headers['x-forwarded-proto']?.toString().split(',')[0].trim();
@@ -231,6 +296,7 @@ async function ensureSingleProjectPlatform(userId, teamId, platformToConnect) {
 // Initiate OAuth flow
 router.get('/slack/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
+    const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
@@ -262,19 +328,24 @@ router.get('/slack/connect', async (req, res) => {
 // Slack OAuth callback
 router.get('/slack/oauth/callback', async (req, res) => {
     const { code, state, error } = req.query;
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://teamaai.xyz';
+    const statePayload = decodeOAuthState(state);
+    const returnTo = resolveFrontendReturnPath(req, statePayload);
 
     if (error) {
         logger.error('Slack OAuth error:', error);
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=slack_auth_failed`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'slack_auth_failed' }));
     }
 
     if (!code || !state) {
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=missing_params`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
     }
 
     try {
-        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        if (!statePayload?.userId) {
+            return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
+        }
+
+        const { userId, teamId, scope: requestedScope } = statePayload;
         await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
         const slackRedirectUri = resolveSlackRedirectUri(req);
 
@@ -312,11 +383,11 @@ router.get('/slack/oauth/callback', async (req, res) => {
         logger.info('Slack integration saved', { userId, teamId });
 
         // Redirect back
-        res.redirect(`${FRONTEND_URL}/app/integrations?success=slack_connected`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'slack_connected' }));
 
     } catch (error) {
         logger.error('Slack OAuth callback error:', error);
-        res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'oauth_failed' }));
     }
 });
 
@@ -459,6 +530,7 @@ router.post('/settings', async (req, res) => {
 // Initiate Asana OAuth
 router.get('/asana/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
+    const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
@@ -469,12 +541,15 @@ router.get('/asana/connect', async (req, res) => {
         await ensureSingleProjectPlatform(userId, teamId, 'asana');
     } catch (error) {
         if (error.status === 409) {
-            return res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(error.message)}`);
+            return res.redirect(buildFrontendRedirectUrl(returnTo, {
+                error: 'oauth_failed',
+                message: error.message
+            }));
         }
         return res.status(error.status || 403).json({ error: error.message });
     }
 
-    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
+    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
     const asanaRedirectUri = resolveAsanaRedirectUri(req);
 
     const authUrl = `https://app.asana.com/-/oauth_authorize?client_id=${ASANA_CLIENT_ID}&redirect_uri=${encodeURIComponent(asanaRedirectUri)}&response_type=code&state=${state}`;
@@ -485,19 +560,24 @@ router.get('/asana/connect', async (req, res) => {
 // Asana OAuth callback
 router.get('/asana/oauth/callback', async (req, res) => {
     const { code, state, error } = req.query;
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://teamaai.xyz';
+    const statePayload = decodeOAuthState(state);
+    const returnTo = resolveFrontendReturnPath(req, statePayload);
 
     if (error) {
         logger.error('Asana OAuth error:', error);
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=asana_auth_failed`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'asana_auth_failed' }));
     }
 
     if (!code || !state) {
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=missing_params`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
     }
 
     try {
-        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        if (!statePayload?.userId) {
+            return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
+        }
+
+        const { userId, teamId, scope: requestedScope } = statePayload;
         await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
         const asanaRedirectUri = resolveAsanaRedirectUri(req);
 
@@ -543,11 +623,11 @@ router.get('/asana/oauth/callback', async (req, res) => {
 
         logger.info('Asana integration saved', { userId, teamId });
 
-        res.redirect(`${FRONTEND_URL}/app/integrations?success=asana_connected`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'asana_connected' }));
 
     } catch (error) {
         logger.error('Asana OAuth callback error:', error);
-        res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'oauth_failed' }));
     }
 });
 
@@ -597,13 +677,20 @@ router.delete('/asana/disconnect', async (req, res) => {
 
 router.get('/jira/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
+    const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
-    if (!JIRA_CLIENT_ID || !JIRA_CLIENT_SECRET) {
+    const jiraClientId = process.env.JIRA_CLIENT_ID || JIRA_CLIENT_ID;
+    const jiraClientSecret = process.env.JIRA_CLIENT_SECRET || JIRA_CLIENT_SECRET;
+    if (!jiraClientId || !jiraClientSecret) {
+        logger.error('Jira OAuth not configured', { hasClientId: !!jiraClientId, hasClientSecret: !!jiraClientSecret });
         const message = 'Jira OAuth is not configured on the server.';
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(message)}`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, {
+            error: 'oauth_failed',
+            message
+        }));
     }
 
     try {
@@ -611,34 +698,44 @@ router.get('/jira/connect', async (req, res) => {
         await ensureSingleProjectPlatform(userId, teamId, 'jira');
     } catch (error) {
         if (error.status === 409) {
-            return res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(error.message)}`);
+            return res.redirect(buildFrontendRedirectUrl(returnTo, {
+                error: 'oauth_failed',
+                message: error.message
+            }));
         }
         return res.status(error.status || 403).json({ error: error.message });
     }
 
-    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
+    const jiraScopes = (process.env.JIRA_SCOPES || JIRA_SCOPES || 'read:jira-user read:jira-work write:jira-work offline_access').split(/[,\s]+/).filter(Boolean).join(' ');
+    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
     const jiraRedirectUri = resolveJiraRedirectUri(req);
 
-    const authUrl = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${JIRA_CLIENT_ID}&scope=${encodeURIComponent(JIRA_SCOPES)}&redirect_uri=${encodeURIComponent(jiraRedirectUri)}&state=${encodeURIComponent(state)}&response_type=code&prompt=consent`;
+    const authUrl = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${jiraClientId}&scope=${encodeURIComponent(jiraScopes)}&redirect_uri=${encodeURIComponent(jiraRedirectUri)}&state=${encodeURIComponent(state)}&response_type=code&prompt=consent`;
 
     res.redirect(authUrl);
 });
 
 router.get('/jira/oauth/callback', async (req, res) => {
     const { code, state, error } = req.query;
+    const statePayload = decodeOAuthState(state);
+    const returnTo = resolveFrontendReturnPath(req, statePayload);
     const jiraRedirectUri = resolveJiraRedirectUri(req);
 
     if (error) {
         logger.error('Jira OAuth error:', error);
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=jira_auth_failed`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'jira_auth_failed' }));
     }
 
     if (!code || !state) {
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=missing_params`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
     }
 
     try {
-        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        if (!statePayload?.userId) {
+            return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
+        }
+
+        const { userId, teamId, scope: requestedScope } = statePayload;
         await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
 
         const tokenResponse = await fetch('https://auth.atlassian.com/oauth/token', {
@@ -649,8 +746,8 @@ router.get('/jira/oauth/callback', async (req, res) => {
             },
             body: JSON.stringify({
                 grant_type: 'authorization_code',
-                client_id: JIRA_CLIENT_ID,
-                client_secret: JIRA_CLIENT_SECRET,
+                client_id: process.env.JIRA_CLIENT_ID || JIRA_CLIENT_ID,
+                client_secret: process.env.JIRA_CLIENT_SECRET || JIRA_CLIENT_SECRET,
                 code,
                 redirect_uri: jiraRedirectUri
             })
@@ -693,10 +790,13 @@ router.get('/jira/oauth/callback', async (req, res) => {
         }, requestedScope || 'team');
 
         logger.info('Jira integration saved', { userId, teamId });
-        res.redirect(`${FRONTEND_URL}/app/integrations?success=jira_connected`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'jira_connected' }));
     } catch (callbackError) {
         logger.error('Jira OAuth callback error:', callbackError);
-        res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(callbackError.message || 'Jira OAuth failed')}`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, {
+            error: 'oauth_failed',
+            message: callbackError.message || 'Jira OAuth failed'
+        }));
     }
 });
 
@@ -723,13 +823,19 @@ router.delete('/jira/disconnect', async (req, res) => {
 
 router.get('/trello/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
+    const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
-    if (!TRELLO_API_KEY) {
+    const trelloApiKey = process.env.TRELLO_API_KEY || TRELLO_API_KEY;
+    if (!trelloApiKey) {
+        logger.error('Trello OAuth not configured', { hasApiKey: !!trelloApiKey });
         const message = 'Trello OAuth is not configured on the server.';
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(message)}`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, {
+            error: 'oauth_failed',
+            message
+        }));
     }
 
     try {
@@ -737,15 +843,24 @@ router.get('/trello/connect', async (req, res) => {
         await ensureSingleProjectPlatform(userId, teamId, 'trello');
     } catch (error) {
         if (error.status === 409) {
-            return res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(error.message)}`);
+            return res.redirect(buildFrontendRedirectUrl(returnTo, {
+                error: 'oauth_failed',
+                message: error.message
+            }));
         }
         return res.status(error.status || 403).json({ error: error.message });
     }
 
-    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
-    const returnUrl = `${FRONTEND_URL}/app/integrations?trello_oauth=1&state=${encodeURIComponent(state)}`;
+    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
+    const returnUrl = buildFrontendRedirectUrl(returnTo, {
+        trello_oauth: '1',
+        state
+    });
 
-    const authUrl = `https://trello.com/1/authorize?expiration=${encodeURIComponent(TRELLO_EXPIRATION)}&name=${encodeURIComponent(TRELLO_APP_NAME)}&scope=${encodeURIComponent(TRELLO_SCOPES)}&response_type=token&callback_method=fragment&key=${encodeURIComponent(TRELLO_API_KEY)}&return_url=${encodeURIComponent(returnUrl)}`;
+    const trelloAppName = process.env.TRELLO_APP_NAME || TRELLO_APP_NAME || 'Teama AI';
+    const trelloScopes = (process.env.TRELLO_SCOPES || TRELLO_SCOPES || 'read,write').split(/[,\s]+/).filter(Boolean).join(',');
+    const trelloExpiration = process.env.TRELLO_TOKEN_EXPIRATION || TRELLO_EXPIRATION || '30days';
+    const authUrl = `https://trello.com/1/authorize?expiration=${encodeURIComponent(trelloExpiration)}&name=${encodeURIComponent(trelloAppName)}&scope=${encodeURIComponent(trelloScopes)}&response_type=token&callback_method=fragment&key=${encodeURIComponent(trelloApiKey)}&return_url=${encodeURIComponent(returnUrl)}`;
 
     res.redirect(authUrl);
 });
@@ -756,23 +871,23 @@ router.post('/trello/token', async (req, res) => {
     if (!token || !state) {
         return res.status(400).json({ error: 'token and state are required' });
     }
-    if (!TRELLO_API_KEY) {
+    const trelloKey = process.env.TRELLO_API_KEY || TRELLO_API_KEY;
+    if (!trelloKey) {
         return res.status(500).json({ error: 'Trello API key is not configured' });
     }
 
     try {
-        const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
-        const { userId, teamId, scope: requestedScope } = decodedState;
-
-        if (!userId) {
+        const decodedState = decodeOAuthState(state);
+        if (!decodedState?.userId) {
             return res.status(400).json({ error: 'Invalid state payload' });
         }
 
+        const { userId, teamId, scope: requestedScope } = decodedState;
         await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
         await ensureSingleProjectPlatform(userId, teamId, 'trello');
 
         const memberUrl = new URL('https://api.trello.com/1/members/me');
-        memberUrl.searchParams.append('key', TRELLO_API_KEY);
+        memberUrl.searchParams.append('key', trelloKey);
         memberUrl.searchParams.append('token', token);
 
         const memberResponse = await fetch(memberUrl.toString());
@@ -826,6 +941,7 @@ router.delete('/trello/disconnect', async (req, res) => {
 // ✅ ADDED: Initiate Google OAuth (THIS WAS MISSING!)
 router.get('/google/connect', async (req, res) => {
     const { userId, teamId, scope = 'team' } = req.query;
+    const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
@@ -837,7 +953,7 @@ router.get('/google/connect', async (req, res) => {
         return res.status(error.status || 403).json({ error: error.message });
     }
 
-    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
+    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
 
     // Scopes for Google Calendar and User Info
     const scopes = [
@@ -856,20 +972,25 @@ router.get('/google/connect', async (req, res) => {
 // Google OAuth callback
 router.get('/google/oauth/callback', async (req, res) => {
     const { code, state, error } = req.query;
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://teamaai.xyz';
+    const statePayload = decodeOAuthState(state);
+    const returnTo = resolveFrontendReturnPath(req, statePayload);
     const googleRedirectUri = resolveGoogleRedirectUri(req);
 
     if (error) {
         logger.error('Google OAuth error:', error);
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=google_auth_failed`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'google_auth_failed' }));
     }
 
     if (!code || !state) {
-        return res.redirect(`${FRONTEND_URL}/app/integrations?error=missing_params`);
+        return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
     }
 
     try {
-        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
+        if (!statePayload?.userId) {
+            return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
+        }
+
+        const { userId, teamId, scope: requestedScope } = statePayload;
         await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
 
         // Exchange code for access token
@@ -914,12 +1035,15 @@ router.get('/google/oauth/callback', async (req, res) => {
 
         logger.info('Google Calendar integration saved', { userId, teamId });
 
-        res.redirect(`${FRONTEND_URL}/app/integrations?success=google_connected`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'google_connected' }));
 
     } catch (error) {
         logger.error('Google OAuth callback error:', error);
         const errorMessage = error.message || 'Unknown error';
-        res.redirect(`${FRONTEND_URL}/app/integrations?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`);
+        res.redirect(buildFrontendRedirectUrl(returnTo, {
+            error: 'oauth_failed',
+            message: errorMessage
+        }));
     }
 });
 

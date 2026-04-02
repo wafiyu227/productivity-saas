@@ -19,6 +19,7 @@ import userRoutes from './routes/user.js';
 import teamsRoutes from './routes/teams.js';
 import invitationsRoutes from './routes/invitations.js';
 import emailRoutes from './routes/email.js';
+import workInsightsRoutes from './routes/work-insights.js';
 import logger from './utils/logger.js';
 import waitlistRoutes from './routes/waitlist.js';
 import webhooksRoutes from './routes/webhooks.js';
@@ -91,6 +92,7 @@ app.get('/', (req, res) => {
       jira: '/api/jira',
       trello: '/api/trello',
       summaries: '/api/summaries',
+      workInsights: '/api/work-insights',
       googleCalendar: '/api/google-calendar',
       user: '/api/user',
       teams: '/api/teams',
@@ -122,6 +124,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/work-insights', workInsightsRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/debug-insert', debugInsertRoutes);
 app.use('/api/waitlist', waitlistRoutes);

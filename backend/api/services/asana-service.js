@@ -6,10 +6,57 @@ dotenv.config();
 
 const ASANA_CLIENT_ID = process.env.ASANA_CLIENT_ID;
 const ASANA_CLIENT_SECRET = process.env.ASANA_CLIENT_SECRET;
+const DEFAULT_REQUEST_TIMEOUT_MS = Number.parseInt(process.env.ASANA_REQUEST_TIMEOUT_MS || '15000', 10);
 
 class AsanaService {
     constructor() {
         // Client will be created per-user with their token
+    }
+
+    async asanaRequest(endpoint, accessToken, options = {}) {
+        if (!accessToken) {
+            throw new Error('Access token is required');
+        }
+
+        const {
+            method = 'GET',
+            body = null
+        } = options;
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+
+        try {
+            const response = await fetch(`https://app.asana.com/api/1.0/${endpoint}`, {
+                method,
+                signal: controller.signal,
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: body ? JSON.stringify(body) : undefined
+            });
+
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                const errorMessage = payload?.errors?.[0]?.message || payload?.message || `Asana API Error: ${response.status}`;
+                const error = new Error(errorMessage);
+                error.status = response.status;
+                throw error;
+            }
+
+            return payload?.data ?? payload;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                const timeoutError = new Error('Asana API request timed out');
+                timeoutError.status = 504;
+                throw timeoutError;
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeout);
+        }
     }
 
     createApiClient(accessToken) {
@@ -25,6 +72,48 @@ class AsanaService {
             logger.error('Failed to create Asana API client:', error);
             throw error;
         }
+    }
+
+    normalizeTask(task, fallbackProject = null) {
+        const memberships = Array.isArray(task?.memberships) ? task.memberships : [];
+        const firstMembership = memberships[0];
+        const project = firstMembership?.project
+            || fallbackProject
+            || task?.project
+            || (Array.isArray(task?.projects) ? task.projects[0] : null);
+
+        const section = firstMembership?.section || null;
+
+        return {
+            ...task,
+            gid: String(task?.gid || task?.id || ''),
+            id: String(task?.gid || task?.id || ''),
+            name: task?.name || 'Untitled task',
+            notes: task?.notes || '',
+            completed: Boolean(task?.completed),
+            due_on: task?.due_on || null,
+            due_at: task?.due_at || null,
+            assignee: task?.assignee || null,
+            projects: Array.isArray(task?.projects) ? task.projects : (project ? [project] : []),
+            project: project
+                ? {
+                    gid: String(project?.gid || project?.id || ''),
+                    id: String(project?.gid || project?.id || ''),
+                    name: project?.name || 'Asana Project'
+                }
+                : null,
+            section: section
+                ? {
+                    gid: String(section?.gid || section?.id || ''),
+                    id: String(section?.gid || section?.id || ''),
+                    name: section?.name || 'Untitled section'
+                }
+                : null,
+            sectionName: section?.name || (task?.completed ? 'Done' : 'Open'),
+            externalUrl: task?.permalink_url || null,
+            created_at: task?.created_at || new Date().toISOString(),
+            updated_at: task?.modified_at || task?.created_at || new Date().toISOString()
+        };
     }
 
     // Refresh the access token using the refresh token
@@ -98,9 +187,9 @@ class AsanaService {
             const apiClient = this.createApiClient(accessToken);
             const tasksApi = new TasksApi(apiClient);
             const result = await tasksApi.getTasksForProject(projectId, {
-                opt_fields: 'name,completed,due_on,assignee,notes,tags,num_subtasks,completed_at,created_at'
+                opt_fields: 'name,completed,due_on,due_at,assignee,assignee.name,notes,tags,num_subtasks,completed_at,created_at,modified_at,permalink_url,projects.gid,projects.name,memberships.project.gid,memberships.project.name,memberships.section.gid,memberships.section.name'
             });
-            return result.data;
+            return (Array.isArray(result.data) ? result.data : []).map((task) => this.normalizeTask(task));
         } catch (error) {
             logger.error('Failed to get tasks:', error);
             throw new Error(`Asana API Error: ${error.message}`);
@@ -117,11 +206,11 @@ class AsanaService {
             const result = await tasksApi.getTasks({
                 workspace: workspaceId,
                 assignee: 'me', // Only get tasks assigned to authenticated user
-                opt_fields: 'name,completed,due_on,assignee,assignee.name,notes,projects,projects.name,tags',
+                opt_fields: 'name,completed,due_on,due_at,assignee,assignee.name,notes,projects.gid,projects.name,tags,created_at,modified_at,permalink_url,memberships.project.gid,memberships.project.name,memberships.section.gid,memberships.section.name',
                 completed_since: 'now' // Only incomplete tasks and recently completed
             });
 
-            return result.data;
+            return (Array.isArray(result.data) ? result.data : []).map((task) => this.normalizeTask(task));
         } catch (error) {
             logger.error('Failed to get all tasks:', error);
 
@@ -216,14 +305,12 @@ class AsanaService {
                     const apiClient = this.createApiClient(accessToken);
                     const tasksApi = new TasksApi(apiClient);
                     const result = await tasksApi.getTasksForProject(project.gid, {
-                        opt_fields: 'name,completed,due_on,assignee,assignee.name,notes,projects,projects.name,tags,created_at'
+                        opt_fields: 'name,completed,due_on,due_at,assignee,assignee.name,notes,projects.gid,projects.name,tags,created_at,modified_at,permalink_url,memberships.project.gid,memberships.project.name,memberships.section.gid,memberships.section.name'
                     });
 
-                    // Add project info to each task
-                    const tasksWithProject = result.data.map(task => ({
-                        ...task,
-                        project: { gid: project.gid, name: project.name }
-                    }));
+                    const tasksWithProject = (Array.isArray(result.data) ? result.data : []).map((task) => (
+                        this.normalizeTask(task, { gid: project.gid, id: project.gid, name: project.name })
+                    ));
 
                     allTasks.push(...tasksWithProject);
                 } catch (err) {
@@ -242,6 +329,73 @@ class AsanaService {
             logger.error('Failed to get all tasks from projects:', error);
             throw new Error(`Asana API Error: ${error.message}`);
         }
+    }
+
+    async getTaskById(accessToken, taskId) {
+        if (!taskId) {
+            throw new Error('taskId is required');
+        }
+
+        const task = await this.asanaRequest(`tasks/${encodeURIComponent(taskId)}?opt_fields=name,completed,due_on,due_at,assignee,assignee.name,notes,created_at,modified_at,permalink_url,projects.gid,projects.name,memberships.project.gid,memberships.project.name,memberships.section.gid,memberships.section.name`, accessToken);
+        return this.normalizeTask(task);
+    }
+
+    async getSectionsForProject(accessToken, projectId) {
+        if (!projectId) {
+            throw new Error('projectId is required');
+        }
+
+        const sections = await this.asanaRequest(`projects/${encodeURIComponent(projectId)}/sections?opt_fields=name`, accessToken);
+        return (Array.isArray(sections) ? sections : []).map((section) => ({
+            gid: String(section?.gid || section?.id || ''),
+            id: String(section?.gid || section?.id || ''),
+            name: section?.name || 'Untitled section'
+        }));
+    }
+
+    async moveTaskToSection(accessToken, taskId, sectionId) {
+        if (!taskId || !sectionId) {
+            throw new Error('taskId and sectionId are required');
+        }
+
+        return this.asanaRequest(`sections/${encodeURIComponent(sectionId)}/addTask`, accessToken, {
+            method: 'POST',
+            body: {
+                data: {
+                    task: String(taskId)
+                }
+            }
+        });
+    }
+
+    async setTaskCompleted(accessToken, taskId, completed = true) {
+        if (!taskId) {
+            throw new Error('taskId is required');
+        }
+
+        return this.asanaRequest(`tasks/${encodeURIComponent(taskId)}`, accessToken, {
+            method: 'PUT',
+            body: {
+                data: {
+                    completed: Boolean(completed)
+                }
+            }
+        });
+    }
+
+    async addCommentToTask(accessToken, taskId, text) {
+        if (!taskId || !String(text || '').trim()) {
+            throw new Error('taskId and comment text are required');
+        }
+
+        return this.asanaRequest(`tasks/${encodeURIComponent(taskId)}/stories`, accessToken, {
+            method: 'POST',
+            body: {
+                data: {
+                    text: String(text).trim()
+                }
+            }
+        });
     }
 
     // Get deadline summary (combines overdue and upcoming)

@@ -111,7 +111,16 @@ class JiraService {
                 throw error;
             }
 
-            return await response.json();
+            if (response.status === 204) {
+                return null;
+            }
+
+            const text = await response.text();
+            if (!text) {
+                return null;
+            }
+
+            return JSON.parse(text);
         } catch (error) {
             if (error.name === 'AbortError') {
                 const timeoutError = new Error('Jira API request timed out');
@@ -254,8 +263,12 @@ class JiraService {
                 key: fields?.project?.key || null,
                 name: fields?.project?.name || 'Jira'
             },
+            status_name: fields?.status?.name || null,
+            status_category: fields?.status?.statusCategory?.key || null,
+            priority: fields?.priority?.name || null,
             externalUrl: issueKey && baseUrl ? `${baseUrl.replace(/\/$/, '')}/browse/${issueKey}` : null,
-            created_at: fields?.created || fields?.updated || new Date().toISOString()
+            created_at: fields?.created || fields?.updated || new Date().toISOString(),
+            updated_at: fields?.updated || fields?.created || new Date().toISOString()
         };
     }
 
@@ -343,6 +356,94 @@ class JiraService {
         });
         const issues = Array.isArray(data?.issues) ? data.issues : [];
         return issues.map((issue) => this.normalizeIssue(issue, baseUrl));
+    }
+
+    async getIssueByKey(accessToken, cloudId, issueKey, baseUrl = null) {
+        if (!issueKey) {
+            throw new Error('issueKey is required');
+        }
+
+        const data = await this.jiraRequest(accessToken, cloudId, `issue/${encodeURIComponent(issueKey)}`, {
+            fields: ISSUE_FIELDS.join(',')
+        });
+
+        return this.normalizeIssue(data, baseUrl);
+    }
+
+    async getIssueTransitions(accessToken, cloudId, issueKey) {
+        if (!issueKey) {
+            throw new Error('issueKey is required');
+        }
+
+        const data = await this.jiraRequest(accessToken, cloudId, `issue/${encodeURIComponent(issueKey)}/transitions`);
+        const transitions = Array.isArray(data?.transitions) ? data.transitions : [];
+
+        return transitions.map((transition) => ({
+            id: transition?.id,
+            name: transition?.name || null,
+            to: {
+                name: transition?.to?.name || null,
+                statusCategory: transition?.to?.statusCategory?.key || null
+            }
+        }));
+    }
+
+    async transitionIssue(accessToken, cloudId, issueKey, transitionId) {
+        if (!issueKey || !transitionId) {
+            throw new Error('issueKey and transitionId are required');
+        }
+
+        await this.requestJson(
+            `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`,
+            accessToken,
+            {
+                method: 'POST',
+                body: {
+                    transition: {
+                        id: String(transitionId)
+                    }
+                }
+            }
+        );
+    }
+
+    async addComment(accessToken, cloudId, issueKey, text) {
+        if (!issueKey || !text) {
+            throw new Error('issueKey and comment text are required');
+        }
+
+        return this.requestJson(
+            `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`,
+            accessToken,
+            {
+                method: 'POST',
+                body: {
+                    body: this.toAdfDocument(text)
+                }
+            }
+        );
+    }
+
+    toAdfDocument(text) {
+        const lines = String(text || '')
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+
+        if (lines.length === 0) {
+            lines.push('');
+        }
+
+        return {
+            type: 'doc',
+            version: 1,
+            content: lines.map((line) => ({
+                type: 'paragraph',
+                content: line
+                    ? [{ type: 'text', text: line }]
+                    : []
+            }))
+        };
     }
 
     async getAllTasksFromProjects(accessToken, cloudId, baseUrl = null) {

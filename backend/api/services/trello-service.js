@@ -14,12 +14,17 @@ class TrelloService {
         }
     }
 
-    async request(endpoint, accessToken, params = {}) {
+    async request(endpoint, accessToken, params = {}, options = {}) {
         this.ensureConfigured();
 
         if (!accessToken) {
             throw new Error('Trello access token is required');
         }
+
+        const {
+            method = 'GET',
+            body = null
+        } = options;
 
         const url = new URL(`https://api.trello.com/1/${endpoint}`);
         url.searchParams.append('key', TRELLO_API_KEY);
@@ -35,7 +40,12 @@ class TrelloService {
         const timeout = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
 
         try {
-            const response = await fetch(url.toString(), { signal: controller.signal });
+            const response = await fetch(url.toString(), {
+                method,
+                signal: controller.signal,
+                headers: body ? { 'Content-Type': 'application/json' } : undefined,
+                body: body ? JSON.stringify(body) : undefined
+            });
             if (!response.ok) {
                 const errorText = await response.text();
                 logger.error('Trello API request failed', {
@@ -72,17 +82,26 @@ class TrelloService {
     }
 
     async getCardsForBoard(accessToken, board) {
-        const cards = await this.request(`boards/${board.id}/cards`, accessToken, {
-            fields: 'name,desc,due,dueComplete,idMembers,closed,url,dateLastActivity',
-            filter: 'visible',
-            members: 'true',
-            member_fields: 'fullName,username'
-        });
+        const [cards, lists] = await Promise.all([
+            this.request(`boards/${board.id}/cards`, accessToken, {
+                fields: 'name,desc,due,dueComplete,idMembers,closed,url,dateLastActivity,idList,shortLink,idBoard',
+                filter: 'visible',
+                members: 'true',
+                member_fields: 'fullName,username'
+            }),
+            this.getListsForBoard(accessToken, board.id)
+        ]);
 
-        return (Array.isArray(cards) ? cards : []).map((card) => this.normalizeCard(card, board));
+        const listsById = new Map(
+            (Array.isArray(lists) ? lists : []).map((list) => [String(list.id || list.gid || ''), list])
+        );
+
+        return (Array.isArray(cards) ? cards : []).map((card) => (
+            this.normalizeCard(card, board, listsById.get(String(card?.idList || '')))
+        ));
     }
 
-    normalizeCard(card, board) {
+    normalizeCard(card, board, list = null) {
         const members = Array.isArray(card?.members) ? card.members : [];
         const primaryAssignee = members[0];
         const dueDate = card?.due ? new Date(card.due) : null;
@@ -110,6 +129,15 @@ class TrelloService {
                 id: board?.id,
                 name: board?.name || 'Trello Board'
             },
+            list: list
+                ? {
+                    gid: list?.id || list?.gid || null,
+                    id: list?.id || list?.gid || null,
+                    name: list?.name || 'Unknown list'
+                }
+                : null,
+            status_name: list?.name || (card?.dueComplete || card?.closed ? 'Done' : 'Open'),
+            shortLink: card?.shortLink || null,
             externalUrl: card?.url || null,
             created_at: card?.dateLastActivity || new Date().toISOString()
         };
@@ -167,6 +195,64 @@ class TrelloService {
         });
 
         return this.getCardsForBoard(accessToken, board);
+    }
+
+    async getListsForBoard(accessToken, boardId) {
+        if (!boardId) {
+            throw new Error('boardId is required');
+        }
+
+        const lists = await this.request(`boards/${boardId}/lists`, accessToken, {
+            fields: 'name,closed',
+            filter: 'open'
+        });
+
+        return (Array.isArray(lists) ? lists : []).filter((list) => !list?.closed);
+    }
+
+    async getCard(accessToken, cardId) {
+        if (!cardId) {
+            throw new Error('cardId is required');
+        }
+
+        const card = await this.request(`cards/${cardId}`, accessToken, {
+            fields: 'name,desc,due,dueComplete,idMembers,closed,url,dateLastActivity,idList,shortLink,idBoard',
+            members: 'true',
+            member_fields: 'fullName,username'
+        });
+        const [board, lists] = await Promise.all([
+            this.request(`boards/${card.idBoard}`, accessToken, {
+                fields: 'name,desc,closed,url,dateLastActivity'
+            }),
+            this.getListsForBoard(accessToken, card.idBoard)
+        ]);
+
+        const currentList = (Array.isArray(lists) ? lists : []).find((list) => String(list?.id) === String(card?.idList));
+        return this.normalizeCard(card, board, currentList);
+    }
+
+    async moveCardToList(accessToken, cardId, listId) {
+        if (!cardId || !listId) {
+            throw new Error('cardId and listId are required');
+        }
+
+        return this.request(`cards/${cardId}`, accessToken, {
+            idList: listId
+        }, {
+            method: 'PUT'
+        });
+    }
+
+    async addCommentToCard(accessToken, cardId, text) {
+        if (!cardId || !String(text || '').trim()) {
+            throw new Error('cardId and comment text are required');
+        }
+
+        return this.request(`cards/${cardId}/actions/comments`, accessToken, {
+            text: String(text).trim()
+        }, {
+            method: 'POST'
+        });
     }
 
     async getDeadlineSummary(accessToken, memberId = null) {
