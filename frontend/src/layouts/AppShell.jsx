@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2, Code, BarChart3, Menu, X, Mail } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, Calendar, User, LogOut, Settings, Users, Building2, Code, BarChart3, Menu, X, Sparkles, Target, MessageSquare } from 'lucide-react';
 import OfflineBanner from '../components/OfflineBanner';
 
 export default function AppShell() {
@@ -56,51 +56,81 @@ export default function AppShell() {
 
     const SidebarContent = () => (
         <>
-            <div className="p-6 pb-2 flex items-center gap-2">
-                <img src="/logo.png" alt="Teama AI Logo" className="w-8 h-8 object-contain" />
-                <h1 className="text-2xl font-bold text-slate-900 mb-1">Teama AI</h1>
+            <div className="p-6 pb-2">
+                <div className="flex items-center gap-2">
+                    <img src="/logo.png" alt="Teama AI Logo" className="w-8 h-8 object-contain" />
+                    <h1 className="text-2xl font-bold text-slate-900 mb-1">Teama AI</h1>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-500">
+                    A proactive AI co-worker that surfaces what matters and only acts after approval.
+                </p>
             </div>
 
             <div className="px-3 mb-6">
-                <div className="flex items-center gap-3 p-2">
-                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0">
-                        <Building2 size={18} />
-                    </div>
-                    <div className="text-left overflow-hidden">
-                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your Team</p>
-                        <p className="text-sm font-bold text-slate-900 truncate">{team?.name || 'No Team'}</p>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0">
+                            <Building2 size={18} />
+                        </div>
+                        <div className="text-left overflow-hidden">
+                            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.22em]">Workspace</p>
+                            <p className="text-sm font-bold text-slate-900 truncate">{team?.name || 'No Team'}</p>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <nav className="flex-1 px-3 space-y-1">
-                <NavLink to="/app/dashboard" icon={<LayoutDashboard size={20} />}>
-                    Dashboard
-                </NavLink>
-                <NavLink to="/app/code" icon={<Code size={20} />}>
-                    Code
-                </NavLink>
-                <NavLink to="/app/summaries" icon={<Calendar size={20} />}>
-                    Summaries
-                </NavLink>
-                <NavLink to="/app/blockers" icon={<AlertCircle size={20} />}>
-                    Blockers
-                </NavLink>
-                <NavLink to="/app/analytics" icon={<BarChart3 size={20} />}>
-                    Analytics
-                </NavLink>
-                <NavLink to="/app/meetings" icon={<Calendar size={20} />}>
-                    Meetings
-                </NavLink>
-                <NavLink to="/app/integrations" icon={<Settings size={20} />}>
-                    Integrations
-                </NavLink>
-                <NavLink to="/app/team" icon={<Users size={20} />}>
-                    Team
-                </NavLink>
-                <NavLink to="/app/profile" icon={<User size={20} />}>
-                    Profile
-                </NavLink>
+            <nav className="flex-1 px-3 overflow-y-auto">
+                <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Core Workspace
+                </p>
+                <div className="space-y-1">
+                    <NavLink to="/app/dashboard" icon={<LayoutDashboard size={20} />}>
+                        Command Center
+                    </NavLink>
+                    <NavLink to="/app/insights" icon={<Sparkles size={20} />}>
+                        Approvals
+                    </NavLink>
+                    <NavLink to="/app/meetings" icon={<Calendar size={20} />}>
+                        Meeting Prep
+                    </NavLink>
+                    <NavLink to="/app/projects" icon={<Target size={20} />}>
+                        Project Health
+                    </NavLink>
+                    <NavLink to="/app/integrations" icon={<Settings size={20} />}>
+                        Integrations
+                    </NavLink>
+                </div>
+
+                <p className="px-3 pb-2 pt-6 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Signal Views
+                </p>
+                <div className="space-y-1">
+                    <NavLink to="/app/summaries" icon={<MessageSquare size={20} />}>
+                        Slack Context
+                    </NavLink>
+                    <NavLink to="/app/blockers" icon={<AlertCircle size={20} />}>
+                        Risk Signals
+                    </NavLink>
+                    <NavLink to="/app/code" icon={<Code size={20} />}>
+                        Code Signals
+                    </NavLink>
+                    <NavLink to="/app/analytics" icon={<BarChart3 size={20} />}>
+                        Trends
+                    </NavLink>
+                </div>
+
+                <p className="px-3 pb-2 pt-6 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Workspace
+                </p>
+                <div className="space-y-1">
+                    <NavLink to="/app/team" icon={<Users size={20} />}>
+                        Team
+                    </NavLink>
+                    <NavLink to="/app/profile" icon={<User size={20} />}>
+                        Profile
+                    </NavLink>
+                </div>
             </nav>
 
             <div className="p-4 border-t border-slate-200 bg-slate-50/50">

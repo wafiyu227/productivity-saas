@@ -52,21 +52,29 @@ export function AuthProvider({ children }) {
     }, [isOnline]);
 
     const REDIRECT_BLOCKED_PATHS = new Set(['/auth/callback', '/join']);
+    // Only check OAuth params on paths where they indicate a Supabase auth flow,
+    // NOT on pages like /app/integrations where ?error= means an integration OAuth error.
+    const AUTH_OAUTH_PARAM_PATHS = new Set(['/', '/login', '/signup', '/auth/callback']);
 
     const isRedirectBlocked = () => {
-        const searchParams = new URLSearchParams(location.search);
-        const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
-        const hasOAuthParams =
-            searchParams.has('code') ||
-            searchParams.has('error') ||
-            hashParams.has('access_token') ||
-            hashParams.has('error');
+        if (REDIRECT_BLOCKED_PATHS.has(location.pathname)) return true;
+        if (authCallbackState.isProcessing) return true;
 
-        return (
-            REDIRECT_BLOCKED_PATHS.has(location.pathname) ||
-            authCallbackState.isProcessing ||
-            hasOAuthParams
-        );
+        // Only treat OAuth query/hash params as blocking on auth-related pages.
+        // Pages like /app/integrations use ?error= and ?success= for integration
+        // feedback — these must NOT prevent the profile from loading.
+        if (AUTH_OAUTH_PARAM_PATHS.has(location.pathname)) {
+            const searchParams = new URLSearchParams(location.search);
+            const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+            const hasOAuthParams =
+                searchParams.has('code') ||
+                searchParams.has('error') ||
+                hashParams.has('access_token') ||
+                hashParams.has('error');
+            if (hasOAuthParams) return true;
+        }
+
+        return false;
     };
 
     const redirectToDashboard = (profileData = profile) => {

@@ -2,7 +2,7 @@
 // Beautiful waitlist page with your purple-blue gradient design
 
 import React, { useState, useEffect } from 'react';
-import { Sparkles, CheckCircle, Users, Zap, Brain, Target, Mail, ArrowRight } from 'lucide-react';
+import { Sparkles, CheckCircle, Users, Zap, Brain, Target, Mail, ArrowRight, TrendingUp, Clock, Shield } from 'lucide-react';
 import SEO from '../components/common/SEO';
 
 const Waitlist = () => {
@@ -339,19 +339,53 @@ const Waitlist = () => {
           </div>
         </section>
 
-        {/* Social Proof Section */}
-        <section className="max-w-6xl mx-auto px-8 pb-20">
-          <div className="bg-white/10 backdrop-blur-sm rounded-3xl p-8 md:p-12 text-center text-white">
-            <h2 className="text-2xl font-bold mb-4">Join forward-thinking teams</h2>
-            <p className="text-purple-100 max-w-2xl mx-auto mb-8">
-              Product managers, engineering leaders, and founders trust Teama AI to keep their teams aligned and productive.
-            </p>
-            <div className="flex flex-wrap justify-center gap-4">
-              {['Product Managers', 'Engineering Teams', 'Remote Teams', 'Startups'].map((tag, i) => (
-                <span key={i} className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">
-                  {tag}
-                </span>
-              ))}
+        {/* Social Proof & Results Section */}
+        <section className="max-w-6xl mx-auto px-8 pb-20 text-left">
+          <div className="bg-white/10 backdrop-blur-md rounded-3xl p-8 md:p-12 border border-white/10">
+            <div className="grid md:grid-cols-2 gap-12 items-center">
+              <div>
+                <h2 className="text-3xl font-bold text-white mb-6">Backed by measurable results</h2>
+                <p className="text-purple-100 mb-8 leading-relaxed">
+                  Teama AI isn't just another tool—it's a productivity multiplier. Teams using our early access platform are already seeing significant impact.
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  {['Product Managers', 'Engineering Leaders', 'Founders'].map((tag, i) => (
+                    <span key={i} className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full text-xs font-bold text-white uppercase tracking-wider">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+                  <div className="text-3xl font-bold text-white mb-1">-40%</div>
+                  <div className="text-[10px] text-purple-200 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                    <Clock size={14} className="text-purple-400" />
+                    Meeting Time
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+                  <div className="text-3xl font-bold text-white mb-1">85%</div>
+                  <div className="text-[10px] text-purple-200 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                    <Target size={14} className="text-purple-400" />
+                    Blocker Accuracy
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+                  <div className="text-3xl font-bold text-white mb-1">3.5h</div>
+                  <div className="text-[10px] text-purple-200 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                    <TrendingUp size={14} className="text-purple-400" />
+                    Saved/Week
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+                  <div className="text-3xl font-bold text-white mb-1">100%</div>
+                  <div className="text-[10px] text-purple-200 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                    <Shield size={14} className="text-purple-400" />
+                    Data Accuracy
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>

@@ -134,6 +134,67 @@ export const api = {
         }
     },
 
+    async getWorkInsights(teamId = null, options = {}) {
+        const userId = getUserId();
+        const { limit = 12 } = options;
+
+        if (!userId) {
+            throw new Error('Not authenticated - cannot fetch work insights');
+        }
+
+        try {
+            const url = new URL(`${API_BASE_URL}/api/work-insights`);
+            url.searchParams.append('userId', userId);
+            if (teamId) url.searchParams.append('teamId', teamId);
+            if (Number.isFinite(limit) && limit > 0) {
+                url.searchParams.append('limit', Math.floor(limit).toString());
+            }
+
+            const res = await fetch(url.toString());
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to fetch work insights');
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Fetch work insights error:', error);
+            throw error;
+        }
+    },
+
+    async applyWorkInsight(teamId = null, payload = {}) {
+        const userId = getUserId();
+
+        if (!userId) {
+            throw new Error('Not authenticated - cannot apply work insight');
+        }
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/work-insights/apply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...payload,
+                    userId,
+                    teamId
+                })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to apply work insight');
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Apply work insight error:', error);
+            throw error;
+        }
+    },
+
     async getIntegrationStatus(platform, teamId = null) {
         const userId = getUserId();
         if (!userId) {

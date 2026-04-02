@@ -6,6 +6,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import WorkInsights from './pages/WorkInsights';
 import Summaries from './pages/Summaries';
 import Blockers from './pages/Blockers';
 import Meetings from './pages/Meetings';
@@ -54,7 +55,12 @@ function TeamProtectedRoute({ children }) {
   if (loading) return <Spinner />;
   if (!user) return <Navigate to="/login" replace />;
 
+  // Profile fetch may still be in-flight after auth resolves.
+  // Wait for it rather than prematurely redirecting to onboarding.
+  if (!profile) return <Spinner />;
+
   const hasTeam = !!(profile?.current_team_id || profile?.teams?.length > 0);
+
 
   if (!hasTeam) {
     // When offline, check the cached profile before redirecting.
@@ -135,13 +141,14 @@ function App() {
           <Route path="/onboarding/complete" element={<ProtectedRoute><OnboardingComplete /></ProtectedRoute>} />
           <Route path="/onboarding/welcome-member" element={<ProtectedRoute><WelcomeMember /></ProtectedRoute>} />
 
-          <Route path="/app" element={
+            <Route path="/app" element={
             <TeamProtectedRoute>
               <AppShell />
             </TeamProtectedRoute>
           }>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="insights" element={<WorkInsights />} />
             <Route path="inbox" element={<Inbox />} />
             <Route path="summaries" element={<Summaries />} />
             <Route path="blockers" element={<Blockers />} />

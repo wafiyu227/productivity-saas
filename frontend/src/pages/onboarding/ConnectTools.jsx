@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { CheckCircle, Loader, ExternalLink } from 'lucide-react';
+import { CheckCircle, Loader, ExternalLink, AlertCircle } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 
 export default function ConnectTools() {
     const { user, profile } = useAuth();
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [statuses, setStatuses] = useState({
         slack: { connected: false, loading: true },
         asana: { connected: false, loading: true },
@@ -16,6 +16,8 @@ export default function ConnectTools() {
         trello: { connected: false, loading: true },
         google: { connected: false, loading: true }
     });
+    const [notification, setNotification] = useState(null);
+    const [oauthProcessed, setOauthProcessed] = useState(false);
 
     const teamId = profile?.current_team_id || sessionStorage.getItem('onboarding_team_id');
 
@@ -25,6 +27,15 @@ export default function ConnectTools() {
             url.searchParams.delete(param);
         });
         window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    };
+
+    const clearIntegrationQueryParams = () => {
+        const url = new URL(window.location.href);
+        ['error', 'success', 'message', 'trello_oauth', 'state'].forEach((param) => {
+            url.searchParams.delete(param);
+        });
+        window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
+        setSearchParams(url.searchParams);
     };
 
     useEffect(() => {
@@ -40,6 +51,110 @@ export default function ConnectTools() {
             checkAllStatuses();
         }
     }, [user, teamId]);
+
+    useEffect(() => {
+        if (!user || !teamId || oauthProcessed) return;
+
+        const error = searchParams.get('error');
+        const success = searchParams.get('success');
+        const trelloOauth = searchParams.get('trello_oauth');
+        const trelloState = searchParams.get('state');
+
+        if (trelloOauth === '1') {
+            setOauthProcessed(true);
+
+            const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            const trelloToken = hashParams.get('token') || hashParams.get('access_token');
+
+            if (!trelloToken || !trelloState) {
+                setNotification({
+                    type: 'error',
+                    message: 'Trello authorization did not return a valid token. Please try again.'
+                });
+                clearIntegrationQueryParams();
+                return;
+            }
+
+            const saveTrelloToken = async () => {
+                try {
+                    const response = await fetch(`${API_URL}/api/auth/trello/token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            token: trelloToken,
+                            state: trelloState
+                        })
+                    });
+
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Failed to store Trello token');
+                    }
+
+                    setNotification({
+                        type: 'success',
+                        message: 'Trello workspace connected successfully!'
+                    });
+
+                    await checkAllStatuses();
+                } catch (tokenError) {
+                    setNotification({
+                        type: 'error',
+                        message: tokenError.message || 'Failed to complete Trello authentication.'
+                    });
+                } finally {
+                    clearIntegrationQueryParams();
+                }
+            };
+
+            saveTrelloToken();
+            return;
+        }
+
+        if (error || success) {
+            setOauthProcessed(true);
+
+            if (error) {
+                const errorMessages = {
+                    oauth_failed: 'Failed to complete authentication. Please try again.',
+                    slack_auth_failed: 'Slack authentication was denied. Please try again.',
+                    asana_auth_failed: 'Asana authentication was denied. Please try again.',
+                    jira_auth_failed: 'Jira authentication was denied. Please try again.',
+                    trello_auth_failed: 'Trello authentication was denied. Please try again.',
+                    google_auth_failed: 'Google authentication was denied. Please try again.',
+                    missing_params: 'Missing required parameters. Please try again.'
+                };
+
+                let message = errorMessages[error] || 'An error occurred during authentication.';
+                const debugMessage = searchParams.get('message');
+                if (debugMessage && error === 'oauth_failed') {
+                    message += ` (Error: ${decodeURIComponent(debugMessage)})`;
+                }
+
+                setNotification({
+                    type: 'error',
+                    message
+                });
+            } else if (success) {
+                const successMessages = {
+                    slack_connected: 'Slack workspace connected successfully!',
+                    asana_connected: 'Asana workspace connected successfully!',
+                    jira_connected: 'Jira workspace connected successfully!',
+                    trello_connected: 'Trello workspace connected successfully!',
+                    google_connected: 'Google Calendar connected successfully!'
+                };
+
+                setNotification({
+                    type: 'success',
+                    message: successMessages[success] || 'Connected successfully!'
+                });
+
+                checkAllStatuses();
+            }
+
+            clearIntegrationQueryParams();
+        }
+    }, [oauthProcessed, searchParams, setSearchParams, teamId, user]);
 
     const checkAllStatuses = async () => {
         const platforms = ['slack', 'asana', 'jira', 'trello', 'google'];
@@ -66,6 +181,10 @@ export default function ConnectTools() {
     };
 
     const handleConnect = (platform) => {
+        if (!user || !teamId) {
+            return;
+        }
+
         if (!['slack', 'asana', 'jira', 'trello', 'google'].includes(platform)) {
             return;
         }
@@ -76,8 +195,12 @@ export default function ConnectTools() {
             return;
         }
 
-        // Note: oauth callback should lead back here or to next onboarding step
-        window.location.href = `${API_URL}/api/auth/${platform}/connect?userId=${user.id}&teamId=${teamId}&scope=team`;
+        const url = new URL(`${API_URL}/api/auth/${platform}/connect`);
+        url.searchParams.set('userId', user.id);
+        url.searchParams.set('teamId', teamId);
+        url.searchParams.set('scope', 'team');
+        url.searchParams.set('returnTo', '/onboarding/connect-tools');
+        window.location.href = url.toString();
     };
 
     const connectedProjectPlatform = statuses.jira.connected
@@ -104,6 +227,25 @@ export default function ConnectTools() {
                 <p className="text-gray-600 mb-8 text-center sm:text-left">
                     These integrations will be shared with all team members. You can always add more later.
                 </p>
+
+                {notification && (
+                    <div
+                        className={`mb-6 rounded-lg border p-4 ${
+                            notification.type === 'error'
+                                ? 'border-red-200 bg-red-50 text-red-800'
+                                : 'border-green-200 bg-green-50 text-green-800'
+                        }`}
+                    >
+                        <div className="flex items-start gap-3">
+                            {notification.type === 'error' ? (
+                                <AlertCircle className="mt-0.5 flex-shrink-0" size={18} />
+                            ) : (
+                                <CheckCircle className="mt-0.5 flex-shrink-0" size={18} />
+                            )}
+                            <p className="text-sm">{notification.message}</p>
+                        </div>
+                    </div>
+                )}
 
                 <div className="space-y-4">
                     {/* Slack */}

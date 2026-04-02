@@ -4,8 +4,17 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import {
     RefreshCw, MessageSquare, AlertTriangle, TrendingUp,
-    Sparkles, Clock, CheckCircle, ArrowRight, Zap, Activity, Target
+    Sparkles, Clock, ArrowRight, Activity, Target
 } from 'lucide-react';
+import {
+    createEmptyCalendarSignals,
+    createEmptyGithubPulls,
+    extractCalendarBlockers,
+    extractGithubBlockers,
+    extractProjectPlatformBlockers,
+    extractSlackBlockers,
+    mergeBlockers
+} from '../utils/blockerSignals';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
@@ -34,10 +43,10 @@ export default function Dashboard() {
     const navigate = useNavigate();
     const [channels, setChannels] = useState([]);
     const [summaries, setSummaries] = useState([]);
+    const [workInsightsPreview, setWorkInsightsPreview] = useState([]);
+    const [workInsightsMessage, setWorkInsightsMessage] = useState('');
     const [activities, setActivities] = useState([]);
     const [blockerStats, setBlockerStats] = useState({ active: 0, resolved: 0, total: 0 });
-    const [loading, setLoading] = useState(false);
-    const [selectedChannel, setSelectedChannel] = useState('');
     const [refreshing, setRefreshing] = useState(false);
     const [projectStats, setProjectStats] = useState({
         connected: false,
@@ -46,6 +55,9 @@ export default function Dashboard() {
         atRisk: 0,
         extractorReady: false
     });
+    const [projectDeadlineSignals, setProjectDeadlineSignals] = useState(null);
+    const [githubSignals, setGithubSignals] = useState(createEmptyGithubPulls());
+    const [calendarSignals, setCalendarSignals] = useState(createEmptyCalendarSignals());
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -66,9 +78,12 @@ export default function Dashboard() {
         if (user && profile) {
             loadChannels();
             loadSummaries();
+            loadWorkInsights();
             loadActivities();
             loadBlockerStats();
             loadProjectStats();
+            loadGithubSignals();
+            loadCalendarSignals();
         }
     }, [user, profile?.current_team_id]);
 
@@ -107,6 +122,20 @@ export default function Dashboard() {
             setSummaries(data || []);
         } catch (error) {
             console.error('Failed to load summaries:', error);
+        }
+    };
+
+    const loadWorkInsights = async () => {
+        if (!user) return;
+
+        try {
+            const data = await api.getWorkInsights(profile?.current_team_id, { limit: 6 });
+            setWorkInsightsPreview(Array.isArray(data?.insights) ? data.insights : []);
+            setWorkInsightsMessage(data?.message || '');
+        } catch (error) {
+            console.error('Failed to load work insights:', error);
+            setWorkInsightsPreview([]);
+            setWorkInsightsMessage('');
         }
     };
 
@@ -178,6 +207,7 @@ export default function Dashboard() {
                     atRisk: 0,
                     extractorReady: false
                 });
+                setProjectDeadlineSignals(null);
                 return;
             }
 
@@ -190,6 +220,7 @@ export default function Dashboard() {
                     atRisk: 0,
                     extractorReady: false
                 });
+                setProjectDeadlineSignals(null);
                 return;
             }
 
@@ -197,6 +228,11 @@ export default function Dashboard() {
                 extractor.fetchProjects(teamId).catch(() => ({ projects: [] })),
                 extractor.fetchDeadlines(teamId).catch(() => ({ totalAtRisk: 0 }))
             ]);
+
+            setProjectDeadlineSignals({
+                platform: activeProjectPlatform,
+                deadlines: deadlinesData
+            });
 
             setProjectStats({
                 connected: true,
@@ -209,6 +245,49 @@ export default function Dashboard() {
             if (!error.message?.includes('401')) {
                 console.error('Failed to load project platform stats:', error);
             }
+            setProjectDeadlineSignals(null);
+        }
+    };
+
+    const loadGithubSignals = async () => {
+        if (!user) return;
+
+        try {
+            const data = await api.getGithubPulls(profile?.current_team_id, { limit: 12, staleDays: 7 });
+            if (data?.error) {
+                setGithubSignals(createEmptyGithubPulls());
+                return;
+            }
+
+            setGithubSignals({
+                pulls: Array.isArray(data?.pulls) ? data.pulls : [],
+                meta: data?.meta || {}
+            });
+        } catch (error) {
+            console.error('Failed to load GitHub signals:', error);
+            setGithubSignals(createEmptyGithubPulls());
+        }
+    };
+
+    const loadCalendarSignals = async () => {
+        if (!user) return;
+
+        try {
+            const teamId = profile?.current_team_id;
+            const [eventsData, actionItemsData] = await Promise.all([
+                api.getGoogleCalendarEvents(teamId, 7),
+                api.getGoogleCalendarActionItems(teamId, 7)
+            ]);
+
+            setCalendarSignals({
+                events: Array.isArray(eventsData?.events) && !eventsData?.error ? eventsData.events : [],
+                actionItems: Array.isArray(actionItemsData?.actionItems) && !actionItemsData?.error
+                    ? actionItemsData.actionItems
+                    : []
+            });
+        } catch (error) {
+            console.error('Failed to load calendar signals:', error);
+            setCalendarSignals(createEmptyCalendarSignals());
         }
     };
 
@@ -291,19 +370,32 @@ export default function Dashboard() {
         setRefreshing(true);
         await Promise.all([
             loadSummaries(),
+            loadWorkInsights(),
             loadActivities(),
             loadBlockerStats(),
-            loadProjectStats()
+            loadProjectStats(),
+            loadGithubSignals(),
+            loadCalendarSignals()
         ]);
         setRefreshing(false);
     };
 
     const stats = {
+        pendingApprovals: workInsightsPreview.length,
         channelsMonitored: channels.length,
         summariesGenerated: summaries.length,
         activeBlockers: blockerStats.active,
-        totalMessages: summaries.reduce((acc, s) => acc + (s.message_count || 0), 0)
+        totalMessages: summaries.reduce((acc, s) => acc + (s.message_count || 0), 0),
+        followUps: Array.isArray(calendarSignals?.actionItems) ? calendarSignals.actionItems.length : 0
     };
+    const teamBriefing = buildTeamBriefing({
+        channels,
+        summaries,
+        projectStats,
+        projectDeadlineSignals,
+        githubSignals,
+        calendarSignals
+    });
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
@@ -312,28 +404,31 @@ export default function Dashboard() {
                     {/* Header */}
                     <div className="mb-6 md:mb-8">
                         <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">
-                            Welcome back! 👋
+                            Command Center
                         </h1>
                         <p className="text-base md:text-lg text-gray-600">
-                            Here's what's happening with your team today
+                            Teama is watching your workspace, surfacing what matters, and waiting for approval before it acts.
                         </p>
                     </div>
 
+                    <TeamBriefingCard briefing={teamBriefing} navigate={navigate} />
+
                     {/* Stats Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6 mb-6 md:mb-8">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 md:gap-6 mb-6 md:mb-8">
+                        <StatCard
+                            title="Pending Approvals"
+                            value={stats.pendingApprovals}
+                            icon={<Sparkles className="text-violet-600" size={24} />}
+                            change={stats.pendingApprovals > 0 ? 'Needs review' : 'All clear'}
+                            trend={stats.pendingApprovals > 0 ? "down" : "up"}
+                            onClick={() => navigate('/app/insights')}
+                        />
                         <StatCard
                             title="Channels"
                             value={stats.channelsMonitored}
                             icon={<MessageSquare className="text-blue-600" size={24} />}
                             change={`${stats.channelsMonitored} connected`}
                             trend="neutral"
-                        />
-                        <StatCard
-                            title="Summaries"
-                            value={stats.summariesGenerated}
-                            icon={<Sparkles className="text-purple-600" size={24} />}
-                            change={`${stats.summariesGenerated} generated`}
-                            trend="up"
                         />
                         <StatCard
                             title="Active Blockers"
@@ -351,6 +446,14 @@ export default function Dashboard() {
                             trend="up"
                         />
                         <StatCard
+                            title="Meeting Follow-ups"
+                            value={stats.followUps}
+                            icon={<Clock className="text-amber-600" size={24} />}
+                            change={stats.followUps > 0 ? 'Still open' : 'No open items'}
+                            trend={stats.followUps > 0 ? "down" : "up"}
+                            onClick={() => navigate('/app/meetings')}
+                        />
+                        <StatCard
                             title={projectStats.platform ? `${PROJECT_PLATFORM_LABELS[projectStats.platform]} Projects` : 'Project Platform'}
                             value={projectStats.extractorReady ? projectStats.projects : (projectStats.connected ? '—' : 0)}
                             icon={<Target className="text-cyan-600" size={24} />}
@@ -364,7 +467,14 @@ export default function Dashboard() {
                         />
                     </div>
 
+                    <ApprovalModelCard
+                        insights={workInsightsPreview}
+                        message={workInsightsMessage}
+                        navigate={navigate}
+                    />
+
                     {/* Generate Summary Card */}
+                    {false && (
                     <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-xl p-5 md:p-8 mb-6 md:mb-8 text-white">
                         <div className="flex items-start justify-between mb-4 md:mb-6">
                             <div>
@@ -417,10 +527,18 @@ export default function Dashboard() {
                             </button>
                         </div>
                     </div>
+                    )}
 
                     {/* Main Content Grid */}
                     <div className="grid lg:grid-cols-3 gap-8">
+                        <ApprovalQueueCard
+                            insights={workInsightsPreview}
+                            message={workInsightsMessage}
+                            navigate={navigate}
+                        />
+
                         {/* Recent Summaries */}
+                        {false && (
                         <div className="lg:col-span-2">
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                                 <div className="flex items-center justify-between mb-6">
@@ -450,6 +568,7 @@ export default function Dashboard() {
                                 )}
                             </div>
                         </div>
+                        )}
 
                         {/* Quick Actions & Activity */}
                         <div className="space-y-6">
@@ -483,6 +602,286 @@ function StatCard({ title, value, icon, change, trend, onClick }) {
             <p className="text-sm text-gray-600 mb-1">{title}</p>
             <p className="text-3xl font-bold text-gray-900">{value}</p>
         </div>
+    );
+}
+
+function ApprovalModelCard({ insights, message, navigate }) {
+    const previewInsights = Array.isArray(insights) ? insights.slice(0, 2) : [];
+
+    return (
+        <section className="mb-6 md:mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-sky-700 via-blue-700 to-cyan-700 p-6 md:p-8 text-white shadow-xl">
+            <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
+                <div>
+                    <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">
+                        <Sparkles size={14} />
+                        Approval-First AI
+                    </div>
+                    <h2 className="mb-3 text-2xl font-bold leading-tight md:text-4xl">
+                        Teama works proactively, but it never writes without approval.
+                    </h2>
+                    <p className="max-w-3xl text-sm leading-7 text-blue-50 md:text-base">
+                        This is the core product contract: Teama learns from Slack, Jira, GitHub, Calendar, and your other tools,
+                        explains what it found, then waits for a human to accept, edit, or ignore the next action.
+                    </p>
+
+                    <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                        <ApprovalPrinciple
+                            title="Evidence-backed"
+                            description="Every suggestion shows the exact signals and source context behind it."
+                        />
+                        <ApprovalPrinciple
+                            title="Human-in-loop"
+                            description="Nothing gets pushed back to a connected tool until a user approves it."
+                        />
+                        <ApprovalPrinciple
+                            title="Cross-tool aware"
+                            description="Insights combine workspace activity instead of forcing users to jump between apps."
+                        />
+                    </div>
+
+                    <div className="mt-6 flex flex-wrap gap-3">
+                        <button
+                            onClick={() => navigate('/app/insights')}
+                            className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
+                        >
+                            Review Approvals
+                            <ArrowRight size={16} />
+                        </button>
+                        <button
+                            onClick={() => navigate('/app/integrations')}
+                            className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+                        >
+                            Manage Sources
+                        </button>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="rounded-3xl border border-white/15 bg-white/10 p-5">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">Approval Queue</p>
+                                <p className="mt-1 text-3xl font-bold text-white">{previewInsights.length}</p>
+                            </div>
+                            <div className="rounded-2xl bg-white/10 p-3">
+                                <Sparkles size={22} className="text-blue-100" />
+                            </div>
+                        </div>
+                        <p className="text-sm leading-6 text-blue-50">
+                            {previewInsights.length > 0
+                                ? 'Teama has surfaced actions that are ready for review right now.'
+                                : (message || 'No approvals are waiting right now. Teama is still watching your connected workspace.')}
+                        </p>
+                    </div>
+
+                    {previewInsights.length > 0 ? (
+                        previewInsights.map((insight) => (
+                            <div key={insight.id} className="rounded-3xl border border-white/15 bg-white/10 p-5">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-50">
+                                            {insight.platformLabel}
+                                        </span>
+                                        <p className="font-semibold text-white">{insight.ticketKey}</p>
+                                    </div>
+                                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-blue-50">
+                                        {insight.suggestedStatus}
+                                    </span>
+                                </div>
+                                <p className="text-sm leading-6 text-blue-50">
+                                    {insight.signals?.join(' • ') || 'Signals detected'}
+                                </p>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="rounded-3xl border border-dashed border-white/20 bg-black/10 p-5 text-sm leading-6 text-blue-50">
+                            Connect sources and share work-item updates in Slack so Teama can start surfacing approval-ready actions.
+                        </div>
+                    )}
+                </div>
+            </div>
+        </section>
+    );
+}
+
+function ApprovalPrinciple({ title, description }) {
+    return (
+        <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
+            <p className="text-sm font-semibold text-white">{title}</p>
+            <p className="mt-2 text-xs leading-6 text-blue-50">{description}</p>
+        </div>
+    );
+}
+
+function ApprovalQueueCard({ insights, message, navigate }) {
+    const items = Array.isArray(insights) ? insights.slice(0, 4) : [];
+
+    return (
+        <div className="lg:col-span-2">
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+                <div className="mb-6 flex items-center justify-between">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900">Approval Queue</h2>
+                        <p className="mt-1 text-sm leading-6 text-gray-600">
+                            Review Teama's latest evidence-backed suggestions before anything is written back to your tools.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => navigate('/app/insights')}
+                        className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
+                    >
+                        View all
+                        <ArrowRight size={16} />
+                    </button>
+                </div>
+
+                {items.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
+                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-sm">
+                            <Sparkles className="text-sky-600" size={24} />
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900">No approvals waiting</h3>
+                        <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-gray-600">
+                            {message || 'Teama has not found any approval-ready actions yet.'}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {items.map((insight) => (
+                            <button
+                                key={insight.id}
+                                onClick={() => navigate('/app/insights')}
+                                className="w-full rounded-2xl border border-gray-200 p-5 text-left transition hover:border-blue-200 hover:bg-blue-50/40"
+                            >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <div className="mb-2 flex items-center gap-2">
+                                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+                                                {insight.platformLabel}
+                                            </span>
+                                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+                                                {insight.ticketKey}
+                                            </span>
+                                            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                                                {insight.suggestedStatus}
+                                            </span>
+                                        </div>
+                                        <p className="text-lg font-semibold text-gray-900">{insight.ticketName}</p>
+                                        <p className="mt-1 text-sm leading-6 text-gray-600">
+                                            {insight.evidence?.[0]?.text || 'Teama found activity worth reviewing.'}
+                                        </p>
+                                    </div>
+                                    <ArrowRight size={18} className="mt-1 text-gray-400" />
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    {insight.signals?.map((signal) => (
+                                        <span
+                                            key={`${insight.id}-${signal}`}
+                                            className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
+                                        >
+                                            {signal}
+                                        </span>
+                                    ))}
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function TeamBriefingCard({ briefing, navigate }) {
+    return (
+        <section className="mb-6 md:mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 md:p-8 text-white shadow-xl">
+            <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
+                <div>
+                    <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">
+                        <Activity size={14} />
+                        Proactive Briefing
+                    </div>
+                    <h2 className="mb-3 text-2xl font-bold leading-tight md:text-4xl">
+                        {briefing.headline}
+                    </h2>
+                    <p className="max-w-3xl text-sm leading-7 text-slate-200 md:text-base">
+                        {briefing.summary}
+                    </p>
+
+                    <div className="mt-5 flex flex-wrap gap-2">
+                        {briefing.sources.map((source) => (
+                            <span
+                                key={source}
+                                className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-slate-100"
+                            >
+                                {source}
+                            </span>
+                        ))}
+                    </div>
+
+                    <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {briefing.metrics.map((metric) => (
+                            <div
+                                key={metric.label}
+                                className="rounded-2xl border border-white/10 bg-white/10 p-4"
+                            >
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                                    {metric.label}
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-white">{metric.value}</p>
+                                <p className="mt-1 text-xs text-slate-300">{metric.description}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                    <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
+                        <div className="mb-4 flex items-center gap-2">
+                            <AlertTriangle size={18} className="text-amber-300" />
+                            <h3 className="text-lg font-semibold">Needs Attention</h3>
+                        </div>
+                        <div className="space-y-3">
+                            {briefing.attentionItems.map((item) => (
+                                <button
+                                    key={item.title}
+                                    onClick={() => item.path && navigate(item.path)}
+                                    className="w-full rounded-2xl border border-white/10 bg-black/10 p-4 text-left transition hover:border-white/20 hover:bg-white/10"
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="font-semibold text-white">{item.title}</p>
+                                            <p className="mt-1 text-sm leading-6 text-slate-200">{item.description}</p>
+                                        </div>
+                                        <ArrowRight size={16} className="mt-1 shrink-0 text-slate-300" />
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
+                        <div className="mb-4 flex items-center gap-2">
+                            <Sparkles size={18} className="text-blue-200" />
+                            <h3 className="text-lg font-semibold">Recommended Next Steps</h3>
+                        </div>
+                        <div className="space-y-3">
+                            {briefing.actions.map((action) => (
+                                <button
+                                    key={action.title}
+                                    onClick={() => navigate(action.path)}
+                                    className="w-full rounded-2xl border border-white/10 bg-black/10 p-4 text-left transition hover:border-white/20 hover:bg-white/10"
+                                >
+                                    <p className="font-semibold text-white">{action.title}</p>
+                                    <p className="mt-1 text-sm leading-6 text-slate-200">{action.description}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
     );
 }
 
@@ -565,24 +964,36 @@ function EmptyState() {
 function QuickActionsCard({ navigate }) {
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h3 className="font-bold text-gray-900 mb-4">Quick Actions</h3>
+            <h3 className="font-bold text-gray-900 mb-4">Workspace Actions</h3>
             <div className="space-y-3">
                 <QuickAction
+                    icon={<Sparkles size={18} className="text-violet-600" />}
+                    title="Review Approvals"
+                    description="Accept, edit, or ignore Teama suggestions"
+                    onClick={() => navigate('/app/insights')}
+                />
+                <QuickAction
                     icon={<Target size={18} className="text-cyan-600" />}
-                    title="View Projects"
-                    description="Check project platform health"
+                    title="Check Project Health"
+                    description="Review cross-tool delivery risk"
                     onClick={() => navigate('/app/projects')}
                 />
                 <QuickAction
-                    icon={<AlertTriangle size={18} className="text-red-600" />}
-                    title="Manage Blockers"
-                    description="Track and resolve issues"
-                    onClick={() => navigate('/app/blockers')}
+                    icon={<Clock size={18} className="text-amber-600" />}
+                    title="Prep for Meetings"
+                    description="Open meeting context and follow-ups"
+                    onClick={() => navigate('/app/meetings')}
                 />
                 <QuickAction
                     icon={<MessageSquare size={18} className="text-blue-600" />}
-                    title="Connect Slack"
-                    description="Add more workspaces"
+                    title="Review Slack Context"
+                    description="Inspect the signals Teama is learning from"
+                    onClick={() => navigate('/app/summaries')}
+                />
+                <QuickAction
+                    icon={<AlertTriangle size={18} className="text-red-600" />}
+                    title="Manage Sources"
+                    description="Connect or tune the tools Teama watches"
                     onClick={() => navigate('/app/integrations')}
                 />
             </div>
@@ -634,7 +1045,7 @@ function ActivityFeed({ activities, refreshing, onRefresh }) {
             <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-gray-900 flex items-center gap-2">
                     <Activity size={20} />
-                    Recent Activity
+                    Recent Signals
                 </h3>
                 <button
                     onClick={onRefresh}
@@ -649,7 +1060,7 @@ function ActivityFeed({ activities, refreshing, onRefresh }) {
             </div>
             <div className="space-y-4">
                 {activities.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-4">No activities yet</p>
+                    <p className="text-sm text-gray-500 text-center py-4">No signals yet</p>
                 ) : (
                     activities.map((activity) => (
                         <div key={activity.id} className="flex gap-3">
@@ -664,4 +1075,252 @@ function ActivityFeed({ activities, refreshing, onRefresh }) {
             </div>
         </div>
     );
+}
+
+function buildTeamBriefing({
+    channels,
+    summaries,
+    projectStats,
+    projectDeadlineSignals,
+    githubSignals,
+    calendarSignals
+}) {
+    const sortedSummaries = [...(Array.isArray(summaries) ? summaries : [])].sort(
+        (first, second) => new Date(second.created_at || 0) - new Date(first.created_at || 0)
+    );
+    const latestSummary = sortedSummaries[0] || null;
+    const slackBlockers = extractSlackBlockers(sortedSummaries).filter((item) => item.status === 'active');
+    const projectBlockers = projectDeadlineSignals?.platform && projectDeadlineSignals?.deadlines
+        ? extractProjectPlatformBlockers(projectDeadlineSignals.deadlines, projectDeadlineSignals.platform)
+        : [];
+    const githubBlockers = extractGithubBlockers(githubSignals, 7).filter((item) => item.status === 'active');
+    const calendarBlockers = extractCalendarBlockers(calendarSignals).filter((item) => item.status === 'active');
+    const activeSignals = mergeBlockers(slackBlockers, projectBlockers, githubBlockers, calendarBlockers)
+        .filter((item) => item.status === 'active');
+    const meetingActionItems = Array.isArray(calendarSignals?.actionItems) ? calendarSignals.actionItems : [];
+    const upcomingEvents = [...(Array.isArray(calendarSignals?.events) ? calendarSignals.events : [])]
+        .filter((event) => event?.start)
+        .sort((first, second) => new Date(first.start) - new Date(second.start));
+    const nextMeeting = upcomingEvents[0] || null;
+    const githubMeta = githubSignals?.meta || {};
+    const openPullRequests = githubMeta.total_open || githubSignals?.pulls?.length || 0;
+    const latestTopics = latestSummary?.key_topics || latestSummary?.keyTopics || [];
+
+    const sources = [];
+    if (channels.length > 0 || sortedSummaries.length > 0) sources.push('Slack');
+    if (projectStats?.connected && projectStats?.platform) {
+        sources.push(PROJECT_PLATFORM_LABELS[projectStats.platform] || projectStats.platform);
+    }
+    if (openPullRequests > 0 || githubBlockers.length > 0) sources.push('GitHub');
+    if (meetingActionItems.length > 0 || upcomingEvents.length > 0) sources.push('Calendar');
+    if (sources.length === 0) sources.push('Workspace setup');
+
+    let headline = 'Teama has not found any connected work signals yet.';
+    if (activeSignals.length > 0) {
+        headline = `${activeSignals.length} cross-tool signal${activeSignals.length === 1 ? '' : 's'} need attention today.`;
+    } else if (projectStats?.connected || sortedSummaries.length > 0 || upcomingEvents.length > 0 || openPullRequests > 0) {
+        headline = 'Your team is steady right now, with no critical blockers surfaced.';
+    } else if (channels.length > 0) {
+        headline = 'Slack is ready. The next step is to turn activity into proactive team context.';
+    }
+
+    const summaryParts = [];
+    if (latestSummary?.summary) {
+        summaryParts.push(`Latest Slack signal: ${trimSentence(latestSummary.summary)}`);
+    }
+    if (projectStats?.connected && projectStats?.atRisk > 0) {
+        summaryParts.push(`${projectStats.atRisk} project task${projectStats.atRisk === 1 ? '' : 's'} are already at risk in ${PROJECT_PLATFORM_LABELS[projectStats.platform] || projectStats.platform}.`);
+    }
+    if (githubBlockers.length > 0) {
+        summaryParts.push(`${githubBlockers.length} pull request${githubBlockers.length === 1 ? '' : 's'} need review or have gone stale.`);
+    }
+    if (meetingActionItems.length > 0) {
+        summaryParts.push(`${meetingActionItems.length} meeting follow-up item${meetingActionItems.length === 1 ? '' : 's'} are still open.`);
+    }
+    if (summaryParts.length === 0 && nextMeeting?.title) {
+        summaryParts.push(`Next meeting on deck: ${nextMeeting.title} ${formatRelativeDate(nextMeeting.start)}.`);
+    }
+    if (summaryParts.length === 0) {
+        summaryParts.push('Connect Slack, a project platform, and your team workflow tools so Teama can start surfacing what matters automatically.');
+    }
+
+    const attentionItems = [];
+    if (slackBlockers.length > 0) {
+        attentionItems.push({
+            title: `${slackBlockers.length} Slack blocker${slackBlockers.length === 1 ? '' : 's'} surfaced`,
+            description: describeSignals(slackBlockers),
+            path: '/app/blockers'
+        });
+    }
+    if (projectStats?.connected && projectStats?.atRisk > 0) {
+        attentionItems.push({
+            title: `${projectStats.atRisk} ${PROJECT_PLATFORM_LABELS[projectStats.platform] || 'project'} task${projectStats.atRisk === 1 ? '' : 's'} at risk`,
+            description: projectBlockers.length > 0
+                ? describeSignals(projectBlockers)
+                : 'Deadlines are slipping or clustering close together. Review the project health panel for details.',
+            path: '/app/projects'
+        });
+    }
+    if (githubBlockers.length > 0) {
+        attentionItems.push({
+            title: `${githubBlockers.length} GitHub review signal${githubBlockers.length === 1 ? '' : 's'}`,
+            description: describeSignals(githubBlockers),
+            path: '/app/code'
+        });
+    }
+    if (meetingActionItems.length > 0) {
+        attentionItems.push({
+            title: `${meetingActionItems.length} meeting follow-up item${meetingActionItems.length === 1 ? '' : 's'}`,
+            description: describeActionItems(meetingActionItems),
+            path: '/app/meetings'
+        });
+    }
+    if (attentionItems.length === 0) {
+        attentionItems.push({
+            title: 'No urgent blockers detected',
+            description: nextMeeting?.title
+                ? `Next scheduled touchpoint: ${nextMeeting.title} ${formatRelativeDate(nextMeeting.start)}.`
+                : 'Teama is not seeing any urgent blockers across your connected data right now.',
+            path: '/app/analytics'
+        });
+    }
+
+    const actions = [];
+    if (channels.length === 0) {
+        actions.push({
+            title: 'Connect Slack first',
+            description: 'Slack is the fastest way to start capturing live work signals, blockers, and progress updates.',
+            path: '/app/integrations'
+        });
+    } else if (sortedSummaries.length === 0) {
+        actions.push({
+            title: 'Review Slack context',
+            description: 'Use the Slack context view to inspect the conversation signals Teama is learning from across your workspace.',
+            path: '/app/summaries'
+        });
+    }
+    if (!projectStats?.connected) {
+        actions.push({
+            title: 'Add a project platform',
+            description: 'Connect Jira, Asana, or Trello so Teama can link conversation signals to execution status.',
+            path: '/app/integrations'
+        });
+    } else if (projectStats.atRisk > 0) {
+        actions.push({
+            title: 'Review at-risk project work',
+            description: 'Open project health to triage overdue or due-soon tasks before they turn into missed commitments.',
+            path: '/app/projects'
+        });
+    }
+    if (githubBlockers.length > 0 || openPullRequests > 0) {
+        actions.push({
+            title: 'Check the code queue',
+            description: githubBlockers.length > 0
+                ? 'Teama found pull requests waiting on review or sitting stale.'
+                : 'Use the code view to stay ahead of open pull request activity.',
+            path: '/app/code'
+        });
+    }
+    if (meetingActionItems.length > 0) {
+        actions.push({
+            title: 'Close meeting follow-ups',
+            description: 'Review extracted action items from upcoming and recent meetings to keep follow-through visible.',
+            path: '/app/meetings'
+        });
+    }
+    if (actions.length === 0) {
+        actions.push({
+            title: 'Review team analytics',
+            description: 'Dive into the trend view to understand workload, blockers, and communication patterns over time.',
+            path: '/app/analytics'
+        });
+    }
+
+    return {
+        headline,
+        summary: summaryParts.join(' '),
+        sources,
+        metrics: [
+            {
+                label: 'Signals',
+                value: activeSignals.length,
+                description: 'Active cross-tool issues or risk cues'
+            },
+            {
+                label: 'Summaries',
+                value: sortedSummaries.length,
+                description: latestSummary
+                    ? `${latestTopics.length} topic${latestTopics.length === 1 ? '' : 's'} in the latest read`
+                    : 'No recent Slack summaries yet'
+            },
+            {
+                label: 'Project Risk',
+                value: projectStats?.connected ? projectStats.atRisk : '-',
+                description: projectStats?.connected
+                    ? `${PROJECT_PLATFORM_LABELS[projectStats.platform] || projectStats.platform} due-soon or overdue work`
+                    : 'Connect a project platform'
+            },
+            {
+                label: 'Meetings',
+                value: upcomingEvents.length > 0 ? upcomingEvents.length : '-',
+                description: nextMeeting?.title
+                    ? `${nextMeeting.title} ${formatRelativeDate(nextMeeting.start)}`
+                    : 'No upcoming meetings found'
+            }
+        ],
+        attentionItems: attentionItems.slice(0, 4),
+        actions: actions.slice(0, 4)
+    };
+}
+
+function describeSignals(signals) {
+    const titles = signals
+        .map((item) => item?.title)
+        .filter(Boolean)
+        .slice(0, 2);
+
+    if (titles.length === 0) {
+        return 'Teama detected risk signals that need a closer look.';
+    }
+
+    return titles.join('  ');
+}
+
+function describeActionItems(actionItems) {
+    const items = actionItems
+        .map((item) => item?.text)
+        .filter(Boolean)
+        .slice(0, 2);
+
+    if (items.length === 0) {
+        return 'Open the meeting workspace to review extracted follow-up work.';
+    }
+
+    return items.join('  ');
+}
+
+function formatRelativeDate(value) {
+    if (!value) return '';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+
+    const diffMs = date.getTime() - Date.now();
+    const diffHours = Math.round(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (Math.abs(diffHours) < 24) {
+        if (diffHours === 0) return 'today';
+        return diffHours > 0 ? `in ${diffHours}h` : `${Math.abs(diffHours)}h ago`;
+    }
+
+    if (diffDays === 0) return 'today';
+    if (diffDays > 0) return `in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
+    return `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} ago`;
+}
+
+function trimSentence(value, maxLength = 160) {
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength).trimEnd()}...`;
 }

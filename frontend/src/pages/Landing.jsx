@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import {
     Zap, ArrowRight, CheckCircle2, Target,
-    MessageSquare, BarChart3, Shield, Users, Menu, X, Clock, Search, Globe, Code2
+    MessageSquare, BarChart3, Shield, Users, Menu, X, Clock, Search, Globe, Code2, TrendingUp, BarChart
 } from 'lucide-react';
 import Button from '../components/Button';
 import SEO from '../components/common/SEO';
@@ -295,6 +295,60 @@ export default function Landing() {
                     </div>
                 </section>
 
+                {/* Success Stories Section */}
+                <section id="success-stories" className="py-16 md:py-24 px-4 md:px-6 bg-slate-900 text-white overflow-hidden relative">
+                    <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 to-purple-600/20 opacity-30"></div>
+                    <div className="container mx-auto max-w-6xl relative z-10">
+                        <header className="text-center mb-12 md:mb-20">
+                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
+                                Real results for real teams
+                            </h2>
+                            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">
+                                See how Teama AI transforms operations and boosts output within days.
+                            </p>
+                        </header>
+
+                        <div className="grid md:grid-cols-3 gap-8 md:gap-12">
+                            <SuccessCard 
+                                industry="Fintech (Series B)"
+                                size="50+ Engineers"
+                                problem="Drowning in Slack & outdated Jira tickets."
+                                timeline="14 Days to Impact"
+                                metrics={[
+                                    { label: 'Status meeting time', value: '-40%', icon: <Clock size={16} /> },
+                                    { label: 'Blocker detection', value: '85%', icon: <Target size={16} /> }
+                                ]}
+                                quote="Teama AI gave us back hours of deep work time. The blocker detection is eerily accurate."
+                                author="Sarah K., Engineering Manager"
+                            />
+                            <SuccessCard 
+                                industry="Product Agency"
+                                size="12+ Global Projects"
+                                problem="Losing context across multiple client workspaces."
+                                timeline="7 Days to Clarity"
+                                metrics={[
+                                    { label: 'Saved per PM/week', value: '3.5h', icon: <TrendingUp size={16} /> },
+                                    { label: 'Jira data accuracy', value: '100%', icon: <CheckCircle2 size={16} /> }
+                                ]}
+                                quote="Finally, one layer of truth across all our tools. Our sprint planning is now data-driven."
+                                author="Marcus T., Head of Product"
+                            />
+                            <SuccessCard 
+                                industry="Remote Enterprise"
+                                size="200+ Employees"
+                                problem="Communication silos across time zones."
+                                timeline="30 Days to Alignment"
+                                metrics={[
+                                    { label: 'Cross-team alignment', value: '+60%', icon: <Users size={16} /> },
+                                    { label: 'Missed blockers', value: 'Zero', icon: <Shield size={16} /> }
+                                ]}
+                                quote="The ROI was obvious within the first month. It's now a core part of our stack."
+                                author="David L., VP Engineering"
+                            />
+                        </div>
+                    </div>
+                </section>
+
                 {/* Pricing */}
                 <section id="pricing" className="py-16 md:py-24 px-4 md:px-6 bg-gray-50 scroll-mt-24">
                     <div className="container mx-auto max-w-6xl">
@@ -522,3 +576,44 @@ function PricingCard({ name, plan = 'free', price, description, features, cta, h
         </div>
     );
 }
+
+function SuccessCard({ industry, size, problem, timeline, metrics, quote, author }) {
+    return (
+        <article className="bg-white/5 backdrop-blur-md rounded-2xl p-6 md:p-8 border border-white/10 hover:border-white/20 transition-all flex flex-col h-full text-left">
+            <div className="mb-6">
+                <span className="text-xs font-bold uppercase tracking-widest text-blue-400 mb-2 block">{industry}</span>
+                <h3 className="text-xl font-bold mb-2 text-white">{size}</h3>
+                <p className="text-blue-100/70 text-sm italic">"{problem}"</p>
+            </div>
+            
+            <div className="bg-white/10 rounded-xl p-4 mb-6 border border-white/5">
+                <div className="text-xs text-blue-200 mb-3 flex items-center gap-1.5 font-bold uppercase text-left">
+                    <Clock size={14} className="text-blue-400" />
+                    {timeline}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    {metrics.map((metric, i) => (
+                        <div key={i} className="text-left">
+                            <div className="text-2xl font-bold text-white mb-0.5">{metric.value}</div>
+                            <div className="text-[10px] text-blue-200 uppercase tracking-wider font-semibold flex items-center gap-1">
+                                {metric.icon}
+                                {metric.label}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="mt-auto text-left">
+                <p className="text-gray-300 text-sm leading-relaxed mb-4 italic">"{quote}"</p>
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white">
+                        {author.split(' ')[0][0]}{author.split(' ')[1][0]}
+                    </div>
+                    <span className="text-xs font-medium text-blue-100">{author}</span>
+                </div>
+            </div>
+        </article>
+    );
+}
+
