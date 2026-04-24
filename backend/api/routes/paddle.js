@@ -2,7 +2,6 @@ import express from 'express';
 import logger from '../utils/logger.js';
 import paddleService from '../services/paddle-service.js';
 import { db } from '../services/supabase-client.js';
-import { requireTeamAdmin } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
@@ -25,7 +24,7 @@ const resolvePlanName = (paddleData) => {
     return 'growth'; // Default to growth if unable to determine
 };
 
-const buildTeamUpdates = (data, planName = 'growth') => {
+const buildSubscriptionUpdates = (data, planName = 'growth') => {
     const updates = {
         plan: planName,
         subscription_status: 'active'
@@ -48,24 +47,24 @@ const buildTeamUpdates = (data, planName = 'growth') => {
     return updates;
 };
 
-const updateTeamSubscription = async (teamId, updates) => {
-    if (!teamId || !updates || Object.keys(updates).length === 0) {
+const updateUserSubscription = async (userId, updates) => {
+    if (!userId || !updates || Object.keys(updates).length === 0) {
         return false;
     }
 
     const { data: updateResult, error } = await db.supabase
-        .from('teams')
+        .from('profiles')
         .update(updates)
-        .eq('id', teamId)
+        .eq('id', userId)
         .select();
 
     if (error) {
-        logger.error('Failed to update team subscription:', { error, teamId, updates });
+        logger.error('Failed to update user subscription:', { error, userId, updates });
         throw error;
     }
 
     if (!updateResult || updateResult.length === 0) {
-        logger.warn('Supabase update returned success but 0 rows affected. Check teamId validity.', { teamId });
+        logger.warn('Supabase update returned success but 0 rows affected. Check userId validity.', { userId });
         return false;
     }
 
@@ -78,14 +77,13 @@ const updateTeamSubscription = async (teamId, updates) => {
  */
 router.post('/prepare-checkout', async (req, res) => {
     try {
-        const { email, priceId, planName, teamId, userId } = req.body;
+        const { email, priceId, planName, userId } = req.body;
 
-        if (!email || !priceId || !teamId || !userId) {
-            return res.status(400).json({ error: 'Missing required parameters: email, priceId, teamId, userId' });
+        if (!email || !priceId || !userId) {
+            return res.status(400).json({ error: 'Missing required parameters: email, priceId, userId' });
         }
 
         const customData = {
-            teamId,
             userId,
             planName: planName || 'growth'
         };
@@ -155,20 +153,20 @@ async function handleTransactionPaid(data) {
     });
 
     const customData = data.custom_data || {};
-    const teamId = customData.teamId || customData.team_id;
+    const userId = customData.userId;
 
-    if (!teamId) {
-        logger.warn('Webhook: No teamId found in custom_data', { custom_data: data.custom_data });
+    if (!userId) {
+        logger.warn('Webhook: No userId found in custom_data', { custom_data: data.custom_data });
         return;
     }
 
     const planName = resolvePlanName(data);
-    const updates = buildTeamUpdates(data, planName);
+    const updates = buildSubscriptionUpdates(data, planName);
 
-    logger.info('Attempting DB update for transaction:', { teamId, planName });
-    const updated = await updateTeamSubscription(teamId, updates);
+    logger.info('Attempting DB update for transaction:', { userId, planName });
+    const updated = await updateUserSubscription(userId, updates);
     if (updated) {
-        logger.info(`Successfully activated ${planName} plan for team ${teamId}`);
+        logger.info(`Successfully activated ${planName} plan for user ${userId}`);
     }
 }
 
@@ -179,20 +177,20 @@ async function handleSubscriptionCreated(data) {
     });
 
     const customData = data.custom_data || {};
-    const teamId = customData.teamId || customData.team_id;
+    const userId = customData.userId;
 
-    if (!teamId) {
-        logger.warn('Webhook: No teamId found in custom_data', { custom_data: data.custom_data });
+    if (!userId) {
+        logger.warn('Webhook: No userId found in custom_data', { custom_data: data.custom_data });
         return;
     }
 
     const planName = resolvePlanName(data);
-    const updates = buildTeamUpdates(data, planName);
+    const updates = buildSubscriptionUpdates(data, planName);
 
-    logger.info('Attempting DB update for subscription:', { teamId, planName });
-    const updated = await updateTeamSubscription(teamId, updates);
+    logger.info('Attempting DB update for subscription:', { userId, planName });
+    const updated = await updateUserSubscription(userId, updates);
     if (updated) {
-        logger.info(`Successfully created ${planName} subscription for team ${teamId}`);
+        logger.info(`Successfully created ${planName} subscription for user ${userId}`);
     }
 }
 
@@ -203,15 +201,15 @@ async function handleSubscriptionUpdated(data) {
     });
 
     const customData = data.custom_data || {};
-    const teamId = customData.teamId || customData.team_id;
+    const userId = customData.userId;
 
-    if (!teamId) {
-        logger.warn('Webhook: No teamId found in custom_data', { custom_data: data.custom_data });
+    if (!userId) {
+        logger.warn('Webhook: No userId found in custom_data', { custom_data: data.custom_data });
         return;
     }
 
     const planName = resolvePlanName(data);
-    const updates = buildTeamUpdates(data, planName);
+    const updates = buildSubscriptionUpdates(data, planName);
 
     // Map Paddle subscription status to our status
     if (data.status === 'active') {
@@ -220,10 +218,10 @@ async function handleSubscriptionUpdated(data) {
         updates.subscription_status = 'canceled';
     }
 
-    logger.info('Attempting DB update for subscription update:', { teamId, planName, status: data.status });
-    const updated = await updateTeamSubscription(teamId, updates);
+    logger.info('Attempting DB update for subscription update:', { userId, planName, status: data.status });
+    const updated = await updateUserSubscription(userId, updates);
     if (updated) {
-        logger.info(`Successfully updated subscription for team ${teamId}`);
+        logger.info(`Successfully updated subscription for user ${userId}`);
     }
 }
 
@@ -234,10 +232,10 @@ async function handleSubscriptionCanceled(data) {
     });
 
     const customData = data.custom_data || {};
-    const teamId = customData.teamId || customData.team_id;
+    const userId = customData.userId;
 
-    if (!teamId) {
-        logger.warn('Webhook: No teamId found in custom_data');
+    if (!userId) {
+        logger.warn('Webhook: No userId found in custom_data');
         return;
     }
 
@@ -246,10 +244,10 @@ async function handleSubscriptionCanceled(data) {
         plan: 'free'
     };
 
-    logger.info('Attempting DB update for canceled subscription:', { teamId });
-    const updated = await updateTeamSubscription(teamId, updates);
+    logger.info('Attempting DB update for canceled subscription:', { userId });
+    const updated = await updateUserSubscription(userId, updates);
     if (updated) {
-        logger.info(`Successfully canceled subscription for team ${teamId}`);
+        logger.info(`Successfully canceled subscription for user ${userId}`);
     }
 }
 

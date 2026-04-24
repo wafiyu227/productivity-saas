@@ -25,12 +25,7 @@ router.get('/me', async (req, res) => {
             return res.status(404).json({ error: 'Profile not found', userId });
         }
 
-        const teams = await db.getUserTeams(userId);
-
-        res.json({
-            ...profile,
-            teams
-        });
+        res.json(profile);
     } catch (error) {
         logger.error('Get profile/me error:', error);
         res.status(500).json({ error: error.message });
@@ -93,6 +88,75 @@ router.put('/profile', async (req, res) => {
         res.json(profile);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Proxy route for geo-location and weather to avoid CORS and rate limits in frontend
+router.get('/personal-context', async (req, res) => {
+    try {
+        // 1. Prioritize Vercel Geo Headers (Fastest, most reliable in production)
+        const vercelCity = req.headers['x-vercel-ip-city'];
+        const vercelRegion = req.headers['x-vercel-ip-country-region'];
+        const vercelLat = req.headers['x-vercel-ip-latitude'];
+        const vercelLon = req.headers['x-vercel-ip-longitude'];
+
+        let location = null;
+        let weather = null;
+
+        if (vercelCity && vercelLat && vercelLon) {
+            location = {
+                city: decodeURIComponent(vercelCity),
+                region: vercelRegion,
+                lat: vercelLat,
+                lon: vercelLon
+            };
+            logger.info('Using Vercel Geo Headers:', location.city);
+        } else {
+            // 2. Fallback to ipapi.co (Local dev or non-Vercel environment)
+            try {
+                const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+                // Don't pass localhost IP to ipapi.co
+                const locUrl = (clientIp && clientIp !== '::1' && clientIp !== '127.0.0.1') 
+                    ? `https://ipapi.co/${clientIp}/json/` 
+                    : 'https://ipapi.co/json/';
+                
+                const locRes = await fetch(locUrl);
+                const locData = await locRes.json();
+                
+                if (!locData.error) {
+                    location = {
+                        city: locData.city,
+                        region: locData.region,
+                        lat: locData.latitude,
+                        lon: locData.longitude
+                    };
+                }
+            } catch (e) {
+                logger.warn('Fallback location fetch failed:', e.message);
+            }
+        }
+
+        // 3. Fetch weather from Open-Meteo if location is available
+        if (location && location.lat && location.lon) {
+            try {
+                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current_weather=true`;
+                const weatherRes = await fetch(weatherUrl);
+                const weatherData = await weatherRes.json();
+                
+                weather = {
+                    temp: Math.round(weatherData?.current_weather?.temperature || 0),
+                    code: weatherData?.current_weather?.weathercode || 0
+                };
+            } catch (e) {
+                logger.warn('Weather fetch failed:', e.message);
+            }
+        }
+
+        // Always return 200 even if location/weather are null to avoid frontend crashes
+        res.json({ location, weather });
+    } catch (error) {
+        logger.error('Personal context proxy error:', error);
+        res.status(200).json({ location: null, weather: null });
     }
 });
 

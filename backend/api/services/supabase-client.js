@@ -3,14 +3,64 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+let supabaseUrl = process.env.SUPABASE_URL;
+let supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase credentials in .env file');
+let supabase;
+
+try {
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('CRITICAL ERROR: Missing Supabase credentials in .env file');
+    if (!supabaseUrl) console.error('SUPABASE_URL is missing');
+    if (!supabaseKey) console.error('SUPABASE Key is missing');
+    // We create a dummy/proxy client that will throw when used, 
+    // rather than throwing at module load time.
+    supabase = {
+      from: () => ({
+        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: new Error('Database not configured: Missing Supabase credentials') }) }) }),
+        insert: () => Promise.resolve({ data: null, error: new Error('Database not configured') }),
+        update: () => Promise.resolve({ data: null, error: new Error('Database not configured') }),
+        upsert: () => Promise.resolve({ data: null, error: new Error('Database not configured') }),
+        delete: () => Promise.resolve({ data: null, error: new Error('Database not configured') })
+      }),
+      auth: {
+        getSession: () => Promise.resolve({ data: { session: null }, error: new Error('Database not configured') }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } })
+      }
+    };
+  } else {
+    console.log('Supabase client initialized with URL:', supabaseUrl.substring(0, 15) + '...');
+    supabase = createClient(supabaseUrl, supabaseKey);
+  }
+} catch (e) {
+  console.error('Failed to initialize Supabase client:', e);
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+
+export { supabase };
+
+const AGENT_CONVERSATION_TITLE_LIMIT = 160;
+const AGENT_MESSAGE_PREVIEW_LIMIT = 180;
+
+function asJsonObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+function sanitizeConversationTitle(title) {
+  const normalized = typeof title === 'string' ? title.replace(/\s+/g, ' ').trim() : '';
+  return normalized.slice(0, AGENT_CONVERSATION_TITLE_LIMIT) || 'New chat';
+}
+
+function buildMessagePreview(content) {
+  if (typeof content !== 'string') return null;
+
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  return normalized.slice(0, AGENT_MESSAGE_PREVIEW_LIMIT);
+}
 
 export const db = {
   supabase,
@@ -42,18 +92,13 @@ export const db = {
     return result;
   },
 
-  async getSummaries(teamId, userId = null, limit = 10) {
-    let query = supabase
+  async getSummaries(userId, limit = 10) {
+    if (!userId) throw new Error('userId required');
+
+    const { data, error } = await supabase
       .from('slack_summaries')
-      .select('*');
-
-    if (teamId) {
-      query = query.eq('team_id', teamId);
-    } else if (userId) {
-      query = query.eq('user_id', userId);
-    }
-
-    const { data, error } = await query
+      .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -61,58 +106,54 @@ export const db = {
     return data || [];
   },
 
+
   // FIXED: saveIntegration with proper conflict resolution
-  async saveIntegration(userId, platform, tokens, scope = 'team') {
+  async saveIntegration(userId, platform, tokens) {
     if (!tokens?.accessToken) {
       throw new Error('saveIntegration requires accessToken');
-    }
-    if (scope === 'team' && !tokens?.teamId) {
-      throw new Error('saveIntegration requires teamId for team-scoped integrations');
     }
 
     const integrationData = {
       user_id: userId,
       platform,
-      scope,
+      scope: 'personal',
       access_token: tokens.accessToken,
       updated_at: new Date().toISOString()
     };
 
-    // Preserve existing values unless the caller explicitly provides a field.
     if (tokens.refreshToken !== undefined) integrationData.refresh_token = tokens.refreshToken;
     if (tokens.expiresAt !== undefined) integrationData.expires_at = tokens.expiresAt;
     if (tokens.workspaceId !== undefined) integrationData.workspace_id = tokens.workspaceId;
     if (tokens.workspaceName !== undefined) integrationData.workspace_name = tokens.workspaceName;
-    if (tokens.teamIdExternal !== undefined) integrationData.team_id_external = tokens.teamIdExternal;
-    if (tokens.teamName !== undefined) integrationData.team_name = tokens.teamName;
 
-    // Add team_id only for team-scoped integrations
-    if (scope === 'team') {
-      integrationData.team_id = tokens.teamId;
-    }
+    console.log('Saving individual integration:', integrationData);
 
-    console.log('Saving integration:', integrationData);
-
-    let existingQuery = supabase
+    const { data: existing, error: existingError } = await supabase
       .from('integrations')
-      .select('id')
+      .select('id, metadata')
       .eq('platform', platform)
-      .eq('scope', scope);
-
-    if (scope === 'team') {
-      existingQuery = existingQuery.eq('team_id', tokens.teamId);
-    } else {
-      existingQuery = existingQuery.eq('user_id', userId);
-    }
-
-    const { data: existing, error: existingError } = await existingQuery
-      .order('updated_at', { ascending: false })
-      .limit(1)
+      .eq('user_id', userId)
+      .eq('scope', 'personal')
       .maybeSingle();
 
-    if (existingError && existingError.code !== 'PGRST116') {
-      console.error('Integration lookup error:', existingError);
-      throw existingError;
+    if (existingError && existingError.code !== 'PGRST116') throw existingError;
+
+    const nextMetadata = {
+      ...(existing?.metadata || {}),
+      ...(tokens.metadata || {})
+    };
+
+    if (tokens.grantedScopes !== undefined) {
+      nextMetadata.grantedScopes = Array.isArray(tokens.grantedScopes) ? tokens.grantedScopes : [];
+      nextMetadata.scopeList = Array.isArray(tokens.grantedScopes) ? tokens.grantedScopes : [];
+    }
+
+    if (tokens.scope !== undefined || tokens.oauthScope !== undefined) {
+      nextMetadata.oauthScope = tokens.oauthScope ?? tokens.scope;
+    }
+
+    if (Object.keys(nextMetadata).length > 0) {
+      integrationData.metadata = nextMetadata;
     }
 
     if (existing?.id) {
@@ -122,12 +163,7 @@ export const db = {
         .eq('id', existing.id)
         .select()
         .single();
-
-      if (error) {
-        console.error('Integration update error:', error);
-        throw error;
-      }
-
+      if (error) throw error;
       return data;
     }
 
@@ -136,71 +172,37 @@ export const db = {
       .insert(integrationData)
       .select()
       .single();
-
-    if (error) {
-      console.error('Integration insert error:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data;
   },
+
 
   // FIXED: getIntegration with correct logic
-  async getIntegration(userId, platform, teamId = null) {
-    let query = supabase
+  async getIntegration(userId, platform) {
+    const { data, error } = await supabase
       .from('integrations')
       .select('*')
-      .eq('platform', platform);
+      .eq('platform', platform)
+      .eq('user_id', userId)
+      .eq('scope', 'personal')
+      .maybeSingle();
 
-    // If teamId is provided, get team integration
-    if (teamId) {
-      query = query.eq('team_id', teamId).eq('scope', 'team');
-    } else {
-      // No teamId: try to get team integration for user's current team OR personal
-      // First try team scope for this user
-      const teamQuery = await supabase
-        .from('integrations')
-        .select('*, team_members!inner(user_id)')
-        .eq('platform', platform)
-        .eq('scope', 'team')
-        .eq('team_members.user_id', userId)
-        .maybeSingle();
-
-      if (teamQuery.data) {
-        return teamQuery.data;
-      }
-
-      // Fallback to personal scope
-      query = query.eq('user_id', userId).eq('scope', 'personal');
-    }
-
-    const { data, error } = await query.maybeSingle();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Get integration error:', error);
-      throw error;
-    }
-
+    if (error && error.code !== 'PGRST116') throw error;
     return data;
   },
 
-  async deleteIntegration(userId, platform, teamId = null) {
-    let query = supabase
+
+  async deleteIntegration(userId, platform) {
+    const { error } = await supabase
       .from('integrations')
       .delete()
-      .eq('platform', platform);
-
-    if (teamId) {
-      query = query.eq('team_id', teamId);
-    } else {
-      query = query.eq('user_id', userId);
-    }
-
-    const { error } = await query;
+      .eq('platform', platform)
+      .eq('user_id', userId);
 
     if (error) throw error;
     return true;
   },
+
 
   // User Profile Methods
   async getProfile(userId) {
@@ -225,16 +227,7 @@ export const db = {
     return data;
   },
 
-  async getUserTeams(userId) {
-    const { data, error } = await supabase
-      .from('team_members')
-      .select('*, teams(*)')
-      .eq('user_id', userId)
-      .eq('status', 'active');
 
-    if (error) throw error;
-    return data || [];
-  },
 
   async getUserSettings(userId) {
     const { data, error } = await supabase
@@ -291,99 +284,92 @@ export const db = {
     return data[0];
   },
 
-  // Team Methods
-  // ✅ UPDATED createTeam METHOD
-  // Replace this method in backend/services/supabase-client.js
+  async listAgentConversations(userId, options = {}) {
+    if (!userId) throw new Error('userId required');
 
-  async createTeam(userId, teamData) {
-    console.log('Starting team creation for user:', userId);
+    const {
+      limit = 50,
+      includeDeleted = false,
+      conversationKind = null
+    } = options;
 
-    // 1. Create Team
-    const { data: teams, error: teamError } = await supabase
-      .from('teams')
-      .insert({
-        name: teamData.name,
-        size_range: teamData.size_range,
-        description: teamData.description,
-        created_by: userId
-      })
-      .select();
+    let query = supabase
+      .from('agent_conversations')
+      .select('*')
+      .eq('user_id', userId)
+      .order('last_message_at', { ascending: false })
+      .limit(Math.min(Math.max(limit, 1), 100));
 
-    if (teamError) {
-      console.error('Supabase Create Team Error:', teamError);
-      throw teamError;
+    if (!includeDeleted) {
+      query = query.neq('status', 'deleted');
     }
 
-    const team = teams?.[0];
-    if (!team) {
-      console.error('No team data returned after insert. Data:', teams);
-      throw new Error('Failed to create team: No data returned. This might be due to RLS policies.');
+    if (conversationKind) {
+      query = query.eq('conversation_kind', conversationKind);
     }
 
-    console.log('✓ Team created:', team.id);
-
-    // 2. Link User to Team (via team_members junction table)
-    const { error: memberError } = await supabase
-      .from('team_members')
-      .insert({
-        team_id: team.id,
-        user_id: userId,
-        role: 'owner',
-        status: 'active',
-        joined_via: 'creator'
-      });
-
-    if (memberError) {
-      console.error('Supabase Link Member Error:', memberError);
-      throw memberError;
-    }
-
-    console.log('✓ User linked to team as owner');
-
-    // 3. Update current_team_id and legacy team_id in profile
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({
-        current_team_id: team.id,
-        team_id: team.id, // Keep legacy field in sync
-        onboarding_step: 'connect-tools',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', userId);
-
-    if (profileError) {
-      console.error('Failed to update profile with team info:', profileError);
-      // Don't throw - team and membership are created successfully
-    } else {
-      console.log('✓ Profile updated with team info');
-    }
-
-    return team;
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
   },
 
-  async getTeamMembers(teamId) {
-    const { data, error } = await supabase
-      .from('team_members')
-      .select('*, profiles!user_id(*)')
-      .eq('team_id', teamId);
+  async getAgentConversation(conversationId, userId) {
+    if (!conversationId) throw new Error('conversationId required');
 
-    if (error) throw error;
+    let query = supabase
+      .from('agent_conversations')
+      .select('*')
+      .eq('id', conversationId);
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (error && error.code !== 'PGRST116') throw error;
     return data;
   },
 
-  // Invitation Methods
-  async createInvitation(teamId, inviterId, email) {
-    const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  async getAgentConversationByShareToken(shareToken) {
+    if (!shareToken) throw new Error('shareToken required');
 
     const { data, error } = await supabase
-      .from('team_invitations')
-      .insert({
-        team_id: teamId,
-        invited_by: inviterId,
-        email,
-        token,
-        status: 'pending'
-      })
+      .from('agent_conversations')
+      .select('*')
+      .eq('share_token', shareToken)
+      .eq('is_shared', true)
+      .neq('status', 'deleted')
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  },
+
+  async createAgentConversation(userId, conversationData = {}) {
+    if (!userId) throw new Error('userId required');
+
+    const now = new Date().toISOString();
+    const payload = {
+      user_id: userId,
+      title: sanitizeConversationTitle(conversationData.title),
+      title_source: conversationData.titleSource || 'system',
+      conversation_kind: conversationData.conversationKind || 'chat',
+      status: conversationData.status || 'active',
+      is_shared: Boolean(conversationData.isShared),
+      share_token: conversationData.shareToken ?? null,
+      shared_at: conversationData.isShared ? (conversationData.sharedAt || now) : null,
+      deleted_at: conversationData.deletedAt ?? null,
+      last_message_at: conversationData.lastMessageAt || now,
+      last_message_preview: buildMessagePreview(
+        conversationData.lastMessagePreview || conversationData.initialMessage || ''
+      ),
+      metadata: asJsonObject(conversationData.metadata),
+      updated_at: now
+    };
+
+    const { data, error } = await supabase
+      .from('agent_conversations')
+      .insert(payload)
       .select()
       .single();
 
@@ -391,58 +377,146 @@ export const db = {
     return data;
   },
 
-  async getTeamInvitations(teamId) {
+  async updateAgentConversation(conversationId, userId, updates = {}) {
+    if (!conversationId) throw new Error('conversationId required');
+    if (!userId) throw new Error('userId required');
+
+    const payload = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (updates.title !== undefined) payload.title = sanitizeConversationTitle(updates.title);
+    if (updates.titleSource !== undefined) payload.title_source = updates.titleSource;
+    if (updates.conversationKind !== undefined) payload.conversation_kind = updates.conversationKind;
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.isShared !== undefined) payload.is_shared = Boolean(updates.isShared);
+    if (updates.shareToken !== undefined) payload.share_token = updates.shareToken;
+    if (updates.sharedAt !== undefined) payload.shared_at = updates.sharedAt;
+    if (updates.deletedAt !== undefined) payload.deleted_at = updates.deletedAt;
+    if (updates.lastMessageAt !== undefined) payload.last_message_at = updates.lastMessageAt;
+    if (updates.lastMessagePreview !== undefined) {
+      payload.last_message_preview = buildMessagePreview(updates.lastMessagePreview);
+    }
+    if (updates.metadata !== undefined) payload.metadata = asJsonObject(updates.metadata);
+
     const { data, error } = await supabase
-      .from('team_invitations')
-      .select('*')
-      .eq('team_id', teamId)
-      .eq('status', 'pending');
+      .from('agent_conversations')
+      .update(payload)
+      .eq('id', conversationId)
+      .eq('user_id', userId)
+      .select()
+      .single();
 
     if (error) throw error;
     return data;
   },
 
-  async acceptInvitation(token, userId) {
-    const { data: invitation, error: inviteError } = await supabase
-      .from('team_invitations')
-      .select('*')
-      .eq('token', token)
-      .eq('status', 'pending')
-      .single();
+  async renameAgentConversation(conversationId, userId, title) {
+    return this.updateAgentConversation(conversationId, userId, {
+      title,
+      titleSource: 'user'
+    });
+  },
 
-    if (inviteError || !invitation) {
-      throw new Error('Invalid or expired invitation');
+  async softDeleteAgentConversation(conversationId, userId) {
+    const deletedAt = new Date().toISOString();
+    return this.updateAgentConversation(conversationId, userId, {
+      status: 'deleted',
+      deletedAt
+    });
+  },
+
+  async getAgentConversationMessages(conversationId, userId, options = {}) {
+    if (!conversationId) throw new Error('conversationId required');
+    if (!userId) throw new Error('userId required');
+
+    const { limit = 200 } = options;
+
+    const { data, error } = await supabase
+      .from('agent_messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .limit(Math.min(Math.max(limit, 1), 500));
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  async saveAgentMessages(conversationId, userId, messages = []) {
+    if (!conversationId) throw new Error('conversationId required');
+    if (!userId) throw new Error('userId required');
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return [];
     }
 
+    const now = new Date().toISOString();
+    const rows = messages.map((message) => ({
+      conversation_id: conversationId,
+      user_id: userId,
+      client_message_id: message.clientMessageId ?? message.id ?? null,
+      role: message.role || 'assistant',
+      message_kind: message.messageKind || 'chat',
+      status: message.status || 'completed',
+      content: typeof message.content === 'string' ? message.content : '',
+      tool_name: message.toolName ?? null,
+      tool_call_id: message.toolCallId ?? null,
+      metadata: asJsonObject(message.metadata),
+      created_at: message.createdAt || now,
+      updated_at: message.updatedAt || now
+    }));
+
+    const { data, error } = await supabase
+      .from('agent_messages')
+      .insert(rows)
+      .select();
+
+    if (error) throw error;
+
+    const lastMessage = [...rows].reverse().find((message) => message.content?.trim()) || rows[rows.length - 1];
     const { error: updateError } = await supabase
-      .from('team_invitations')
+      .from('agent_conversations')
       .update({
-        status: 'accepted',
-        accepted_at: new Date().toISOString()
+        last_message_at: lastMessage?.created_at || now,
+        last_message_preview: buildMessagePreview(lastMessage?.content),
+        updated_at: now
       })
-      .eq('id', invitation.id);
+      .eq('id', conversationId)
+      .eq('user_id', userId);
 
     if (updateError) throw updateError;
 
-    const { error: memberError } = await supabase
-      .from('team_members')
-      .insert({
-        team_id: invitation.team_id,
-        user_id: userId,
-        role: invitation.role || 'member',
-        status: 'active',
-        invited_by: invitation.invited_by,
-        joined_at: new Date().toISOString()
-      });
-
-    if (memberError && memberError.code !== '23505') {
-      throw memberError;
-    }
-
-    await this.updateProfile(userId, { current_team_id: invitation.team_id });
-
-    return { success: true, teamId: invitation.team_id };
+    return data || [];
   },
+
+  async updateAgentMessage(messageId, userId, updates = {}) {
+    if (!messageId) throw new Error('messageId required');
+    if (!userId) throw new Error('userId required');
+
+    const payload = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.content !== undefined) payload.content = typeof updates.content === 'string' ? updates.content : '';
+    if (updates.messageKind !== undefined) payload.message_kind = updates.messageKind;
+    if (updates.metadata !== undefined) payload.metadata = asJsonObject(updates.metadata);
+
+    const { data, error } = await supabase
+      .from('agent_messages')
+      .update(payload)
+      .eq('id', messageId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+
 
   async deleteUserAccount(userId) {
     // Delete all user-related data in cascade order to avoid foreign key issues
@@ -465,19 +539,7 @@ export const db = {
       await supabase.from('blockers').delete().in('id', blockerIds);
     }
 
-    // 4. Remove user from team memberships
-    const { data: teamMemberships } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', userId);
 
-    if (teamMemberships && teamMemberships.length > 0) {
-      await supabase.from('team_members').delete().eq('user_id', userId);
-    }
-
-    // 5. Delete team invitations (sent by or to this user)
-    await supabase.from('team_invitations').delete().eq('invited_by', userId);
-    await supabase.from('team_invitations').delete().eq('user_id', userId);
 
     // 6. Delete user profile
     await supabase.from('profiles').delete().eq('id', userId);
@@ -490,8 +552,6 @@ export const db = {
   },
 
   async deleteSummary(summaryId, userId) {
-    // Delete the summary. We check userId to ensure the user has permission.
-    // In slack_summaries table, we have user_id.
     const { error } = await supabase
       .from('slack_summaries')
       .delete()
@@ -502,51 +562,24 @@ export const db = {
     return { success: true };
   },
 
-  // Billing & Usage Methods
-  async getTeamBillingInfo(teamId) {
+  async listDismissedBlockers(userId) {
     const { data, error } = await supabase
-      .from('teams')
-      .select('plan, subscription_status')
-      .eq('id', teamId)
+      .from('dismissed_blockers')
+      .select('blocker_id')
+      .eq('user_id', userId);
+
+    if (error) throw error;
+    return (data || []).map((item) => item.blocker_id);
+  },
+
+  async dismissBlocker(userId, blockerId) {
+    const { data, error } = await supabase
+      .from('dismissed_blockers')
+      .upsert({ user_id: userId, blocker_id: blockerId, updated_at: new Date().toISOString() })
+      .select()
       .single();
 
     if (error) throw error;
     return data;
-  },
-
-  async getTeamSummaryUsage(teamId, monthYear) {
-    const { data, error } = await supabase
-      .from('team_usage')
-      .select('summary_count')
-      .eq('team_id', teamId)
-      .eq('month_year', monthYear)
-      .maybeSingle();
-
-    if (error && error.code !== 'PGRST116') {
-      // Graceful fallback if billing migration has not been applied yet.
-      if (error.code === '42P01') {
-        return 0;
-      }
-      throw error;
-    }
-    return data?.summary_count || 0;
-  },
-
-  async incrementSummaryUsage(teamId, monthYear) {
-    // Basic increment logic. (In high-concurrency, an RPC is safer).
-    const current = await this.getTeamSummaryUsage(teamId, monthYear);
-    const { error } = await supabase
-      .from('team_usage')
-      .upsert(
-        { team_id: teamId, month_year: monthYear, summary_count: current + 1 },
-        { onConflict: 'team_id,month_year' }
-      );
-
-    if (error) {
-      if (error.code === '42P01') {
-        return;
-      }
-      throw error;
-    }
   }
 };

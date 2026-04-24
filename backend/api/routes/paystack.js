@@ -2,11 +2,10 @@ import express from 'express';
 import logger from '../utils/logger.js';
 import paystackService from '../services/paystack-service.js';
 import { db } from '../services/supabase-client.js';
-import { requireTeamAdmin } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
-const DEFAULT_CALLBACK_PATH = '/app/team?payment=success';
+const DEFAULT_CALLBACK_PATH = '/app/dashboard';
 
 const resolveCheckoutCallbackUrl = (callbackPath) => {
     const frontendBase = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
@@ -45,17 +44,17 @@ const normalizeMetadata = (metadataCandidate) => {
     return typeof metadataCandidate === 'object' ? metadataCandidate : {};
 };
 
-const extractTeamIdFromMetadata = (metadata) => {
-    const directTeamId = metadata.teamId || metadata.team_id || metadata.teamID;
-    if (directTeamId) return directTeamId;
+const extractUserIdFromMetadata = (metadata) => {
+    const directUserId = metadata.userId || metadata.user_id || metadata.userID;
+    if (directUserId) return directUserId;
 
     const customFields = Array.isArray(metadata.custom_fields) ? metadata.custom_fields : [];
-    const teamField = customFields.find((field) => {
+    const userField = customFields.find((field) => {
         const variableName = String(field?.variable_name || field?.key || '').toLowerCase();
-        return variableName === 'teamid' || variableName === 'team_id';
+        return variableName === 'userid' || variableName === 'user_id';
     });
 
-    return teamField?.value || null;
+    return userField?.value || null;
 };
 
 const resolvePlanName = (data, metadata = {}) => {
@@ -93,7 +92,7 @@ const resolvePlanName = (data, metadata = {}) => {
     return 'starter';
 };
 
-const buildTeamUpdates = (data, planName) => {
+const buildSubscriptionUpdates = (data, planName) => {
     const updates = {
         paystack_customer_code: data.customer?.customer_code,
         paystack_subscription_code: data.subscription_code || data.subscription?.subscription_code,
@@ -112,27 +111,27 @@ const buildTeamUpdates = (data, planName) => {
     return updates;
 };
 
-const updateTeamSubscription = async (teamId, updates) => {
+const updateUserSubscription = async (userId, updates) => {
     const { data: updateResult, error } = await db.supabase
-        .from('teams')
+        .from('profiles')
         .update(updates)
-        .eq('id', teamId)
+        .eq('id', userId)
         .select();
 
     if (error) {
-        logger.error('Failed to update team subscription in Supabase:', { error, teamId });
+        logger.error('Failed to update user subscription in Supabase:', { error, userId });
         throw error;
     }
 
     if (!updateResult || updateResult.length === 0) {
-        logger.warn('Supabase update returned success but 0 rows affected. Check teamId validity.', { teamId });
+        logger.warn('Supabase update returned success but 0 rows affected. Check userId validity.', { userId });
         return false;
     }
 
     return true;
 };
 
-const backfillSubscriptionCodeFromCustomer = async (teamId, customerCode, currentPeriodEnd) => {
+const backfillSubscriptionCodeFromCustomer = async (userId, customerCode, currentPeriodEnd) => {
     if (!customerCode) return null;
 
     const activeSubscription = await paystackService.getCustomerActiveSubscription(customerCode);
@@ -151,12 +150,12 @@ const backfillSubscriptionCodeFromCustomer = async (teamId, customerCode, curren
     }
 
     const { error } = await db.supabase
-        .from('teams')
+        .from('profiles')
         .update(patch)
-        .eq('id', teamId);
+        .eq('id', userId);
 
     if (error) {
-        logger.error('Failed to backfill subscription code from Paystack customer:', { error, teamId, customerCode });
+        logger.error('Failed to backfill subscription code from Paystack customer:', { error, userId, customerCode });
         throw error;
     }
 
@@ -168,13 +167,11 @@ const backfillSubscriptionCodeFromCustomer = async (teamId, customerCode, curren
  */
 router.post('/initialize', async (req, res) => {
     try {
-        const { email, plan, planName, teamId, userId, callbackPath } = req.body;
+        const { email, plan, planName, userId, callbackPath } = req.body;
 
-        if (!email || !plan || !teamId || !userId) {
+        if (!email || !plan || !userId) {
             return res.status(400).json({ error: 'Missing required parameters' });
         }
-
-        await requireTeamAdmin(teamId, userId);
 
         const normalizedPlanName = ['starter', 'growth'].includes(String(planName || '').toLowerCase())
             ? String(planName).toLowerCase()
@@ -184,7 +181,6 @@ router.post('/initialize', async (req, res) => {
         const callback_url = resolveCheckoutCallbackUrl(callbackPath);
 
         const metadata = {
-            teamId,
             userId,
             plan_code: plan
         };
@@ -217,31 +213,29 @@ router.post('/initialize', async (req, res) => {
  */
 router.post('/manage', async (req, res) => {
     try {
-        const { teamId, userId } = req.body;
+        const { userId } = req.body;
 
-        if (!teamId || !userId) {
-            return res.status(400).json({ error: 'teamId and userId required' });
+        if (!userId) {
+            return res.status(400).json({ error: 'userId required' });
         }
 
-        await requireTeamAdmin(teamId, userId);
-
-        const { data: team } = await db.supabase
-            .from('teams')
+        const { data: user } = await db.supabase
+            .from('profiles')
             .select('id, paystack_subscription_code, paystack_customer_code, current_period_end')
-            .eq('id', teamId)
+            .eq('id', userId)
             .single();
 
-        if (!team) {
-            return res.status(404).json({ error: 'Team not found' });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
         }
 
-        let subscriptionCode = team.paystack_subscription_code;
+        let subscriptionCode = user.paystack_subscription_code;
 
         if (!subscriptionCode) {
             subscriptionCode = await backfillSubscriptionCodeFromCustomer(
-                team.id,
-                team.paystack_customer_code,
-                team.current_period_end
+                user.id,
+                user.paystack_customer_code,
+                user.current_period_end
             );
         }
 
@@ -257,9 +251,9 @@ router.post('/manage', async (req, res) => {
         } catch (manageError) {
             // If stored code is stale, refresh from customer and retry once.
             const refreshedCode = await backfillSubscriptionCodeFromCustomer(
-                team.id,
-                team.paystack_customer_code,
-                team.current_period_end
+                user.id,
+                user.paystack_customer_code,
+                user.current_period_end
             );
 
             if (!refreshedCode || refreshedCode === subscriptionCode) {
@@ -298,21 +292,21 @@ router.post('/verify', async (req, res) => {
         const transactionMetadata = normalizeMetadata(transaction.metadata);
         const customerMetadata = normalizeMetadata(transaction.customer?.metadata);
         const metadata = { ...customerMetadata, ...transactionMetadata };
-        const teamId = extractTeamIdFromMetadata(metadata);
+        const userId = extractUserIdFromMetadata(metadata);
 
-        if (!teamId) {
-            logger.warn('Verify endpoint: No teamId found in metadata', {
+        if (!userId) {
+            logger.warn('Verify endpoint: No userId found in metadata', {
                 reference,
                 metadata_keys: Object.keys(metadata || {})
             });
 
             return res.status(400).json({
-                error: 'Could not map payment to a team. teamId missing in metadata.'
+                error: 'Could not map payment to a user. userId missing in metadata.'
             });
         }
 
         const planName = resolvePlanName(transaction, metadata);
-        const updates = buildTeamUpdates(transaction, planName);
+        const updates = buildSubscriptionUpdates(transaction, planName);
         if (!updates.paystack_subscription_code && updates.paystack_customer_code) {
             const activeSubscription = await paystackService.getCustomerActiveSubscription(updates.paystack_customer_code);
             const fallbackCode = activeSubscription?.subscription_code;
@@ -321,12 +315,12 @@ router.post('/verify', async (req, res) => {
             }
         }
 
-        logger.info('Attempting DB update from verify endpoint:', { teamId, planName, reference });
-        await updateTeamSubscription(teamId, updates);
+        logger.info('Attempting DB update from verify endpoint:', { userId, planName, reference });
+        await updateUserSubscription(userId, updates);
 
         res.json({
             success: true,
-            teamId,
+            userId,
             plan: planName,
             subscription_status: 'active'
         });
@@ -388,11 +382,11 @@ async function handleSubscriptionCreatedOrUpdated(data) {
     const customerMetadata = normalizeMetadata(data.customer?.metadata);
     const metadata = { ...customerMetadata, ...dataMetadata };
 
-    // Try multiple paths to find teamId
-    const teamId = extractTeamIdFromMetadata(metadata);
+    // Try multiple paths to find userId
+    const userId = extractUserIdFromMetadata(metadata);
 
-    if (!teamId) {
-        logger.warn('Webhook: No teamId found in metadata. Full data structure for debugging:', {
+    if (!userId) {
+        logger.warn('Webhook: No userId found in metadata. Full data structure for debugging:', {
             event_keys: Object.keys(data),
             metadata_type: typeof data.metadata,
             metadata_keys: Object.keys(metadata || {}),
@@ -403,7 +397,7 @@ async function handleSubscriptionCreatedOrUpdated(data) {
     }
 
     const planName = resolvePlanName(data, metadata);
-    const updates = buildTeamUpdates(data, planName);
+    const updates = buildSubscriptionUpdates(data, planName);
     if (!updates.paystack_subscription_code && updates.paystack_customer_code) {
         const activeSubscription = await paystackService.getCustomerActiveSubscription(updates.paystack_customer_code);
         const fallbackCode = activeSubscription?.subscription_code;
@@ -412,10 +406,10 @@ async function handleSubscriptionCreatedOrUpdated(data) {
         }
     }
 
-    logger.info('Attempting DB update for team:', { teamId, planName });
-    const updated = await updateTeamSubscription(teamId, updates);
+    logger.info('Attempting DB update for user:', { userId, planName });
+    const updated = await updateUserSubscription(userId, updates);
     if (updated) {
-        logger.info(`Successfully activated ${planName} plan for team ${teamId}`);
+        logger.info(`Successfully activated ${planName} plan for user ${userId}`);
     }
 }
 
@@ -426,7 +420,7 @@ async function handleSubscriptionCanceled(data) {
 
     // Downgrade to free plan
     const { error } = await db.supabase
-        .from('teams')
+        .from('profiles')
         .update({
             subscription_status: 'canceled',
             plan: 'free',
@@ -455,7 +449,7 @@ async function handleSubscriptionSetToNotRenew(data) {
     }
 
     const { error } = await db.supabase
-        .from('teams')
+        .from('profiles')
         .update(updates)
         .eq('paystack_customer_code', customerCode);
 

@@ -2,24 +2,23 @@ import express from 'express';
 import asanaService from '../services/asana-service.js';
 import jiraService from '../services/jira-service.js';
 import slackService from '../services/slack-service.js';
-import trelloService from '../services/trello-service.js';
+import aiProcessor from '../services/ai-processor.js';
+
 import { db } from '../services/supabase-client.js';
 import logger from '../utils/logger.js';
-import { requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 25;
 const RAW_MESSAGE_LOOKBACK_HOURS = 72;
-const MAX_CHANNELS_TO_SCAN = 25;
+const MAX_CHANNELS_TO_SCAN = 100;
 const CHANNEL_FETCH_BATCH_SIZE = 5;
 const MAX_MESSAGES_PER_CHANNEL = 120;
 const ISSUE_KEY_REGEX = /\b[A-Z][A-Z0-9]+-\d+\b/g;
 const ASANA_TASK_URL_REGEX = /https?:\/\/app\.asana\.com\/0\/(?:\d+\/)?(\d+)/ig;
 const ASANA_TASK_ID_REGEX = /\basana(?:\s+task)?[\s#:]+(\d{6,})\b/ig;
-const TRELLO_CARD_URL_REGEX = /https?:\/\/trello\.com\/c\/([A-Za-z0-9]+)/ig;
-const TRELLO_CARD_ID_REGEX = /\btrello(?:\s+card)?[\s#:]+([A-Za-z0-9]{6,})\b/ig;
+
 const SIGNAL_RULES = [
     {
         id: 'blocked',
@@ -63,10 +62,7 @@ function isUnauthorizedError(error) {
     return error?.status === 401 || error?.status === 403 || /unauthorized|forbidden|expired/i.test(String(error?.message || ''));
 }
 
-async function persistJiraIntegration(userId, integration, teamId, tokens = {}) {
-    const scope = integration?.scope || (teamId ? 'team' : 'personal');
-    const effectiveTeamId = teamId || integration?.team_id || null;
-
+async function persistJiraIntegration(userId, integration, tokens = {}) {
     const payload = {
         accessToken: tokens.accessToken || integration?.access_token,
         refreshToken: tokens.refreshToken !== undefined ? tokens.refreshToken : integration?.refresh_token,
@@ -75,17 +71,10 @@ async function persistJiraIntegration(userId, integration, teamId, tokens = {}) 
         workspaceName: tokens.workspaceName !== undefined ? tokens.workspaceName : integration?.workspace_name
     };
 
-    if (scope === 'team') {
-        payload.teamId = effectiveTeamId;
-    }
-
-    await db.saveIntegration(userId, 'jira', payload, scope);
+    await db.saveIntegration(userId, 'jira', payload);
 }
 
-async function persistAsanaIntegration(userId, integration, teamId, tokens = {}) {
-    const scope = integration?.scope || (teamId ? 'team' : 'personal');
-    const effectiveTeamId = teamId || integration?.team_id || null;
-
+async function persistAsanaIntegration(userId, integration, tokens = {}) {
     const payload = {
         accessToken: tokens.accessToken || integration?.access_token,
         refreshToken: tokens.refreshToken !== undefined ? tokens.refreshToken : integration?.refresh_token,
@@ -94,15 +83,11 @@ async function persistAsanaIntegration(userId, integration, teamId, tokens = {})
         workspaceName: tokens.workspaceName !== undefined ? tokens.workspaceName : integration?.workspace_name
     };
 
-    if (scope === 'team') {
-        payload.teamId = effectiveTeamId;
-    }
-
-    await db.saveIntegration(userId, 'asana', payload, scope);
+    await db.saveIntegration(userId, 'asana', payload);
 }
 
-async function resolveJiraContext(userId, teamId) {
-    const integration = await db.getIntegration(userId, 'jira', teamId);
+async function resolveJiraContext(userId) {
+    const integration = await db.getIntegration(userId, 'jira');
     if (!integration) {
         const error = new Error('Jira not connected');
         error.status = 401;
@@ -123,7 +108,7 @@ async function resolveJiraContext(userId, teamId) {
             accessToken = refreshed.accessToken;
             refreshToken = refreshed.refreshToken;
 
-            await persistJiraIntegration(userId, integration, teamId, {
+            await persistJiraIntegration(userId, integration, {
                 accessToken,
                 refreshToken,
                 expiresAt: Number.isFinite(refreshed.expiresIn)
@@ -141,7 +126,7 @@ async function resolveJiraContext(userId, teamId) {
         && (workspace.cloudId !== integration.workspace_id || workspace.name !== integration.workspace_name);
 
     if (workspaceChanged) {
-        await persistJiraIntegration(userId, integration, teamId, {
+        await persistJiraIntegration(userId, integration, {
             accessToken,
             refreshToken,
             workspaceId: workspace.cloudId,
@@ -159,8 +144,8 @@ async function resolveJiraContext(userId, teamId) {
     };
 }
 
-async function resolveAsanaContext(userId, teamId) {
-    const integration = await db.getIntegration(userId, 'asana', teamId);
+async function resolveAsanaContext(userId) {
+    const integration = await db.getIntegration(userId, 'asana');
     if (!integration) {
         const error = new Error('Asana not connected');
         error.status = 401;
@@ -179,7 +164,7 @@ async function resolveAsanaContext(userId, teamId) {
             accessToken = refreshed.accessToken;
             refreshToken = refreshed.refreshToken;
 
-            await persistAsanaIntegration(userId, integration, teamId, {
+            await persistAsanaIntegration(userId, integration, {
                 accessToken,
                 refreshToken,
                 expiresAt: Number.isFinite(refreshed.expiresIn)
@@ -207,7 +192,7 @@ async function resolveAsanaContext(userId, teamId) {
         String(selectedWorkspace.gid) !== String(integration.workspace_id || '')
         || selectedWorkspace.name !== integration.workspace_name
     ) {
-        await persistAsanaIntegration(userId, integration, teamId, {
+        await persistAsanaIntegration(userId, integration, {
             accessToken,
             refreshToken,
             workspaceId: selectedWorkspace.gid,
@@ -225,22 +210,7 @@ async function resolveAsanaContext(userId, teamId) {
     };
 }
 
-async function resolveTrelloContext(userId, teamId) {
-    const integration = await db.getIntegration(userId, 'trello', teamId);
-    if (!integration) {
-        const error = new Error('Trello not connected');
-        error.status = 401;
-        throw error;
-    }
 
-    return {
-        platform: 'trello',
-        label: 'Trello',
-        integration,
-        accessToken: integration.access_token,
-        memberId: integration.workspace_id || null
-    };
-}
 
 function normalizeStatusName(value) {
     return String(value || '')
@@ -309,12 +279,7 @@ function extractAsanaTaskIds(value) {
     ]));
 }
 
-function extractTrelloCardIds(value) {
-    return Array.from(new Set([
-        ...collectRegexMatches(TRELLO_CARD_URL_REGEX, value, (match) => String(match || '').trim()),
-        ...collectRegexMatches(TRELLO_CARD_ID_REGEX, value, (match) => String(match || '').trim())
-    ]));
-}
+
 
 function uniqueNonEmpty(values, limit = 4) {
     const seen = new Set();
@@ -345,8 +310,12 @@ function buildMessageId(channelId, timestamp) {
 }
 
 async function ingestRecentSlackMessages(accessToken) {
-    const channels = await slackService.listChannels(accessToken);
+    const [channels, users] = await Promise.all([
+        slackService.listChannels(accessToken),
+        slackService.listUsers(accessToken).catch(() => [])
+    ]);
     const channelsToScan = (Array.isArray(channels) ? channels : []).slice(0, MAX_CHANNELS_TO_SCAN);
+    const userMap = new Map((Array.isArray(users) ? users : []).map(u => [u.id, u.name]));
     const collected = [];
 
     for (let index = 0; index < channelsToScan.length; index += CHANNEL_FETCH_BATCH_SIZE) {
@@ -363,18 +332,30 @@ async function ingestRecentSlackMessages(accessToken) {
                         accessToken
                     );
 
-                    return (Array.isArray(messages) ? messages : []).map((message) => ({
-                        id: buildMessageId(channel.id, message.timestamp),
-                        channelId: channel.id,
-                        channelName: channel.name || 'unknown',
-                        source: `#${channel.name || 'unknown'}`,
-                        text: String(message.text || '').trim(),
-                        timestamp: message.timestamp,
-                        createdAt: slackTimestampToIso(message.timestamp),
-                        issueKeys: extractIssueKeys(message.text),
-                        asanaTaskIds: extractAsanaTaskIds(message.text),
-                        trelloCardRefs: extractTrelloCardIds(message.text)
-                    }));
+                    return (Array.isArray(messages) ? messages : []).map((message) => {
+                        let text = String(message.text || '').trim();
+                        
+                        // Resolve user mentions in text: <@U12345> -> @Name
+                        text = text.replace(/<@(U[A-Z0-9]+)>/g, (match, userId) => {
+                            const name = userMap.get(userId);
+                            return name ? `@${name}` : match;
+                        });
+
+                        const authorName = userMap.get(message.user) || 'unknown user';
+
+                        return {
+                            id: buildMessageId(channel.id, message.timestamp),
+                            channelId: channel.id,
+                            channelName: channel.name || 'unknown',
+                            source: `#${channel.name || 'unknown'}`,
+                            author: authorName,
+                            text,
+                            timestamp: message.timestamp,
+                            createdAt: slackTimestampToIso(message.timestamp),
+                            issueKeys: extractIssueKeys(text),
+                            asanaTaskIds: extractAsanaTaskIds(text)
+                        };
+                    });
                 } catch (error) {
                     logger.warn('Failed to read Slack channel during work insight scan', {
                         channelId: channel.id,
@@ -587,7 +568,7 @@ function buildSkippedReason(group, suggestedStatus) {
 }
 
 function buildInsightOutcome(group) {
-    const suggestedStatus = deriveSuggestedStatus(group.signals);
+    const suggestedStatus = group.suggestedStatus || deriveSuggestedStatus(group.signals);
     if (!shouldSuggestStatus(group.currentStatus, suggestedStatus)) {
         return {
             insight: null,
@@ -615,8 +596,8 @@ function buildInsightOutcome(group) {
             projectName: group.projectName,
             currentStatus: group.currentStatus || 'Unknown',
             suggestedStatus,
-            confidence: calculateConfidence(group),
-            signals: group.signals.map((signal) => signal.label),
+            confidence: group.confidence || calculateConfidence(group),
+            signals: group.signals.map((signal) => signal.label || signal),
             evidence: group.evidence.slice(0, 3).map((item) => ({
                 type: item.type,
                 text: trimText(item.text),
@@ -640,7 +621,6 @@ function createPrerequisiteResponse(overrides = {}) {
             slackConnected: false,
             jiraConnected: false,
             asanaConnected: false,
-            trelloConnected: false,
             connectedPlatformCount: 0,
             ...overrides
         }
@@ -758,23 +738,13 @@ function buildAsanaDisplayKey(task) {
     return 'Asana task';
 }
 
-function buildTrelloDisplayKey(card) {
-    if (card?.shortLink) {
-        return `Card ${card.shortLink}`;
-    }
-    if (card?.gid) {
-        return `Card ${String(card.gid).slice(0, 8)}`;
-    }
-    return 'Trello card';
-}
+
 
 function getAsanaCurrentStatus(task) {
     return task?.sectionName || task?.section?.name || (task?.completed ? 'Done' : 'Open');
 }
 
-function getTrelloCurrentStatus(card) {
-    return card?.list?.name || card?.status_name || (card?.completed ? 'Done' : 'Open');
-}
+
 
 async function buildJiraInsights(rawMessages, jiraContext) {
     const referencedIssueKeys = new Set(
@@ -793,9 +763,6 @@ async function buildJiraInsights(rawMessages, jiraContext) {
     const grouped = new Map();
 
     rawMessages.forEach((message) => {
-        const signals = detectSignals([buildEvidenceItem(message)]);
-        if (signals.length === 0) return;
-
         (message.issueKeys || []).forEach((ticketKey) => {
             const issue = issuesByKey.get(ticketKey);
             if (!issue) return;
@@ -809,17 +776,43 @@ async function buildJiraInsights(rawMessages, jiraContext) {
                 projectName: issue?.project?.name || 'Jira',
                 currentStatus: issue?.status_name || 'Unknown',
                 externalUrl: issue?.externalUrl || null
-            }, message, signals);
+            }, message, []);
         });
     });
 
-    const outcomes = Array.from(grouped.values()).map(buildInsightOutcome);
+    const groupsArray = Array.from(grouped.values());
+    if (groupsArray.length > 0) {
+        await Promise.all(groupsArray.map(async (group) => {
+            try {
+                const transitions = await jiraService.getIssueTransitions(jiraContext.accessToken, jiraContext.cloudId, group.itemId);
+                group.availableStatuses = (Array.isArray(transitions) ? transitions : []).map(t => t.to?.name || t.name).filter(Boolean);
+            } catch (e) {
+                group.availableStatuses = [];
+            }
+        }));
+
+        const aiResults = await aiProcessor.extractBatchWorkInsightSignals(groupsArray);
+        aiResults.forEach(aiGroup => {
+            const group = groupsArray.find(g => g.ticketKey === aiGroup.ticketKey);
+            if (group && aiGroup.signals && aiGroup.signals.length > 0) {
+                group.signals = aiGroup.signals.map(s => ({ label: s }));
+                group.suggestedStatus = aiGroup.suggestedStatus;
+                group.confidence = aiGroup.confidence;
+            } else if (group) {
+                group.signals = []; // Clear for filtering
+            }
+        });
+    }
+
+    const validGroups = groupsArray.filter(g => g.signals && g.signals.length > 0);
+    const outcomes = validGroups.map(buildInsightOutcome);
 
     return {
         insights: outcomes.map((entry) => entry.insight).filter(Boolean),
         skippedDetections: outcomes.map((entry) => entry.skipped).filter(Boolean),
         referencedIssueKeys,
         missingIssueKeys
+
     };
 }
 
@@ -833,10 +826,14 @@ async function buildAsanaInsights(rawMessages, asanaContext) {
     const referencedTaskIds = new Set();
     const grouped = new Map();
 
-    rawMessages.forEach((message) => {
-        const signals = detectSignals([buildEvidenceItem(message)]);
-        if (signals.length === 0) return;
+    let aiReferences = [];
+    try {
+        aiReferences = await aiProcessor.findAsanaTaskReferences(rawMessages, tasks);
+    } catch (error) {
+        logger.warn('Failed to extract Asana tasks using AI in work insights');
+    }
 
+    rawMessages.forEach((message) => {
         const matches = new Map();
 
         (message.asanaTaskIds || []).forEach((taskId) => {
@@ -856,6 +853,19 @@ async function buildAsanaInsights(rawMessages, asanaContext) {
             matches.set(taskId, task);
         });
 
+        const aiMatch = aiReferences.find(ref => ref.messageId === message.id);
+        if (aiMatch && Array.isArray(aiMatch.taskIds)) {
+            aiMatch.taskIds.forEach(taskId => {
+                const task = tasksById.get(String(taskId));
+                if (task) {
+                    referencedTaskIds.add(String(taskId));
+                    matches.set(String(taskId), task);
+                } else {
+                    missingTaskIds.add(String(taskId));
+                }
+            });
+        }
+
         matches.forEach((task, taskId) => {
             addGroupEvidence(grouped, taskId, {
                 platform: 'asana',
@@ -864,13 +874,46 @@ async function buildAsanaInsights(rawMessages, asanaContext) {
                 ticketKey: buildAsanaDisplayKey(task),
                 ticketName: task?.name || 'Asana task',
                 projectName: task?.project?.name || asanaContext.workspaceName || 'Asana',
+                projectId: task?.project?.gid || null,
                 currentStatus: getAsanaCurrentStatus(task),
                 externalUrl: task?.externalUrl || null
-            }, message, signals);
+            }, message, []);
         });
     });
 
-    const outcomes = Array.from(grouped.values()).map(buildInsightOutcome);
+    const groupsArray = Array.from(grouped.values());
+    if (groupsArray.length > 0) {
+        await Promise.all(groupsArray.map(async (group) => {
+            if (group.projectId) {
+                try {
+                    const sections = await asanaService.getSectionsForProject(asanaContext.accessToken, group.projectId);
+                    group.availableStatuses = (Array.isArray(sections) ? sections : []).map(s => s.name).filter(Boolean);
+                    if (!group.availableStatuses.includes('Done')) {
+                        group.availableStatuses.push('Done');
+                    }
+                } catch (e) {
+                    group.availableStatuses = ['Done'];
+                }
+            } else {
+                group.availableStatuses = ['Done'];
+            }
+        }));
+
+        const aiResults = await aiProcessor.extractBatchWorkInsightSignals(groupsArray);
+        aiResults.forEach(aiGroup => {
+            const group = groupsArray.find(g => g.ticketKey === aiGroup.ticketKey);
+            if (group && aiGroup.signals && aiGroup.signals.length > 0) {
+                group.signals = aiGroup.signals.map(s => ({ label: s }));
+                group.suggestedStatus = aiGroup.suggestedStatus;
+                group.confidence = aiGroup.confidence;
+            } else if (group) {
+                group.signals = []; // Clear for filtering
+            }
+        });
+    }
+
+    const validGroups = groupsArray.filter(g => g.signals && g.signals.length > 0);
+    const outcomes = validGroups.map(buildInsightOutcome);
 
     return {
         insights: outcomes.map((entry) => entry.insight).filter(Boolean),
@@ -880,80 +923,11 @@ async function buildAsanaInsights(rawMessages, asanaContext) {
     };
 }
 
-async function buildTrelloInsights(rawMessages, trelloContext) {
-    const cards = await trelloService.getAllCardsFromBoards(trelloContext.accessToken, trelloContext.memberId);
-    const cardsById = new Map();
-    const cardsByShortLink = new Map();
 
-    (Array.isArray(cards) ? cards : []).forEach((card) => {
-        const cardId = String(card?.gid || card?.id || '');
-        if (cardId) {
-            cardsById.set(cardId, card);
-        }
-        if (card?.shortLink) {
-            cardsByShortLink.set(String(card.shortLink).toLowerCase(), card);
-        }
-    });
-
-    const nameEntries = buildUniqueNameEntries(cards);
-    const missingCardRefs = new Set();
-    const referencedCardRefs = new Set();
-    const grouped = new Map();
-
-    rawMessages.forEach((message) => {
-        const signals = detectSignals([buildEvidenceItem(message)]);
-        if (signals.length === 0) return;
-
-        const matches = new Map();
-
-        (message.trelloCardRefs || []).forEach((ref) => {
-            const normalizedRef = String(ref || '').trim();
-            if (!normalizedRef) return;
-
-            referencedCardRefs.add(normalizedRef);
-
-            const card = cardsById.get(normalizedRef) || cardsByShortLink.get(normalizedRef.toLowerCase());
-            if (card) {
-                matches.set(String(card?.gid || card?.id || normalizedRef), card);
-            } else {
-                missingCardRefs.add(normalizedRef);
-            }
-        });
-
-        matchItemsByName(message.text, nameEntries).forEach((card) => {
-            const cardId = String(card?.gid || card?.id || '');
-            if (!cardId) return;
-            referencedCardRefs.add(card?.shortLink || cardId);
-            matches.set(cardId, card);
-        });
-
-        matches.forEach((card, cardId) => {
-            addGroupEvidence(grouped, cardId, {
-                platform: 'trello',
-                platformLabel: 'Trello',
-                itemId: cardId,
-                ticketKey: buildTrelloDisplayKey(card),
-                ticketName: card?.name || 'Trello card',
-                projectName: card?.project?.name || 'Trello',
-                currentStatus: getTrelloCurrentStatus(card),
-                externalUrl: card?.externalUrl || null
-            }, message, signals);
-        });
-    });
-
-    const outcomes = Array.from(grouped.values()).map(buildInsightOutcome);
-
-    return {
-        insights: outcomes.map((entry) => entry.insight).filter(Boolean),
-        skippedDetections: outcomes.map((entry) => entry.skipped).filter(Boolean),
-        referencedCardRefs: uniqueNonEmpty(Array.from(referencedCardRefs), 100),
-        missingCardRefs: uniqueNonEmpty(Array.from(missingCardRefs), 100)
-    };
-}
 
 router.get('/', async (req, res) => {
     try {
-        const { userId, teamId } = req.query;
+        const { userId } = req.query;
         const requestedLimit = Number.parseInt(req.query.limit, 10);
         const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
             ? Math.min(requestedLimit, MAX_LIMIT)
@@ -963,11 +937,7 @@ router.get('/', async (req, res) => {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        if (teamId) {
-            await requireTeamMember(teamId, userId);
-        }
-
-        const slackIntegration = await db.getIntegration(userId, 'slack', teamId);
+        const slackIntegration = await db.getIntegration(userId, 'slack');
         if (!slackIntegration) {
             return res.json({
                 ...createPrerequisiteResponse(),
@@ -979,63 +949,47 @@ router.get('/', async (req, res) => {
             slackConnected: true,
             jiraConnected: false,
             asanaConnected: false,
-            trelloConnected: false,
             connectedPlatformCount: 0
         };
 
         let jiraContext = null;
         let asanaContext = null;
-        let trelloContext = null;
 
         try {
-            jiraContext = await resolveJiraContext(userId, teamId);
+            jiraContext = await resolveJiraContext(userId);
             prerequisites.jiraConnected = true;
         } catch (error) {
             if (!isUnauthorizedError(error)) {
                 logger.warn('Skipping Jira work insights for this request', {
                     userId,
-                    teamId,
                     error: error.message
                 });
             }
         }
 
         try {
-            asanaContext = await resolveAsanaContext(userId, teamId);
+            asanaContext = await resolveAsanaContext(userId);
             prerequisites.asanaConnected = true;
         } catch (error) {
             if (!isUnauthorizedError(error)) {
                 logger.warn('Skipping Asana work insights for this request', {
                     userId,
-                    teamId,
                     error: error.message
                 });
             }
         }
 
-        try {
-            trelloContext = await resolveTrelloContext(userId, teamId);
-            prerequisites.trelloConnected = true;
-        } catch (error) {
-            if (!isUnauthorizedError(error)) {
-                logger.warn('Skipping Trello work insights for this request', {
-                    userId,
-                    teamId,
-                    error: error.message
-                });
-            }
-        }
+
 
         prerequisites.connectedPlatformCount = [
             prerequisites.jiraConnected,
-            prerequisites.asanaConnected,
-            prerequisites.trelloConnected
+            prerequisites.asanaConnected
         ].filter(Boolean).length;
 
         if (prerequisites.connectedPlatformCount === 0) {
             return res.json({
                 ...createPrerequisiteResponse(prerequisites),
-                message: 'Connect Jira, Asana, or Trello so Teama can map Slack activity to real work items.'
+                message: 'Connect Jira or Asana so Teama can map Slack activity to real work items.'
             });
         }
 
@@ -1050,8 +1004,7 @@ router.get('/', async (req, res) => {
 
         const [
             jiraResult,
-            asanaResult,
-            trelloResult
+            asanaResult
         ] = await Promise.all([
             prerequisites.jiraConnected ? buildJiraInsights(rawMessages, jiraContext) : Promise.resolve({
                 insights: [],
@@ -1064,19 +1017,12 @@ router.get('/', async (req, res) => {
                 skippedDetections: [],
                 referencedTaskIds: [],
                 missingTaskIds: []
-            }),
-            prerequisites.trelloConnected ? buildTrelloInsights(rawMessages, trelloContext) : Promise.resolve({
-                insights: [],
-                skippedDetections: [],
-                referencedCardRefs: [],
-                missingCardRefs: []
             })
         ]);
 
         const insights = [
             ...jiraResult.insights,
-            ...asanaResult.insights,
-            ...trelloResult.insights
+            ...asanaResult.insights
         ]
             .sort((first, second) => {
                 if ((second.confidence || 0) !== (first.confidence || 0)) {
@@ -1089,13 +1035,11 @@ router.get('/', async (req, res) => {
         let message = null;
         const skippedDetections = [
             ...(jiraResult.skippedDetections || []),
-            ...(asanaResult.skippedDetections || []),
-            ...(trelloResult.skippedDetections || [])
+            ...(asanaResult.skippedDetections || [])
         ];
         const jiraReferencedCount = jiraResult.referencedIssueKeys?.size || 0;
         const asanaReferencedCount = asanaResult.referencedTaskIds?.length || 0;
-        const trelloReferencedCount = trelloResult.referencedCardRefs?.length || 0;
-        const totalReferencedCount = jiraReferencedCount + asanaReferencedCount + trelloReferencedCount;
+        const totalReferencedCount = jiraReferencedCount + asanaReferencedCount;
 
         if (insights.length === 0) {
             if (jiraReferencedCount > 0 && jiraResult.missingIssueKeys.length === jiraReferencedCount) {
@@ -1104,12 +1048,11 @@ router.get('/', async (req, res) => {
                 message = skippedDetections[0].reason;
             } else if (asanaResult.missingTaskIds.length > 0 && asanaReferencedCount === asanaResult.missingTaskIds.length) {
                 message = `Slack referenced Asana task IDs ${asanaResult.missingTaskIds.join(', ')}, but Teama could not find those tasks in the connected workspace.`;
-            } else if (trelloResult.missingCardRefs.length > 0 && trelloReferencedCount === trelloResult.missingCardRefs.length) {
-                message = `Slack referenced Trello cards ${trelloResult.missingCardRefs.join(', ')}, but Teama could not find those cards in the connected boards.`;
+
             } else if (totalReferencedCount > 0) {
                 message = 'Teama found Slack references to connected work items, but not enough actionable signals to suggest an update yet.';
             } else {
-                message = 'No actionable Jira, Asana, or Trello references were found in recent Slack messages. Share links, IDs, or exact work item names in Slack and refresh.';
+                message = 'No actionable Jira or Asana references were found in recent Slack messages. Share links, IDs, or exact work item names in Slack and refresh.';
             }
         }
 
@@ -1120,7 +1063,6 @@ router.get('/', async (req, res) => {
             channelsScanned,
             missingIssueKeys: jiraResult.missingIssueKeys || [],
             missingAsanaTaskIds: asanaResult.missingTaskIds || [],
-            missingTrelloCardRefs: trelloResult.missingCardRefs || [],
             skippedDetections,
             prerequisites,
             message
@@ -1136,7 +1078,6 @@ router.post('/apply', express.json(), async (req, res) => {
     try {
         const {
             userId,
-            teamId,
             platform = 'jira',
             itemId,
             ticketKey,
@@ -1150,12 +1091,8 @@ router.post('/apply', express.json(), async (req, res) => {
             return res.status(400).json({ error: 'userId and an insight item identifier are required' });
         }
 
-        if (teamId) {
-            await requireTeamMember(teamId, userId);
-        }
-
         if (platform === 'asana') {
-            const asanaContext = await resolveAsanaContext(userId, teamId);
+            const asanaContext = await resolveAsanaContext(userId);
             const task = await asanaService.getTaskById(asanaContext.accessToken, resolvedItemId);
             const currentStatus = getAsanaCurrentStatus(task);
 
@@ -1222,68 +1159,9 @@ router.post('/apply', express.json(), async (req, res) => {
             });
         }
 
-        if (platform === 'trello') {
-            const trelloContext = await resolveTrelloContext(userId, teamId);
-            const card = await trelloService.getCard(trelloContext.accessToken, resolvedItemId);
-            const currentStatus = getTrelloCurrentStatus(card);
 
-            let transitioned = false;
-            let commentAdded = false;
-            let warning = null;
-            let appliedStatus = currentStatus || 'Unknown';
 
-            if (desiredStatus && shouldSuggestStatus(currentStatus, desiredStatus)) {
-                const lists = await trelloService.getListsForBoard(
-                    trelloContext.accessToken,
-                    card?.project?.gid || card?.project?.id
-                );
-                const matchedList = findBestNamedTarget(lists, desiredStatus);
-
-                if (matchedList?.id || matchedList?.gid) {
-                    await trelloService.moveCardToList(
-                        trelloContext.accessToken,
-                        resolvedItemId,
-                        matchedList.id || matchedList.gid
-                    );
-                    transitioned = true;
-                    appliedStatus = matchedList.name || desiredStatus;
-                } else {
-                    warning = `No Trello list matched "${desiredStatus}". Comment added without moving the card.`;
-                }
-            }
-
-            if (String(comment || '').trim()) {
-                await trelloService.addCommentToCard(trelloContext.accessToken, resolvedItemId, comment.trim());
-                commentAdded = true;
-            }
-
-            if (transitioned) {
-                try {
-                    const refreshedCard = await trelloService.getCard(trelloContext.accessToken, resolvedItemId);
-                    appliedStatus = getTrelloCurrentStatus(refreshedCard) || appliedStatus;
-                } catch (refreshError) {
-                    logger.warn('Failed to refresh Trello card after applying insight', {
-                        cardId: resolvedItemId,
-                        error: refreshError.message
-                    });
-                }
-            }
-
-            return res.json({
-                success: true,
-                platform: 'trello',
-                itemId: resolvedItemId,
-                ticketKey: buildTrelloDisplayKey(card),
-                transitioned,
-                commentAdded,
-                appliedStatus,
-                warning,
-                itemUrl: card?.externalUrl || null,
-                issueUrl: card?.externalUrl || null
-            });
-        }
-
-        const jiraContext = await resolveJiraContext(userId, teamId);
+        const jiraContext = await resolveJiraContext(userId);
         const issue = await jiraService.getIssueByKey(
             jiraContext.accessToken,
             jiraContext.cloudId,
@@ -1352,11 +1230,7 @@ router.post('/apply', express.json(), async (req, res) => {
                 });
             }
 
-            if (requestPlatform === 'trello') {
-                return res.status(401).json({
-                    error: 'Trello write access is missing or expired. Reconnect Trello with write permissions, then try again.'
-                });
-            }
+
 
             if (requestPlatform === 'asana') {
                 return res.status(401).json({

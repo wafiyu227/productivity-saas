@@ -2,13 +2,12 @@ import express from 'express';
 import { Octokit } from '@octokit/rest';
 import { db } from '../services/supabase-client.js';
 import logger from '../utils/logger.js';
-import { requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
 // Helper to get Octokit client + stored integration metadata
-async function getGithubClient(userId, teamId) {
-    const integration = await db.getIntegration(userId, 'github', teamId);
+async function getGithubClient(userId) {
+    const integration = await db.getIntegration(userId, 'github');
     if (!integration) {
         throw new Error('GitHub not connected');
     }
@@ -60,16 +59,15 @@ function buildRepoScopeQuery(repoFullNames, maxQueryLength = 180) {
 // Get Repositories
 router.get('/repos', async (req, res) => {
     try {
-        const { userId, teamId, all } = req.query;
+        const { userId, all } = req.query;
         const requestedPerPage = Number.parseInt(req.query.perPage, 10);
         const perPage = Number.isFinite(requestedPerPage)
             ? Math.min(Math.max(requestedPerPage, 1), 100)
             : 10;
 
         if (!userId) return res.status(400).json({ error: 'userId required' });
-        if (teamId) await requireTeamMember(teamId, userId);
 
-        const { octokit } = await getGithubClient(userId, teamId);
+        const { octokit } = await getGithubClient(userId);
         let repoData = [];
 
         if (all === 'true') {
@@ -131,7 +129,7 @@ router.get('/repos', async (req, res) => {
 // Get Pull Requests (Global or Repo specific)
 router.get('/pulls', async (req, res) => {
     try {
-        const { userId, teamId, repo } = req.query;
+        const { userId, repo } = req.query;
         const requestedLimit = Number.parseInt(req.query.limit, 10);
         const requestedStaleDays = Number.parseInt(req.query.staleDays, 10);
         const limit = Number.isFinite(requestedLimit)
@@ -142,9 +140,8 @@ router.get('/pulls', async (req, res) => {
             : 7;
 
         if (!userId) return res.status(400).json({ error: 'userId required' });
-        if (teamId) await requireTeamMember(teamId, userId);
 
-        const { octokit, integration } = await getGithubClient(userId, teamId);
+        const { octokit, integration } = await getGithubClient(userId);
         const connectedLogin = await getConnectedLogin(octokit, integration);
         const staleCutoffDate = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000)
             .toISOString()
@@ -270,11 +267,10 @@ router.get('/pulls', async (req, res) => {
 // Get Recent Activity / Commits
 router.get('/activity', async (req, res) => {
     try {
-        const { userId, teamId, username } = req.query;
+        const { userId, username } = req.query;
         if (!userId) return res.status(400).json({ error: 'userId required' });
-        if (teamId) await requireTeamMember(teamId, userId);
 
-        const { octokit } = await getGithubClient(userId, teamId);
+        const { octokit } = await getGithubClient(userId);
 
         // Get authenticated user's username if not provided
         let targetUser = username;

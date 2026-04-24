@@ -179,6 +179,206 @@ Provide ONLY a valid JSON response (no markdown):
       throw error;
     }
   }
+
+  async findAsanaTaskReferences(messages, asanaTasks) {
+    if (!GROQ_API_KEY) {
+      logger.warn('GROQ_API_KEY not configured, skipping AI task detection');
+      return [];
+    }
+
+    const formattedMessages = messages
+      .map(msg => `[MSG_ID: ${msg.id}] [${msg.channelName || 'unknown'}]: ${msg.text}`)
+      .join('\n');
+
+    const formattedTasks = asanaTasks
+      .map(t => `- ID: ${t.gid || t.id} | Name: ${t.name}`)
+      .join('\n');
+
+    const userMessage = `Analyze these Slack messages and determine which of the provided Asana tasks are being specifically discussed or referenced in them. Match conversational references, exact task names, or IDs. Ignore generic discussion.
+IMPORTANT: Do NOT match messages that are clearly discussing Jira issues (indicated by formatted keys like ENG-123, KAN-4, or PROJECT-123). Treat those as Jira discussions and DO NOT map them to the provided Asana tasks.
+
+Slack Messages:
+${formattedMessages}
+
+Active Asana Tasks:
+${formattedTasks}
+
+Provide ONLY a valid JSON response containing an array of objects mapping the message ID to the recognized Asana task IDs.
+Format Requirements:
+[
+  { "messageId": "...", "taskIds": ["...", "..."] }
+]
+If there are no matches, return an empty array [].`;
+
+    try {
+      const response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'user',
+              content: userMessage
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 500
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Groq API error on task ref extraction: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0].message.content;
+      
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+         return []; 
+      }
+      return JSON.parse(jsonMatch[0]);
+    } catch (error) {
+      logger.error('Groq reference extraction failed', { error: error.message });
+      return []; 
+    }
+  }
+
+  async generateConversationTitle(messageText) {
+    if (!GROQ_API_KEY) {
+      logger.warn('GROQ_API_KEY is missing in environment, using simple truncation fallback for titles.');
+      return messageText.slice(0, 40) + (messageText.length > 40 ? '...' : '');
+    }
+
+    const userMessage = `Generate a concise, clear, and descriptive title (3-5 words) for an AI chat conversation that begins with the message below. 
+
+Message: """
+${messageText}
+"""
+
+Provide ONLY the title string, no quotes, no periods, no explanation.`;
+
+    try {
+      logger.info('Attempting to generate AI title with Groq', { model: 'llama-3.1-8b-instant', textLength: messageText.length });
+      
+      const response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [
+            {
+              role: 'user',
+              content: userMessage
+            }
+          ],
+          temperature: 0.5,
+          max_tokens: 20
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        logger.error('Groq API error during titling', { status: response.status, body: errorBody });
+        throw new Error(`Groq API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const title = data.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
+      
+      logger.info('Successfully generated AI title', { title });
+      return title || 'New Conversation';
+    } catch (error) {
+      logger.error('Title generation failed, using fallback', { error: error.message });
+      return messageText.slice(0, 40) + (messageText.length > 40 ? '...' : '');
+    }
+  }
+
+  async extractBatchWorkInsightSignals(ticketGroups) {
+    if (!GROQ_API_KEY) {
+      logger.warn('GROQ_API_KEY not configured, cannot extract work signals via AI');
+      return [];
+    }
+
+    if (!ticketGroups || ticketGroups.length === 0) return [];
+
+    let formattedGroups = ticketGroups.map(group => {
+      const messages = group.evidence.map(ev => `[${ev.source}]: ${ev.text}`).join('\n');
+      const statuses = group.availableStatuses && group.availableStatuses.length > 0 
+          ? group.availableStatuses.join(', ') 
+          : 'Any';
+      return `TicketID: ${group.ticketKey} (Current Status: ${group.currentStatus || 'Unknown'})\nAvailable Statuses: ${statuses}\nMessages:\n${messages}`;
+    }).join('\n\n---\n\n');
+
+    const userMessage = `Analyze the following Slack conversation groups for various work tickets.
+For each TicketID, determine the current work signals and overall progress. 
+The input may range from short, explicit list-style updates to lengthy, conversational "essay" style messages. 
+You must analyze BOTH styles carefully. Even short, direct statements like "Fixed X" or "PR up for Y" are high-quality signals and should be captured as work progress.
+
+Possible exact signals to identify (use these labels if applicable, or infer variations if appropriate):
+"Started work", "Fix completed", "PR raised", "Code review", "Merged", "Deployed", "Blocked", "Testing", "Done"
+
+You MUST pick a suggestedStatus that logically follows the progress indicated. 
+CRITICAL: If 'Available Statuses' is provided for a ticket, you MUST select a suggestedStatus that EXACTLY matches one of those strings. If none perfectly fit, pick the closest logical match from the available list.
+
+Conversations:
+${formattedGroups}
+
+Provide ONLY a valid JSON response matching this structure EXACTLY (no markdown wrappers):
+[
+  {
+    "ticketKey": "ENG-231",
+    "signals": ["Fix completed", "PR raised"],
+    "suggestedStatus": "In Review",
+    "confidence": 0.95
+  }
+]
+Return an empty array if no clear signals can be confidently detected for any tickets.`;
+
+    try {
+      const response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'user',
+              content: userMessage
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 1500
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Groq API error on work signal extraction: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0].message.content;
+      
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+         return []; 
+      }
+      return JSON.parse(jsonMatch[0]);
+    } catch (error) {
+      logger.error('Groq work signal extraction failed', { error: error.message });
+      return []; 
+    }
+  }
 }
 
 export default new AIProcessor();

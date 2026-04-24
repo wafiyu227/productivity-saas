@@ -11,10 +11,7 @@ function isUnauthorizedError(error) {
     return error?.status === 401 || error?.status === 403;
 }
 
-async function persistJiraIntegration(userId, integration, teamId, tokens = {}) {
-    const scope = integration?.scope || (teamId ? 'team' : 'personal');
-    const effectiveTeamId = teamId || integration?.team_id || null;
-
+async function persistJiraIntegration(userId, integration, tokens = {}) {
     const payload = {
         accessToken: tokens.accessToken || integration?.access_token,
         refreshToken: tokens.refreshToken !== undefined ? tokens.refreshToken : integration?.refresh_token,
@@ -23,15 +20,11 @@ async function persistJiraIntegration(userId, integration, teamId, tokens = {}) 
         workspaceName: tokens.workspaceName !== undefined ? tokens.workspaceName : integration?.workspace_name
     };
 
-    if (scope === 'team') {
-        payload.teamId = effectiveTeamId;
-    }
-
-    await db.saveIntegration(userId, 'jira', payload, scope);
+    await db.saveIntegration(userId, 'jira', payload);
 }
 
-async function resolveJiraContext(userId, teamId) {
-    const integration = await db.getIntegration(userId, 'jira', teamId);
+async function resolveJiraContext(userId) {
+    const integration = await db.getIntegration(userId, 'jira');
     if (!integration) {
         const error = new Error('Jira not connected');
         error.status = 401;
@@ -52,7 +45,7 @@ async function resolveJiraContext(userId, teamId) {
             accessToken = refreshed.accessToken;
             refreshToken = refreshed.refreshToken;
 
-            await persistJiraIntegration(userId, integration, teamId, {
+            await persistJiraIntegration(userId, integration, {
                 accessToken,
                 refreshToken,
                 expiresAt: Number.isFinite(refreshed.expiresIn)
@@ -70,7 +63,7 @@ async function resolveJiraContext(userId, teamId) {
         && (workspace.cloudId !== integration.workspace_id || workspace.name !== integration.workspace_name);
 
     if (workspaceChanged) {
-        await persistJiraIntegration(userId, integration, teamId, {
+        await persistJiraIntegration(userId, integration, {
             accessToken,
             refreshToken,
             workspaceId: workspace.cloudId,
@@ -112,12 +105,12 @@ function filterTasks(tasks, status, projectId) {
 
 router.get('/projects', async (req, res) => {
     try {
-        const { userId, teamId } = req.query;
+        const { userId } = req.query;
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId, teamId);
+        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId);
         const projects = await jiraService.getProjects(accessToken, cloudId, baseUrl);
         return res.json({ projects });
     } catch (error) {
@@ -128,13 +121,13 @@ router.get('/projects', async (req, res) => {
 
 router.get('/projects/:projectId/health', async (req, res) => {
     try {
-        const { userId, teamId } = req.query;
+        const { userId } = req.query;
         const { projectId } = req.params;
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId, teamId);
+        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId);
         const tasks = await jiraService.getTasksForProject(accessToken, cloudId, projectId, baseUrl);
         const health = jiraService.calculateProjectHealth(tasks);
         const projectName = tasks?.[0]?.project?.name || 'Jira Project';
@@ -169,12 +162,12 @@ router.get('/projects/:projectId/health', async (req, res) => {
 
 router.get('/workload', async (req, res) => {
     try {
-        const { userId, teamId } = req.query;
+        const { userId } = req.query;
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId, teamId);
+        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId);
         const workloadData = await jiraService.getWorkloadSummary(accessToken, cloudId, baseUrl);
         return res.json(workloadData);
     } catch (error) {
@@ -185,12 +178,12 @@ router.get('/workload', async (req, res) => {
 
 router.get('/deadlines', async (req, res) => {
     try {
-        const { userId, teamId } = req.query;
+        const { userId } = req.query;
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId, teamId);
+        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId);
         const deadlines = await jiraService.getDeadlineSummary(accessToken, cloudId, baseUrl);
         return res.json(deadlines);
     } catch (error) {
@@ -201,12 +194,12 @@ router.get('/deadlines', async (req, res) => {
 
 router.get('/tasks', async (req, res) => {
     try {
-        const { userId, teamId, status, projectId } = req.query;
+        const { userId, status, projectId } = req.query;
         if (!userId) {
             return res.status(400).json({ error: 'userId required' });
         }
 
-        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId, teamId);
+        const { accessToken, cloudId, baseUrl } = await resolveJiraContext(userId);
         const tasks = await jiraService.getAllTasksFromProjects(accessToken, cloudId, baseUrl);
         const filteredTasks = filterTasks(tasks, status, projectId);
 

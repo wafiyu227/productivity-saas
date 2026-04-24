@@ -71,51 +71,49 @@ router.post('/resend', async (req, res) => {
         let lookupEmail = to;
         
         if (to === 'team@mail.teamaai.xyz') {
-            // Try to find any profile with a team (owner/admin)
-            // First, try environment variable for owner email
+            // Internal dashboard inbox: Find the primary owner or a valid profile
             const ownerEmail = process.env.INBOX_OWNER_EMAIL || 'ibrahimwafiyudeen@gmail.com';
             
             const { data } = await db.supabase
                 .from('profiles')
-                .select('id, current_team_id, email')
+                .select('id, email')
                 .eq('email', ownerEmail)
                 .maybeSingle();
             
             profile = data;
             
             if (!profile) {
-                logger.warn(`Profile not found for owner email: ${ownerEmail}. Trying to find any team member...`);
-                // Fallback: Find any profile with a current_team_id
+                logger.warn(`Profile not found for owner email: ${ownerEmail}. Trying to find any profile...`);
                 const { data: anyProfile } = await db.supabase
                     .from('profiles')
-                    .select('id, current_team_id, email')
-                    .not('current_team_id', 'is', null)
+                    .select('id, email')
                     .limit(1)
                     .maybeSingle();
                 
                 if (anyProfile) {
                     profile = anyProfile;
-                    logger.info(`Found fallback profile: ${anyProfile.email}`);
                 }
             }
         } else {
-            // For other addresses, look up the recipient's profile
+            // Direct email: lookup by recipient address
             const { data } = await db.supabase
                 .from('profiles')
-                .select('id, current_team_id, email')
+                .select('id, email')
                 .eq('email', to)
                 .maybeSingle();
             profile = data;
         }
 
-        const teamId = profile?.current_team_id;
+
         const userId = profile?.id;
 
+
         if (!profile) {
-            logger.warn(`No profile found for inbox email. from=${from}, to=${to}. Message will be stored without team/user context.`);
+            logger.warn(`No profile found for inbox email. from=${from}, to=${to}. Message will be stored without user context.`);
         } else {
-            logger.info(`Profile found: userId=${userId}, teamId=${teamId}, profileEmail=${profile.email}`);
+            logger.info(`Profile found: userId=${userId}, profileEmail=${profile.email}`);
         }
+
 
         // Validate required fields
         if (!from) {
@@ -143,7 +141,6 @@ router.post('/resend', async (req, res) => {
             body_text: text,
             body_html: html,
             direction: 'inbound',
-            team_id: teamId,
             user_id: userId,
             metadata: { 
                 raw_headers: payload.headers,
@@ -151,15 +148,16 @@ router.post('/resend', async (req, res) => {
             }
         };
 
+
         logger.info('Attempting to insert message with data:', {
             thread_id: messageData.thread_id,
             message_id: messageData.message_id,
             from: messageData.from_email,
             to: messageData.to_email,
             subject: messageData.subject,
-            team_id: messageData.team_id,
             user_id: messageData.user_id
         });
+
 
         const { data: insertedData, error: dbError } = await db.supabase
             .from('messages')
@@ -173,14 +171,16 @@ router.post('/resend', async (req, res) => {
                 message: dbError.message,
                 details: dbError.details,
                 hint: dbError.hint,
-                from, to, messageId, teamId, userId
+                from, to, messageId, userId
             });
+
             // We still return 200 to Resend to acknowledge receipt
         } else {
             logger.info('✅ Inbound email stored successfully in database', {
                 insertedId: insertedData?.[0]?.id,
-                messageId, from, to, teamId, userId
+                messageId, from, to, userId
             });
+
         }
 
         res.status(200).json({ received: true });

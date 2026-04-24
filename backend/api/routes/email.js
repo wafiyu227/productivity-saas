@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.post('/daily-digest', express.json(), async (req, res) => {
   try {
-    const { userId, teamId } = req.body;
+    const { userId } = req.body;
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
@@ -37,9 +37,7 @@ router.post('/daily-digest', express.json(), async (req, res) => {
       return res.status(400).json({ error: 'User profile email is missing' });
     }
 
-    const profileTeamId = profile?.current_team_id || profile?.team_id || null;
-    const effectiveTeamId = teamId || profileTeamId;
-    const summaries = await db.getSummaries(effectiveTeamId, userId, 10);
+    const summaries = await db.getSummaries(null, userId, 10);
     const result = await emailService.sendDailyDigest(userId, profile.email, summaries || []);
 
     if (!result.success) {

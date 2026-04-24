@@ -2,20 +2,19 @@ import express from 'express';
 import { db } from '../services/supabase-client.js';
 import emailService from '../services/email-service.js';
 import logger from '../utils/logger.js';
-import { requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
 /**
  * GET /api/messages
- * List recent messages for the user's team, grouped by thread
+ * List recent messages for the user, grouped by thread
  */
 router.get('/', async (req, res) => {
     try {
-        const { userId, teamId } = req.query;
+        const { userId } = req.query;
 
-        if (!userId || !teamId) {
-            return res.status(400).json({ error: 'userId and teamId are required' });
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
         }
 
         // Verify target user is the SaaS owner
@@ -24,11 +23,11 @@ router.get('/', async (req, res) => {
             return res.status(403).json({ error: 'Only the SaaS owner can access the global inbox' });
         }
 
-        // Fetch messages for the team, ordered by creation date
+        // Fetch messages for the user, ordered by creation date
         const { data: messages, error } = await db.supabase
             .from('messages')
             .select('*')
-            .eq('team_id', teamId)
+            .eq('user_id', userId)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -64,9 +63,9 @@ router.get('/', async (req, res) => {
  */
 router.post('/reply', async (req, res) => {
     try {
-        const { userId, teamId, to, subject, html, originalMessageId, previousMessageIds } = req.body;
+        const { userId, to, subject, html, originalMessageId, previousMessageIds } = req.body;
 
-        if (!userId || !teamId || !to || !subject || !html || !originalMessageId) {
+        if (!userId || !to || !subject || !html || !originalMessageId) {
             return res.status(400).json({ error: 'Missing required parameters' });
         }
 

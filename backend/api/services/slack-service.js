@@ -74,6 +74,23 @@ class SlackService {
     };
   }
 
+  async listUsers(accessToken = null) {
+    const token = accessToken || SLACK_BOT_TOKEN;
+    if (!token) throw new Error('Slack not configured - no access token');
+
+    const client = new WebClient(token);
+    try {
+      const result = await client.users.list({ limit: 1000 });
+      return result.members.map(user => ({
+        id: user.id,
+        name: user.profile?.display_name || user.profile?.real_name || user.name
+      }));
+    } catch (error) {
+      logger.error('Error listing Slack users:', error);
+      return [];
+    }
+  }
+
   async listChannels(accessToken = null) {
     // Use provided access token or fall back to bot token
     const token = accessToken || SLACK_BOT_TOKEN;

@@ -266,12 +266,58 @@ class GoogleCalendarService {
     }
 
     /**
+     * Get real tasks from Google Tasks API
+     */
+    async getGoogleTasks(accessToken) {
+        try {
+            const response = await fetch(
+                'https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false',
+                {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                logger.error('Failed to fetch Google tasks:', error);
+                if (response.status === 401) throw new Error('Unauthorized');
+                return []; // Fail gracefully
+            }
+
+            const data = await response.json();
+            return (data.items || []).map(task => ({
+                id: task.id,
+                text: task.title,
+                notes: task.notes || '',
+                due: task.due || null,
+                status: task.status,
+                source: 'Google Tasks',
+                sourceType: 'google_tasks'
+            }));
+        } catch (error) {
+            logger.error('Error fetching Google tasks:', error);
+            return [];
+        }
+    }
+
+    /**
      * Get upcoming meetings with action items
      */
     async getMeetingsWithActionItems(accessToken, days = 7) {
         try {
-            const events = await this.getUpcomingEvents(accessToken, days);
-            const actionItems = this.extractActionItems(events);
+            const [events, tasks] = await Promise.all([
+                this.getUpcomingEvents(accessToken, days),
+                this.getGoogleTasks(accessToken)
+            ]);
+
+            const meetingTasks = this.extractActionItems(events).map(item => ({
+                ...item,
+                sourceType: 'meeting_notes'
+            }));
+
+            const actionItems = [...tasks, ...meetingTasks];
 
             return {
                 events,
@@ -282,6 +328,57 @@ class GoogleCalendarService {
 
         } catch (error) {
             logger.error('Error getting meetings with action items:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Create a calendar event
+     */
+    async createEvent(accessToken, eventData = {}) {
+        try {
+            const response = await fetch(
+                `${this.baseUrl}/calendars/primary/events`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        summary: eventData.summary || 'New event',
+                        description: eventData.description || '',
+                        start: eventData.start,
+                        end: eventData.end,
+                        attendees: Array.isArray(eventData.attendees)
+                            ? eventData.attendees
+                                .map((attendee) => typeof attendee === 'string' ? { email: attendee } : attendee)
+                                .filter((attendee) => attendee?.email)
+                            : [],
+                        location: eventData.location || undefined
+                    })
+                }
+            );
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                logger.error('Failed to create calendar event:', error);
+                if (response.status === 401) {
+                    throw new Error('Unauthorized');
+                }
+                throw new Error(error?.error?.message || 'Failed to create calendar event');
+            }
+
+            const event = await response.json();
+            return {
+                id: event.id,
+                title: event.summary || 'No Title',
+                htmlLink: event.htmlLink,
+                start: event.start?.dateTime || event.start?.date,
+                end: event.end?.dateTime || event.end?.date
+            };
+        } catch (error) {
+            logger.error('Error creating calendar event:', error);
             throw error;
         }
     }

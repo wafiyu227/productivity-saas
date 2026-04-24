@@ -1,18 +1,19 @@
+// TESTING MODE: All limits are unlimited
 const PLAN_LIMITS = {
   free: {
-    seats: 5,
-    summariesPerMonth: 50,
-    historyHours: 7 * 24
+    seats: 999999,
+    summariesPerMonth: null, // null = unlimited
+    historyHours: 365 * 24 * 999 // ~2.7 years
   },
   starter: {
-    seats: 20,
-    summariesPerMonth: 1000,
-    historyHours: 90 * 24
+    seats: 999999,
+    summariesPerMonth: null, // null = unlimited
+    historyHours: 365 * 24 * 999
   },
   growth: {
-    seats: 75,
+    seats: 999999,
     summariesPerMonth: null, // null = unlimited
-    historyHours: 365 * 24
+    historyHours: 365 * 24 * 999
   }
 };
 
@@ -28,15 +29,18 @@ export function getPlanLimits(plan) {
 }
 
 export function getSummaryLimit(plan) {
-  return getPlanLimits(plan).summariesPerMonth;
+  // Always return unlimited for testing
+  return null;
 }
 
 export function getSeatLimit(plan) {
-  return getPlanLimits(plan).seats;
+  // Always return unlimited for testing
+  return 999999;
 }
 
 export function getHistoryLimitHours(plan) {
-  return getPlanLimits(plan).historyHours;
+  // Always return unlimited for testing
+  return 365 * 24 * 999;
 }
 
 export default PLAN_LIMITS;

@@ -12,47 +12,50 @@ import contactRoutes from './routes/contact.js';
 import blockersRoutes from './routes/blockers.js';
 import asanaRoutes from './routes/asana.js';
 import jiraRoutes from './routes/jira.js';
-import trelloRoutes from './routes/trello.js';
+
 import googleCalendarRouter from './routes/google-calendar.js';
 import githubRoutes from './routes/github.js';
 import userRoutes from './routes/user.js';
-import teamsRoutes from './routes/teams.js';
-import invitationsRoutes from './routes/invitations.js';
 import emailRoutes from './routes/email.js';
 import workInsightsRoutes from './routes/work-insights.js';
+import agentRoutes from './routes/agent.js';
 import logger from './utils/logger.js';
 import waitlistRoutes from './routes/waitlist.js';
 import webhooksRoutes from './routes/webhooks.js';
 import { db } from './services/supabase-client.js';
-import { requireTeamAdmin, requireTeamMember } from './utils/team-permissions.js';
 
 const app = express();
-// Trust proxy is required for Vercel/proxied environments to get correct client IP
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
-// IMPORTANT: CORS must be FIRST, before any other middleware
-app.use(cors({
-  origin: true, // Allow all origins in production
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200
-}));
 
-// Handle preflight
-app.options('*', cors());
-
+// Helmet must be early too
 app.use(helmet({
   contentSecurityPolicy: false,
-  crossOriginResourcePolicy: false
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: false
 }));
+
+
+// Secondary CORS middleware for extra safety
+const corsOptions = {
+  origin: true,  // Allow any origin
+  credentials: false,  // Don't send credentials header with wildcard origin
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  optionsSuccessStatus: 200,
+  maxAge: 86400
+};
+app.use(cors(corsOptions));
+
+// Preflight handling
+app.options('*', cors(corsOptions));
 
 app.use(compression());
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 1000,
   // Skip rate limiting for webhooks
   skip: (req) => req.originalUrl.startsWith('/webhooks')
 });
@@ -90,13 +93,12 @@ app.get('/', (req, res) => {
       blockers: '/api/blockers',
       asana: '/api/asana',
       jira: '/api/jira',
-      trello: '/api/trello',
+
       summaries: '/api/summaries',
+      agent: '/api/agent',
       workInsights: '/api/work-insights',
       googleCalendar: '/api/google-calendar',
       user: '/api/user',
-      teams: '/api/teams',
-      invitations: '/api/invitations',
       email: '/api/email',
       paddle: '/api/paddle',
       webhooks: '/webhooks',
@@ -108,7 +110,6 @@ app.get('/', (req, res) => {
 // Import Paddle Routes
 import paddleRoutes from './routes/paddle.js';
 
-import messagesRoutes from './routes/messages.js';
 import debugInsertRoutes from './routes/debug-insert.js';
 
 // API Routes
@@ -117,15 +118,13 @@ app.use('/api/auth', authRoutes);
 app.use('/api/blockers', blockersRoutes);
 app.use('/api/asana', asanaRoutes);
 app.use('/api/jira', jiraRoutes);
-app.use('/api/trello', trelloRoutes);
+
 app.use('/api/google-calendar', googleCalendarRouter);
 app.use('/api/github', githubRoutes);
 app.use('/api/user', userRoutes);
-app.use('/api/teams', teamsRoutes);
-app.use('/api/invitations', invitationsRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/work-insights', workInsightsRoutes);
-app.use('/api/messages', messagesRoutes);
+app.use('/api/agent', agentRoutes);
 app.use('/api/debug-insert', debugInsertRoutes);
 app.use('/api/waitlist', waitlistRoutes);
 app.use('/api/paddle', paddleRoutes);
@@ -135,7 +134,7 @@ app.use('/api/contact', contactRoutes);
 // Summaries endpoint
 app.get('/api/summaries', async (req, res) => {
   try {
-    const { limit: requestedLimitStr, userId, teamId } = req.query;
+    const { limit: requestedLimitStr, userId } = req.query;
     const requestedLimit = parseInt(requestedLimitStr, 10);
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
       ? Math.min(requestedLimit, 500)
@@ -145,19 +144,10 @@ app.get('/api/summaries', async (req, res) => {
       return res.status(400).json({ error: 'userId required' });
     }
 
-    if (teamId) {
-      await requireTeamMember(teamId, userId);
-      const teamSummaries = await db.getSummaries(teamId, null, limit);
-      return res.json(teamSummaries || []);
-    }
-
-    // Personal fallback for legacy users without team context.
-    const integration = await db.getIntegration(userId, 'slack', null);
-    if (!integration) return res.json([]);
-
-    const summaries = await db.getSummaries(integration?.team_id, userId, limit);
+    const summaries = await db.getSummaries(userId, limit);
 
     res.json(summaries || []);
+
   } catch (error) {
     logger.error('Failed to fetch summaries:', error);
     res.status(error.status || 500).json({ error: error.message });
@@ -167,7 +157,7 @@ app.get('/api/summaries', async (req, res) => {
 app.delete('/api/summaries/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query; // Or req.body if moving to POST/PUT style, but DELETE usually uses query params or headers
+    const { userId } = req.query;
 
     if (!id || !userId) {
       return res.status(400).json({ error: 'id and userId required' });
@@ -175,7 +165,7 @@ app.delete('/api/summaries/:id', async (req, res) => {
 
     const { data: summary, error: summaryError } = await db.supabase
       .from('slack_summaries')
-      .select('id, user_id, team_id')
+      .select('id, user_id')
       .eq('id', id)
       .single();
 
@@ -183,9 +173,7 @@ app.delete('/api/summaries/:id', async (req, res) => {
       return res.status(404).json({ error: 'Summary not found' });
     }
 
-    if (summary.team_id) {
-      await requireTeamAdmin(summary.team_id, userId);
-    } else if (summary.user_id !== userId) {
+    if (summary.user_id !== userId) {
       return res.status(403).json({ error: 'Not authorized to delete this summary' });
     }
 
@@ -215,12 +203,19 @@ app.use((req, res) => {
 
 // Error handler - MUST return JSON
 app.use((err, req, res, next) => {
-  logger.error('Server error:', err);
+  logger.error('Unhandled server error:', {
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method
+  });
+  
   res.status(500).json({
-    error: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    error: err.message || 'Internal Server Error',
+    path: req.path
   });
 });
+
 
 // For local development only
 if (process.env.NODE_ENV !== 'production') {

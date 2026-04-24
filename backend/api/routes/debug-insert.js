@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
         // Get the owner profile
         const { data: profile } = await db.supabase
             .from('profiles')
-            .select('id, current_team_id, email')
+            .select('id, email')
             .eq('email', 'ibrahimwafiyudeen@gmail.com')
             .maybeSingle();
 
@@ -25,7 +25,6 @@ router.get('/', async (req, res) => {
             return res.json({ error: 'Profile not found' });
         }
 
-        const teamId = profile.current_team_id;
         const userId = profile.id;
 
         // Test data
@@ -38,7 +37,6 @@ router.get('/', async (req, res) => {
             body_text: 'This is a test message',
             body_html: '<p>This is a test message</p>',
             direction: 'inbound',
-            team_id: teamId,
             user_id: userId,
             metadata: { 
                 test: true,
@@ -76,9 +74,9 @@ router.get('/', async (req, res) => {
         res.json({
             success: true,
             data: insertedData,
-            teamId,
             userId
         });
+
 
     } catch (error) {
         logger.error('Uncaught error:', error);

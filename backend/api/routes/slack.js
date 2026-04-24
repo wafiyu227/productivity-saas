@@ -2,21 +2,22 @@ import express from 'express';
 import { WebClient } from '@slack/web-api';
 import { db } from '../services/supabase-client.js';
 import aiProcessor from '../services/ai-processor.js';
+import { createSlackAgentStream } from '../services/agent-chat.js';
+import slackService from '../services/slack-service.js';
 import logger from '../utils/logger.js';
-import { getSummaryLimit, getHistoryLimitHours } from '../utils/plan-limits.js';
 
 const router = express.Router();
 
 // Get configured channels
 router.get('/channels', async (req, res) => {
   try {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
 
     if (!userId) {
       return res.status(400).json({ error: 'userId required' });
     }
 
-    const integration = await db.getIntegration(userId, 'slack', teamId);
+    const integration = await db.getIntegration(userId, 'slack');
 
     if (!integration) {
       return res.status(401).json({ error: 'Slack not connected' });
@@ -52,39 +53,20 @@ router.get('/channels', async (req, res) => {
 // Create new summary
 router.post('/summarize', express.json(), async (req, res) => {
   try {
-    const { channelId, hours = 24, userId, teamId } = req.body;
+    const { channelId, hours = 24, userId } = req.body;
 
     if (!userId || !channelId) {
       return res.status(400).json({ error: 'userId and channelId required' });
     }
 
-    const integration = await db.getIntegration(userId, 'slack', teamId);
+    const integration = await db.getIntegration(userId, 'slack');
 
     if (!integration) {
       return res.status(401).json({ error: 'Slack not connected' });
     }
 
-    const currentTeamId = integration.team_id;
-
-    // --- BILLING LIMITS CHECK ---
-    const billingInfo = await db.getTeamBillingInfo(currentTeamId);
-    const plan = billingInfo?.plan || 'free';
-
-    const monthYear = new Date().toISOString().slice(0, 7); // e.g., '2026-02'
-    const usageCount = await db.getTeamSummaryUsage(currentTeamId, monthYear);
-
-    const summaryLimit = getSummaryLimit(plan);
-
-    if (summaryLimit !== null && usageCount >= summaryLimit) {
-      return res.status(403).json({
-        error: `Monthly summary limit reached (${summaryLimit}) for ${plan} plan.`,
-        code: 'PLAN_LIMIT_REACHED',
-        currentPlan: plan
-      });
-    }
-
-    const maxHistory = getHistoryLimitHours(plan);
-    const requestedHours = Math.min(hours, maxHistory); // Cap to plan limit
+    // Use requested hours as-is (no plan limits for individual users)
+    const requestedHours = Math.max(1, Math.min(hours, 168)); // Limit to 1 week max for API efficiency
 
     const client = new WebClient(integration.access_token);
 
@@ -92,7 +74,7 @@ router.post('/summarize', express.json(), async (req, res) => {
     const channelInfo = await client.conversations.info({ channel: channelId });
     const channelName = channelInfo.channel?.name || 'unknown-channel';
 
-    // Calculate time range using capped hours
+    // Calculate time range using requested hours
     const oldest = (Date.now() - (requestedHours * 60 * 60 * 1000)) / 1000;
 
     // Fetch messages
@@ -106,11 +88,27 @@ router.post('/summarize', express.json(), async (req, res) => {
       throw new Error(history.error || 'Failed to fetch messages');
     }
 
-    const messages = history.messages.reverse().map(m => ({
-      text: m.text,
-      user: m.user,
-      ts: m.ts
-    }));
+    // Fetch users for name resolution
+    const users = await slackService.listUsers(integration.access_token).catch(() => []);
+    const userMap = new Map(users.map(u => [u.id, u.name]));
+
+    const messages = history.messages.reverse().map(m => {
+      let text = String(m.text || '').trim();
+      
+      // Resolve user mentions in text: <@U12345> -> @Name
+      text = text.replace(/<@(U[A-Z0-9]+)>/g, (match, userId) => {
+        const name = userMap.get(userId);
+        return name ? `@${name}` : match;
+      });
+
+      const authorName = userMap.get(m.user) || 'unknown user';
+
+      return {
+        text,
+        user: authorName,
+        ts: m.ts
+      };
+    });
 
     if (messages.length === 0) {
       return res.json({
@@ -125,15 +123,11 @@ router.post('/summarize', express.json(), async (req, res) => {
     // Generate AI summary
     const aiAnalysis = await aiProcessor.summarizeSlackMessages(messages, channelName);
 
-    // Increment usage since successful
-    await db.incrementSummaryUsage(currentTeamId, monthYear);
-
     // Save to DB
     const savedSummary = await db.saveSlackSummary({
       user_id: userId,
       channel_id: channelId,
       channel_name: channelName,
-      team_id: integration.team_id,
       summary: aiAnalysis.summary,
       blockers: aiAnalysis.blockers,
       key_topics: aiAnalysis.keyTopics,
@@ -156,6 +150,37 @@ router.post('/summarize', express.json(), async (req, res) => {
 
   } catch (error) {
     logger.error('Summary generation failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Chat with the agent
+router.post('/chat', express.json(), async (req, res) => {
+  try {
+    const { messages, userId } = req.body;
+
+    console.log('Chat request received:', { userId, messageCount: messages?.length });
+
+    if (!userId || !messages) {
+      return res.status(400).json({ error: 'userId and messages are required' });
+    }
+
+    if (!Array.isArray(messages)) {
+      console.error('Messages is not an array:', typeof messages);
+      return res.status(400).json({ error: 'messages must be an array' });
+    }
+
+    const integration = await db.getIntegration(userId, 'slack');
+    if (!integration || !integration.access_token) {
+      return res.status(401).json({ error: 'Slack not connected' });
+    }
+
+    console.log('Creating agent stream with', messages.length, 'messages');
+    const result = await createSlackAgentStream(messages, integration.access_token);
+    return result.pipeDataStreamToResponse(res);
+  } catch (error) {
+    logger.error('Agent chat failed:', error);
+    console.error('Full error details:', error.stack || error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -5,6 +5,7 @@ import express from 'express';
 import { db } from '../services/supabase-client.js';
 import emailService from '../services/email-service.js';
 import logger from '../utils/logger.js';
+import { validateEmail, getBlockedEmailReason } from '../../utils/email-validator.js';
 
 const router = express.Router();
 
@@ -18,6 +19,16 @@ router.post('/join', async (req, res) => {
     }
 
     const cleanEmail = email.toLowerCase().trim();
+
+    // Validate email - block test/probe/temporary emails
+    const validation = validateEmail(cleanEmail);
+    if (!validation.valid) {
+      logger.warn('Blocked signup attempt - invalid/test email', { 
+        email: cleanEmail, 
+        reason: validation.error 
+      });
+      return res.status(400).json({ error: validation.error });
+    }
 
     // Check if already on waitlist
     const { data: existing } = await db.supabase

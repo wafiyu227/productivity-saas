@@ -2,8 +2,8 @@ import express from 'express';
 import { WebClient } from '@slack/web-api';
 import { db } from '../services/supabase-client.js';
 import googleCalendarService from '../services/google-calendar-service.js';
+import { buildIntegrationCapabilitySummary, getSlackRequestedScopes, parseScopeList } from '../services/integration-capabilities.js';
 import logger from '../utils/logger.js';
-import { requireTeamAdmin, requireTeamMember } from '../utils/team-permissions.js';
 
 const router = express.Router();
 
@@ -23,16 +23,9 @@ const JIRA_SCOPES = (process.env.JIRA_SCOPES || 'read:jira-user read:jira-work w
     .filter(Boolean)
     .join(' ');
 
-// Trello OAuth routes
-const TRELLO_API_KEY = process.env.TRELLO_API_KEY;
-const TRELLO_APP_NAME = process.env.TRELLO_APP_NAME || 'Teama AI';
-const TRELLO_SCOPES = (process.env.TRELLO_SCOPES || 'read,write')
-    .split(/[,\s]+/)
-    .filter(Boolean)
-    .join(',');
-const TRELLO_EXPIRATION = process.env.TRELLO_TOKEN_EXPIRATION || '30days';
 
-const PROJECT_MANAGEMENT_PLATFORMS = ['jira', 'asana', 'trello'];
+
+const PROJECT_MANAGEMENT_PLATFORMS = ['jira', 'asana'];
 
 // Google Calendar OAuth routes
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -151,11 +144,10 @@ function buildGoogleTokenUpdate(integration, newTokens) {
         expiresAt,
         workspaceId: integration.workspace_id,
         workspaceName: integration.workspace_name,
-        teamIdExternal: integration.team_id_external,
-        teamName: integration.team_name,
-        teamId: integration.team_id
     };
 }
+
+
 
 /**
  * Check if token is near expiration
@@ -172,14 +164,11 @@ function isTokenNearExpiration(expiresAt) {
     return currentTime + bufferMs > expirationTime;
 }
 
-async function validateGoogleStatus(userId, teamId, integration) {
+async function validateGoogleStatus(userId, integration) {
     if (!integration) {
         return { integration: null, needsReauth: false };
     }
 
-    const deleteTeamId = integration.scope === 'team'
-        ? (integration.team_id || teamId || null)
-        : null;
 
     // Proactively refresh if token is near expiration
     if (isTokenNearExpiration(integration.expires_at) && integration.refresh_token) {
@@ -188,7 +177,7 @@ async function validateGoogleStatus(userId, teamId, integration) {
             const newTokens = await googleCalendarService.refreshAccessToken(integration.refresh_token);
             await db.saveIntegration(
                 userId,
-                'google_calendar',
+                'google_workspace',
                 buildGoogleTokenUpdate(integration, newTokens),
                 integration.scope || 'team'
             );
@@ -197,8 +186,8 @@ async function validateGoogleStatus(userId, teamId, integration) {
         } catch (refreshError) {
             const isInvalidGrant = refreshError?.code === 'invalid_grant';
             if (isInvalidGrant) {
-                logger.warn('Refresh token invalid, disconnecting', { userId, teamId });
-                await db.deleteIntegration(userId, 'google_calendar', deleteTeamId);
+                logger.warn('Refresh token invalid, disconnecting', { userId });
+                await db.deleteIntegration(userId, 'google_workspace');
                 return { integration: null, needsReauth: true };
             }
 
@@ -218,7 +207,6 @@ async function validateGoogleStatus(userId, teamId, integration) {
         if (error.message !== 'Unauthorized' && error.status !== 401) {
             logger.warn('Google status verification failed (non-auth error)', {
                 userId,
-                teamId,
                 error: error.message
             });
             return { integration, needsReauth: false };
@@ -226,7 +214,7 @@ async function validateGoogleStatus(userId, teamId, integration) {
     }
 
     if (!integration.refresh_token) {
-        await db.deleteIntegration(userId, 'google_calendar', deleteTeamId);
+        await db.deleteIntegration(userId, 'google_workspace');
         return { integration: null, needsReauth: true };
     }
 
@@ -234,22 +222,20 @@ async function validateGoogleStatus(userId, teamId, integration) {
         const newTokens = await googleCalendarService.refreshAccessToken(integration.refresh_token);
         await db.saveIntegration(
             userId,
-            'google_calendar',
-            buildGoogleTokenUpdate(integration, newTokens),
-            integration.scope || 'team'
+            'google_workspace',
+            buildGoogleTokenUpdate(integration, newTokens)
         );
 
         return { integration, needsReauth: false };
     } catch (refreshError) {
         const isInvalidGrant = refreshError?.code === 'invalid_grant';
         if (isInvalidGrant) {
-            await db.deleteIntegration(userId, 'google_calendar', deleteTeamId);
+            await db.deleteIntegration(userId, 'google_workspace');
             return { integration: null, needsReauth: true };
         }
 
         logger.warn('Google token refresh failed during status check', {
             userId,
-            teamId,
             error: refreshError.message
         });
 
@@ -257,70 +243,27 @@ async function validateGoogleStatus(userId, teamId, integration) {
     }
 }
 
-async function ensureTeamAdminForScope(userId, teamId, scope = 'team') {
-    if (scope !== 'team') return;
-    if (!teamId) {
-        const error = new Error('teamId required for team-scoped integration');
-        error.status = 400;
-        throw error;
-    }
-    await requireTeamAdmin(teamId, userId);
-}
 
-async function ensureTeamMemberForTeamQuery(userId, teamId) {
-    if (!teamId) return;
-    await requireTeamMember(teamId, userId);
-}
 
-async function ensureSingleProjectPlatform(userId, teamId, platformToConnect) {
-    const conflictingPlatforms = [];
 
-    for (const platform of PROJECT_MANAGEMENT_PLATFORMS) {
-        if (platform === platformToConnect) continue;
-
-        const integration = await db.getIntegration(userId, platform, teamId);
-        if (integration) {
-            conflictingPlatforms.push(platform);
-        }
-    }
-
-    if (conflictingPlatforms.length === 0) return;
-
-    const error = new Error(
-        `Only one project management platform can be connected at once. Disconnect ${conflictingPlatforms.join(', ')} before connecting ${platformToConnect}.`
-    );
-    error.status = 409;
-    throw error;
-}
 
 // Initiate OAuth flow
 router.get('/slack/connect', async (req, res) => {
-    const { userId, teamId, scope = 'team' } = req.query;
+    const { userId } = req.query;
+
     const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
-    try {
-        await ensureTeamAdminForScope(userId, teamId, scope);
-    } catch (error) {
-        return res.status(error.status || 403).json({ error: error.message });
-    }
+    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
 
-    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
 
-    const scopes = [
-        'channels:history',
-        'channels:read',
-        'chat:write',
-        'groups:history',
-        'groups:read',
-        'users:read'
-    ].join(',');
+    const userScopes = getSlackRequestedScopes().join(',');
     const slackRedirectUri = resolveSlackRedirectUri(req);
 
-    const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${SLACK_CLIENT_ID}&scope=${scopes}&redirect_uri=${encodeURIComponent(slackRedirectUri)}&state=${state}`;
+    const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${SLACK_CLIENT_ID}&user_scope=${userScopes}&redirect_uri=${encodeURIComponent(slackRedirectUri)}&state=${state}`;
 
     res.redirect(authUrl);
 });
@@ -345,8 +288,8 @@ router.get('/slack/oauth/callback', async (req, res) => {
             return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
         }
 
-        const { userId, teamId, scope: requestedScope } = statePayload;
-        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
+        const { userId } = statePayload;
+
         const slackRedirectUri = resolveSlackRedirectUri(req);
 
         // Exchange code for access token
@@ -365,22 +308,27 @@ router.get('/slack/oauth/callback', async (req, res) => {
 
         const tokenData = await tokenResponse.json();
 
+
         if (!tokenData.ok) {
             logger.error('Slack token exchange failed:', tokenData);
             throw new Error(tokenData.error || 'Failed to exchange code for token');
         }
 
-        // Save integration
-        await db.saveIntegration(userId, 'slack', {
-            accessToken: tokenData.access_token,
-            teamIdExternal: tokenData.team?.id,
-            teamName: tokenData.team?.name,
-            teamId, // Our internal teamId
-            botUserId: tokenData.bot_user_id,
-            scope: tokenData.scope
-        }, requestedScope || 'team');
+        const userToken = tokenData.authed_user?.access_token;
+        const botToken = tokenData.access_token;
+        const finalAccessToken = userToken || botToken;
 
-        logger.info('Slack integration saved', { userId, teamId });
+        await db.saveIntegration(userId, 'slack', {
+            accessToken: finalAccessToken,
+            botUserId: tokenData.bot_user_id || tokenData.authed_user?.id,
+            scope: tokenData.authed_user?.scope || tokenData.scope,
+            grantedScopes: parseScopeList(tokenData.authed_user?.scope || tokenData.scope),
+            workspaceId: tokenData.team?.id,
+            workspaceName: tokenData.team?.name
+        });
+
+        logger.info('Slack integration saved', { userId });
+
 
         // Redirect back
         res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'slack_connected' }));
@@ -392,15 +340,16 @@ router.get('/slack/oauth/callback', async (req, res) => {
 });
 
 router.get('/slack/status', async (req, res) => {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamMemberForTeamQuery(userId, teamId);
-        const integration = await db.getIntegration(userId, 'slack', teamId);
+        const integration = await db.getIntegration(userId, 'slack');
+
 
         res.json({
             connected: !!integration,
@@ -413,29 +362,43 @@ router.get('/slack/status', async (req, res) => {
 });
 
 router.get('/status', async (req, res) => {
-    const { userId, platform, teamId } = req.query;
+    const { userId, platform } = req.query;
+
 
     if (!userId || !platform) {
         return res.status(400).json({ error: 'userId and platform required' });
     }
 
     try {
-        await ensureTeamMemberForTeamQuery(userId, teamId);
-        const dbPlatform = platform === 'google' || platform === 'google/calendar' ? 'google_calendar' : platform;
-        let integration = await db.getIntegration(userId, dbPlatform, teamId);
+        const dbPlatform = platform === 'google' || platform === 'google_workspace' ? 'google_workspace' : platform;
+        let integration = await db.getIntegration(userId, dbPlatform);
         let needsReauth = false;
 
-        if (dbPlatform === 'google_calendar' && integration) {
-            const validation = await validateGoogleStatus(userId, teamId, integration);
+        if (dbPlatform === 'google_workspace' && integration) {
+            const validation = await validateGoogleStatus(userId, integration);
             integration = validation.integration;
             needsReauth = validation.needsReauth;
         }
+
+
+        const capabilitySummary = buildIntegrationCapabilitySummary(dbPlatform, integration);
 
         res.json({
             connected: !!integration,
             platform: platform,
             workspace: integration?.workspace_name || integration?.team_name || null,
-            needsReauth
+            team: integration?.team_name || null,
+            workspaceId: integration?.workspace_id || integration?.team_id || null,
+            createdAt: integration?.created_at || null,
+            updatedAt: integration?.updated_at || null,
+            needsReauth,
+            grantedScopes: capabilitySummary?.grantedScopes || [],
+            grantedScopeCount: capabilitySummary?.grantedScopeCount || 0,
+            capabilities: capabilitySummary?.capabilities || [],
+            agentActions: capabilitySummary?.agentActions || [],
+            additionalScopes: capabilitySummary?.additionalScopes || [],
+            scopeSource: capabilitySummary?.scopeSource || null,
+            metadata: integration?.metadata || {}
         });
     } catch (error) {
         logger.error(`Status check error for ${platform}:`, error);
@@ -445,15 +408,16 @@ router.get('/status', async (req, res) => {
 
 // Disconnect Slack
 router.delete('/slack/disconnect', async (req, res) => {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
-        await db.deleteIntegration(userId, 'slack', teamId);
+        await db.deleteIntegration(userId, 'slack');
+
         res.json({ success: true });
     } catch (error) {
         logger.error('Disconnect error:', error);
@@ -529,27 +493,18 @@ router.post('/settings', async (req, res) => {
 
 // Initiate Asana OAuth
 router.get('/asana/connect', async (req, res) => {
-    const { userId, teamId, scope = 'team' } = req.query;
+    const { userId } = req.query;
+
     const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
-    try {
-        await ensureTeamAdminForScope(userId, teamId, scope);
-        await ensureSingleProjectPlatform(userId, teamId, 'asana');
-    } catch (error) {
-        if (error.status === 409) {
-            return res.redirect(buildFrontendRedirectUrl(returnTo, {
-                error: 'oauth_failed',
-                message: error.message
-            }));
-        }
-        return res.status(error.status || 403).json({ error: error.message });
-    }
 
-    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
+
+    const state = encodeOAuthState({ userId, returnTo });
+
     const asanaRedirectUri = resolveAsanaRedirectUri(req);
 
     const authUrl = `https://app.asana.com/-/oauth_authorize?client_id=${ASANA_CLIENT_ID}&redirect_uri=${encodeURIComponent(asanaRedirectUri)}&response_type=code&state=${state}`;
@@ -578,7 +533,6 @@ router.get('/asana/oauth/callback', async (req, res) => {
         }
 
         const { userId, teamId, scope: requestedScope } = statePayload;
-        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
         const asanaRedirectUri = resolveAsanaRedirectUri(req);
 
         // Exchange code for access token
@@ -612,16 +566,17 @@ router.get('/asana/oauth/callback', async (req, res) => {
         const workspacesData = await workspacesResponse.json();
         const workspace = workspacesData.data?.[0];
 
-        // Save integration
         await db.saveIntegration(userId, 'asana', {
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token,
+            scope: tokenData.scope,
+            grantedScopes: parseScopeList(tokenData.scope),
             workspaceId: workspace?.gid,
             workspaceName: workspace?.name,
-            teamId // Our internal teamId
-        }, requestedScope || 'team');
+        });
 
-        logger.info('Asana integration saved', { userId, teamId });
+        logger.info('Asana integration saved', { userId });
+
 
         res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'asana_connected' }));
 
@@ -633,15 +588,16 @@ router.get('/asana/oauth/callback', async (req, res) => {
 
 // Check Asana status
 router.get('/asana/status', async (req, res) => {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamMemberForTeamQuery(userId, teamId);
-        const integration = await db.getIntegration(userId, 'asana', teamId);
+        const integration = await db.getIntegration(userId, 'asana');
+
 
         res.json({
             connected: !!integration,
@@ -655,15 +611,16 @@ router.get('/asana/status', async (req, res) => {
 
 // Disconnect Asana
 router.delete('/asana/disconnect', async (req, res) => {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
-        await db.deleteIntegration(userId, 'asana', teamId);
+        await db.deleteIntegration(userId, 'asana');
+
         res.json({ success: true });
     } catch (error) {
         logger.error('Asana disconnect error:', error);
@@ -676,7 +633,8 @@ router.delete('/asana/disconnect', async (req, res) => {
 // ============================================
 
 router.get('/jira/connect', async (req, res) => {
-    const { userId, teamId, scope = 'team' } = req.query;
+    const { userId } = req.query;
+
     const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
@@ -693,21 +651,11 @@ router.get('/jira/connect', async (req, res) => {
         }));
     }
 
-    try {
-        await ensureTeamAdminForScope(userId, teamId, scope);
-        await ensureSingleProjectPlatform(userId, teamId, 'jira');
-    } catch (error) {
-        if (error.status === 409) {
-            return res.redirect(buildFrontendRedirectUrl(returnTo, {
-                error: 'oauth_failed',
-                message: error.message
-            }));
-        }
-        return res.status(error.status || 403).json({ error: error.message });
-    }
+
 
     const jiraScopes = (process.env.JIRA_SCOPES || JIRA_SCOPES || 'read:jira-user read:jira-work write:jira-work offline_access').split(/[,\s]+/).filter(Boolean).join(' ');
-    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
+    const state = encodeOAuthState({ userId, returnTo });
+
     const jiraRedirectUri = resolveJiraRedirectUri(req);
 
     const authUrl = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${jiraClientId}&scope=${encodeURIComponent(jiraScopes)}&redirect_uri=${encodeURIComponent(jiraRedirectUri)}&state=${encodeURIComponent(state)}&response_type=code&prompt=consent`;
@@ -736,7 +684,6 @@ router.get('/jira/oauth/callback', async (req, res) => {
         }
 
         const { userId, teamId, scope: requestedScope } = statePayload;
-        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
 
         const tokenResponse = await fetch('https://auth.atlassian.com/oauth/token', {
             method: 'POST',
@@ -784,12 +731,14 @@ router.get('/jira/oauth/callback', async (req, res) => {
             expiresAt: Number.isFinite(tokenData.expires_in)
                 ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
                 : null,
+            scope: tokenData.scope,
+            grantedScopes: parseScopeList(tokenData.scope),
             workspaceId: workspace?.id || null,
             workspaceName: workspace?.name || workspace?.url || 'Jira',
-            teamId
-        }, requestedScope || 'team');
+        });
 
-        logger.info('Jira integration saved', { userId, teamId });
+        logger.info('Jira integration saved', { userId });
+
         res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'jira_connected' }));
     } catch (callbackError) {
         logger.error('Jira OAuth callback error:', callbackError);
@@ -801,15 +750,16 @@ router.get('/jira/oauth/callback', async (req, res) => {
 });
 
 router.delete('/jira/disconnect', async (req, res) => {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
-        await db.deleteIntegration(userId, 'jira', teamId);
+        await db.deleteIntegration(userId, 'jira');
+
         res.json({ success: true });
     } catch (error) {
         logger.error('Jira disconnect error:', error);
@@ -817,151 +767,70 @@ router.delete('/jira/disconnect', async (req, res) => {
     }
 });
 
+
+
 // ============================================
-// TRELLO OAUTH ROUTES
+// GOOGLE WORKSPACE OAUTH ROUTES
 // ============================================
 
-router.get('/trello/connect', async (req, res) => {
-    const { userId, teamId, scope = 'team' } = req.query;
-    const returnTo = resolveFrontendReturnPath(req);
+// Map each virtual tool to its Google OAuth scope(s)
+const GOOGLE_TOOL_SCOPES = {
+    google_drive: ['https://www.googleapis.com/auth/drive'],
+    google_docs: ['https://www.googleapis.com/auth/documents'],
+    google_sheets: ['https://www.googleapis.com/auth/spreadsheets'],
+    google_slides: ['https://www.googleapis.com/auth/presentations'],
+    google_calendar: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/calendar.events'],
+    google_tasks: ['https://www.googleapis.com/auth/tasks'],
+    gmail: ['https://mail.google.com/']
+};
 
-    if (!userId) {
-        return res.status(400).json({ error: 'userId required' });
-    }
-    const trelloApiKey = process.env.TRELLO_API_KEY || TRELLO_API_KEY;
-    if (!trelloApiKey) {
-        logger.error('Trello OAuth not configured', { hasApiKey: !!trelloApiKey });
-        const message = 'Trello OAuth is not configured on the server.';
-        return res.redirect(buildFrontendRedirectUrl(returnTo, {
-            error: 'oauth_failed',
-            message
-        }));
-    }
+const GOOGLE_BASE_SCOPES = [
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile'
+];
 
-    try {
-        await ensureTeamAdminForScope(userId, teamId, scope);
-        await ensureSingleProjectPlatform(userId, teamId, 'trello');
-    } catch (error) {
-        if (error.status === 409) {
-            return res.redirect(buildFrontendRedirectUrl(returnTo, {
-                error: 'oauth_failed',
-                message: error.message
-            }));
+const ALL_GOOGLE_VIRTUAL_TOOLS = Object.keys(GOOGLE_TOOL_SCOPES);
+
+/**
+ * Build the Google OAuth scope string, excluding scopes for disabled tools.
+ * @param {string[]} disabledTools - Array of virtual tool keys to exclude
+ * @returns {string} Space-separated scope string
+ */
+function buildGoogleScopesForTools(disabledTools = []) {
+    const disabledSet = new Set(disabledTools);
+    const scopes = [...GOOGLE_BASE_SCOPES];
+
+    for (const [tool, toolScopes] of Object.entries(GOOGLE_TOOL_SCOPES)) {
+        if (!disabledSet.has(tool)) {
+            scopes.push(...toolScopes);
         }
-        return res.status(error.status || 403).json({ error: error.message });
     }
 
-    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
-    const returnUrl = buildFrontendRedirectUrl(returnTo, {
-        trello_oauth: '1',
-        state
-    });
+    return scopes.join(' ');
+}
 
-    const trelloAppName = process.env.TRELLO_APP_NAME || TRELLO_APP_NAME || 'Teama AI';
-    const trelloScopes = (process.env.TRELLO_SCOPES || TRELLO_SCOPES || 'read,write').split(/[,\s]+/).filter(Boolean).join(',');
-    const trelloExpiration = process.env.TRELLO_TOKEN_EXPIRATION || TRELLO_EXPIRATION || '30days';
-    const authUrl = `https://trello.com/1/authorize?expiration=${encodeURIComponent(trelloExpiration)}&name=${encodeURIComponent(trelloAppName)}&scope=${encodeURIComponent(trelloScopes)}&response_type=token&callback_method=fragment&key=${encodeURIComponent(trelloApiKey)}&return_url=${encodeURIComponent(returnUrl)}`;
+// Initiate Google Workspace OAuth
+// Accepts optional `disabledTools` query param (comma-separated) to exclude scopes for specific tools
+router.get('/google_workspace/connect', async (req, res) => {
+    const { userId } = req.query;
 
-    res.redirect(authUrl);
-});
-
-router.post('/trello/token', async (req, res) => {
-    const { token, state } = req.body || {};
-
-    if (!token || !state) {
-        return res.status(400).json({ error: 'token and state are required' });
-    }
-    const trelloKey = process.env.TRELLO_API_KEY || TRELLO_API_KEY;
-    if (!trelloKey) {
-        return res.status(500).json({ error: 'Trello API key is not configured' });
-    }
-
-    try {
-        const decodedState = decodeOAuthState(state);
-        if (!decodedState?.userId) {
-            return res.status(400).json({ error: 'Invalid state payload' });
-        }
-
-        const { userId, teamId, scope: requestedScope } = decodedState;
-        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
-        await ensureSingleProjectPlatform(userId, teamId, 'trello');
-
-        const memberUrl = new URL('https://api.trello.com/1/members/me');
-        memberUrl.searchParams.append('key', trelloKey);
-        memberUrl.searchParams.append('token', token);
-
-        const memberResponse = await fetch(memberUrl.toString());
-        if (!memberResponse.ok) {
-            const errorText = await memberResponse.text();
-            logger.error('Trello member fetch failed:', errorText);
-            throw new Error('Failed to validate Trello token');
-        }
-
-        const member = await memberResponse.json();
-
-        await db.saveIntegration(userId, 'trello', {
-            accessToken: token,
-            workspaceId: member?.id || null,
-            workspaceName: member?.fullName || member?.username || 'Trello',
-            teamId
-        }, requestedScope || 'team');
-
-        logger.info('Trello integration saved', { userId, teamId });
-        res.json({
-            success: true,
-            workspace: member?.fullName || member?.username || 'Trello'
-        });
-    } catch (error) {
-        logger.error('Trello token save error:', error);
-        res.status(error.status || 500).json({ error: error.message });
-    }
-});
-
-router.delete('/trello/disconnect', async (req, res) => {
-    const { userId, teamId } = req.query;
-
-    if (!userId) {
-        return res.status(400).json({ error: 'userId required' });
-    }
-
-    try {
-        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
-        await db.deleteIntegration(userId, 'trello', teamId);
-        res.json({ success: true });
-    } catch (error) {
-        logger.error('Trello disconnect error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// ============================================
-// GOOGLE CALENDAR OAUTH ROUTES
-// ============================================
-
-// ✅ ADDED: Initiate Google OAuth (THIS WAS MISSING!)
-router.get('/google/connect', async (req, res) => {
-    const { userId, teamId, scope = 'team' } = req.query;
     const returnTo = resolveFrontendReturnPath(req);
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
-    try {
-        await ensureTeamAdminForScope(userId, teamId, scope);
-    } catch (error) {
-        return res.status(error.status || 403).json({ error: error.message });
-    }
+    // Parse disabled tools from query param (comma-separated)
+    const disabledToolsParam = typeof req.query.disabledTools === 'string' ? req.query.disabledTools : '';
+    const disabledTools = disabledToolsParam
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => ALL_GOOGLE_VIRTUAL_TOOLS.includes(t));
 
-    const state = encodeOAuthState({ userId, teamId, scope, returnTo });
+    const state = encodeOAuthState({ userId, returnTo, disabledTools });
 
-    // Scopes for Google Calendar and User Info
-    const scopes = [
-        'https://www.googleapis.com/auth/calendar.readonly',
-        'https://www.googleapis.com/auth/calendar.events.readonly',
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile'
-    ].join(' ');
+    // Build scopes excluding disabled tools
+    const scopes = buildGoogleScopesForTools(disabledTools);
 
     const googleRedirectUri = resolveGoogleRedirectUri(req);
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(googleRedirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
@@ -969,7 +838,7 @@ router.get('/google/connect', async (req, res) => {
     res.redirect(authUrl);
 });
 
-// Google OAuth callback
+// Google OAuth callback (Keeping /google/oauth/callback to avoid breaking Google Console redirect URIs)
 router.get('/google/oauth/callback', async (req, res) => {
     const { code, state, error } = req.query;
     const statePayload = decodeOAuthState(state);
@@ -990,8 +859,7 @@ router.get('/google/oauth/callback', async (req, res) => {
             return res.redirect(buildFrontendRedirectUrl(returnTo, { error: 'missing_params' }));
         }
 
-        const { userId, teamId, scope: requestedScope } = statePayload;
-        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
+        const { userId, disabledTools } = statePayload;
 
         // Exchange code for access token
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -1024,18 +892,27 @@ router.get('/google/oauth/callback', async (req, res) => {
         });
         const userData = await userResponse.json();
 
-        // Save integration
-        await db.saveIntegration(userId, 'google_calendar', {
+        // Build metadata with disabled_tools from OAuth state
+        const metadata = {};
+        if (Array.isArray(disabledTools) && disabledTools.length > 0) {
+            metadata.disabled_tools = disabledTools.filter(t => ALL_GOOGLE_VIRTUAL_TOOLS.includes(t));
+        } else {
+            metadata.disabled_tools = [];
+        }
+
+        await db.saveIntegration(userId, 'google_workspace', {
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token,
             expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
+            scope: tokenData.scope,
+            grantedScopes: parseScopeList(tokenData.scope),
             workspaceName: userData.email, // Store email as workspace name
-            teamId // Our internal teamId
-        }, requestedScope || 'team');
+            metadata,
+        });
 
-        logger.info('Google Calendar integration saved', { userId, teamId });
+        logger.info('Google Workspace integration saved', { userId, disabledTools: metadata.disabled_tools });
 
-        res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'google_connected' }));
+        res.redirect(buildFrontendRedirectUrl(returnTo, { success: 'google_workspace_connected' }));
 
     } catch (error) {
         logger.error('Google OAuth callback error:', error);
@@ -1047,42 +924,81 @@ router.get('/google/oauth/callback', async (req, res) => {
     }
 });
 
-// Check Google status (REMOVED DUPLICATE - kept only one)
-router.get('/google/status', async (req, res) => {
-    const { userId, teamId } = req.query;
+// Check Google Workspace status
+router.get('/google_workspace/status', async (req, res) => {
+    const { userId } = req.query;
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamMemberForTeamQuery(userId, teamId);
-        const integration = await db.getIntegration(userId, 'google_calendar', teamId);
+        const integration = await db.getIntegration(userId, 'google_workspace');
 
         res.json({
             connected: !!integration,
             workspace: integration?.workspace_name || null
         });
     } catch (error) {
-        logger.error('Google status check error:', error);
+        logger.error('Google Workspace status check error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Disconnect Google
-router.delete('/google/disconnect', async (req, res) => {
-    const { userId, teamId } = req.query;
+// Delete Google Workspace integration
+router.delete('/google_workspace/disconnect', async (req, res) => {
+    const { userId } = req.query;
 
     if (!userId) {
-        return res.status(400).json({ error: 'userId required' });
+        return res.status(400).json({ error: 'userId is required' });
     }
 
     try {
-        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
-        await db.deleteIntegration(userId, 'google_calendar', teamId);
+        await db.deleteIntegration(userId, 'google_workspace');
         res.json({ success: true });
     } catch (error) {
-        logger.error('Google disconnect error:', error);
+        logger.error('Failed to delete Google Workspace integration:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Toggle virtual tools within Google Workspace
+router.patch('/google_workspace/virtual_tool', async (req, res) => {
+    const { userId, tool, action } = req.body;
+    if (!userId || !tool || !['enable', 'disable'].includes(action)) {
+        return res.status(400).json({ error: 'userId, tool, and action required' });
+    }
+    try {
+        const integration = await db.getIntegration(userId, 'google_workspace');
+        if (!integration) return res.status(404).json({ error: 'Google workspace not connected' });
+        
+        let metadata = integration.metadata || {};
+        metadata.disabled_tools = metadata.disabled_tools || [];
+        
+        if (action === 'disable') {
+            if (!metadata.disabled_tools.includes(tool)) metadata.disabled_tools.push(tool);
+        } else {
+            metadata.disabled_tools = metadata.disabled_tools.filter(t => t !== tool);
+        }
+
+        const ALL_VIRTUAL_TOOLS = ['google_drive', 'google_sheets', 'google_slides', 'google_docs', 'google_calendar', 'google_tasks', 'gmail'];
+        
+        if (metadata.disabled_tools.length >= ALL_VIRTUAL_TOOLS.length && action === 'disable') {
+            // All tools disabled, so disconnect entirely
+            await db.deleteIntegration(userId, 'google_workspace');
+            return res.json({ connected: false });
+        }
+
+        const { error } = await db.supabase
+            .from('integrations')
+            .update({ metadata })
+            .eq('id', integration.id);
+            
+        if (error) throw error;
+
+        res.json({ success: true, metadata });
+    } catch (error) {
+        logger.error('Failed to update virtual tool:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1114,19 +1030,15 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
 // Initiate GitHub OAuth
 router.get('/github/connect', async (req, res) => {
-    const { userId, teamId, scope = 'team' } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
-    try {
-        await ensureTeamAdminForScope(userId, teamId, scope);
-    } catch (error) {
-        return res.status(error.status || 403).json({ error: error.message });
-    }
+    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
 
-    const state = Buffer.from(JSON.stringify({ userId, teamId, scope })).toString('base64');
 
     // Scopes: https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps
     // read:user - for profile info
@@ -1160,8 +1072,8 @@ router.get('/github/oauth/callback', async (req, res) => {
     }
 
     try {
-        const { userId, teamId, scope: requestedScope } = JSON.parse(Buffer.from(state, 'base64').toString());
-        await ensureTeamAdminForScope(userId, teamId, requestedScope || 'team');
+        const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+
         const githubRedirectUri = resolveGithubRedirectUri(req);
 
         // Exchange code for access token
@@ -1199,17 +1111,18 @@ router.get('/github/oauth/callback', async (req, res) => {
 
         const userData = await userResponse.json();
 
-        // Save integration
         await db.saveIntegration(userId, 'github', {
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token, // GitHub tokens might not have refresh tokens by default depending on app type
             expiresAt: tokenData.expires_in ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString() : null,
+            scope: tokenData.scope,
+            grantedScopes: parseScopeList(tokenData.scope),
             workspaceName: userData.login, // Use username as workspace/account name
             workspaceId: userData.id.toString(),
-            teamId // Our internal teamId
-        }, requestedScope || 'team');
+        });
 
-        logger.info('GitHub integration saved', { userId, teamId });
+        logger.info('GitHub integration saved', { userId });
+
 
         res.redirect(`${FRONTEND_URL}/app/integrations?success=github_connected`);
 
@@ -1222,15 +1135,16 @@ router.get('/github/oauth/callback', async (req, res) => {
 
 // Check GitHub status
 router.get('/github/status', async (req, res) => {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamMemberForTeamQuery(userId, teamId);
-        const integration = await db.getIntegration(userId, 'github', teamId);
+        const integration = await db.getIntegration(userId, 'github');
+
 
         res.json({
             connected: !!integration,
@@ -1244,15 +1158,16 @@ router.get('/github/status', async (req, res) => {
 
 // Disconnect GitHub
 router.delete('/github/disconnect', async (req, res) => {
-    const { userId, teamId } = req.query;
+    const { userId } = req.query;
+
 
     if (!userId) {
         return res.status(400).json({ error: 'userId required' });
     }
 
     try {
-        await ensureTeamAdminForScope(userId, teamId, teamId ? 'team' : 'personal');
-        await db.deleteIntegration(userId, 'github', teamId);
+        await db.deleteIntegration(userId, 'github');
+
         res.json({ success: true });
     } catch (error) {
         logger.error('GitHub disconnect error:', error);
