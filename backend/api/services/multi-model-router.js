@@ -6,70 +6,68 @@
  * Assignment (follows the guide):
  *   Router / tiny tasks  → Cerebras  Llama-3.1-8B   (1M tok/day, ~2 600 tok/s)
  *   Long context reading  → Gemini    Flash 2.0       (1M ctx, 1 500 req/day)
- *   Drafting / planning   → Mistral   Large           (1B tok/month free)
+ *   Drafting / planning   → Mistral   Large           (1B tok/month free)  ← official SDK
  *   Overflow fallback     → OpenRouter free models    (~30 models, ~20 RPM each)
  *   Emergency fallback    → Groq      llama-3.3-70b   (existing key)
  */
 
 import { createOpenAI } from '@ai-sdk/openai';
+import { createMistral } from '@ai-sdk/mistral';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGroq } from '@ai-sdk/groq';
 import logger from '../utils/logger.js';
 
-// ── Provider clients ────────────────────────────────────────────────────────
+// ── Provider clients (lazy-initialised once per process) ───────────────────
 
-function buildCerebras() {
+let _cerebras, _mistral, _gemini, _openRouter, _groq;
+
+function getCerebras() {
+  if (_cerebras) return _cerebras;
   if (!process.env.CEREBRAS_API_KEY) return null;
-  return createOpenAI({
+  _cerebras = createOpenAI({
     apiKey: process.env.CEREBRAS_API_KEY,
     baseURL: 'https://api.cerebras.ai/v1',
   });
+  return _cerebras;
 }
 
-function buildMistral() {
+function getMistral() {
+  if (_mistral) return _mistral;
   if (!process.env.MISTRAL_API_KEY) return null;
-  return createOpenAI({
-    apiKey: process.env.MISTRAL_API_KEY,
-    baseURL: 'https://api.mistral.ai/v1',
-  });
+  // Use the official @ai-sdk/mistral provider — full streaming + tool-call support
+  _mistral = createMistral({ apiKey: process.env.MISTRAL_API_KEY });
+  return _mistral;
 }
 
-function buildGemini() {
+function getGemini() {
+  if (_gemini) return _gemini;
   if (!process.env.GEMINI_API_KEY) return null;
-  return createGoogleGenerativeAI({
-    apiKey: process.env.GEMINI_API_KEY,
-  });
+  _gemini = createGoogleGenerativeAI({ apiKey: process.env.GEMINI_API_KEY });
+  return _gemini;
 }
 
-function buildOpenRouter() {
+function getOpenRouter() {
+  if (_openRouter) return _openRouter;
   if (!process.env.OPENROUTER_API_KEY) return null;
-  return createOpenAI({
+  _openRouter = createOpenAI({
     apiKey: process.env.OPENROUTER_API_KEY,
     baseURL: 'https://openrouter.ai/api/v1',
   });
+  return _openRouter;
 }
 
-function buildGroq() {
+function getGroq() {
+  if (_groq) return _groq;
   if (!process.env.GROQ_API_KEY) return null;
-  return createOpenAI({
-    apiKey: process.env.GROQ_API_KEY,
-    baseURL: 'https://api.groq.com/openai/v1',
-  });
+  _groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
 }
 
-// Lazy-initialise once per process
-let _cerebras, _mistral, _gemini, _openRouter, _groq;
-
-function getCerebras()   { return _cerebras   ??= buildCerebras(); }
-function getMistral()    { return _mistral    ??= buildMistral(); }
-function getGemini()     { return _gemini     ??= buildGemini(); }
-function getOpenRouter() { return _openRouter ??= buildOpenRouter(); }
-function getGroq()       { return _groq       ??= buildGroq(); }
-
-// ── Public model accessors ──────────────────────────────────────────────────
+// ── Public model accessors (used by streamText / generateText in AI SDK) ───
 
 /**
  * Router model — fastest inference, tiny prompts (titles, routing decisions).
- * Falls back to Groq llama-3.1-8b-instant if Cerebras key is missing.
+ * Cerebras Llama-3.1-8B → Groq llama-3.1-8b-instant (fallback)
  */
 export function getRouterModel() {
   const cerebras = getCerebras();
@@ -86,8 +84,8 @@ export function getRouterModel() {
 }
 
 /**
- * Long-context worker — Gemini Flash with 1 M token context window.
- * Falls back to Mistral, then Groq.
+ * Long-context worker — Gemini Flash 2.0 with 1M token context window.
+ * Gemini Flash → Mistral Large → Groq (fallback chain)
  */
 export function getLongContextModel() {
   const gemini = getGemini();
@@ -97,7 +95,7 @@ export function getLongContextModel() {
   }
   const mistral = getMistral();
   if (mistral) {
-    logger.warn('[router] Gemini key missing — falling back to Mistral');
+    logger.warn('[router] Gemini key missing — falling back to Mistral Large');
     return mistral('mistral-large-latest');
   }
   const groq = getGroq();
@@ -110,12 +108,13 @@ export function getLongContextModel() {
 
 /**
  * Worker model — Mistral Large for agent chat stream, drafting, planning.
- * Falls back to OpenRouter, then Groq.
+ * Uses the official @ai-sdk/mistral provider for full tool-call + streaming support.
+ * Mistral Large → OpenRouter (free) → Groq (fallback chain)
  */
 export function getWorkerModel() {
   const mistral = getMistral();
   if (mistral) {
-    logger.debug('[router] Using Mistral Large');
+    logger.debug('[router] Using Mistral Large (official SDK)');
     return mistral('mistral-large-latest');
   }
   const openRouter = getOpenRouter();
@@ -133,7 +132,6 @@ export function getWorkerModel() {
 
 /**
  * Overflow fallback model — OpenRouter free tier.
- * Used when primary providers hit rate limits.
  */
 export function getFallbackModel() {
   const openRouter = getOpenRouter();
@@ -149,13 +147,13 @@ export function getFallbackModel() {
   throw new Error('No fallback model available. Set OPENROUTER_API_KEY or GROQ_API_KEY.');
 }
 
-// ── Plain-fetch helpers (for ai-processor which uses raw fetch, not AI SDK) ──
+// ── Plain-fetch helper (for ai-processor which uses raw fetch, not AI SDK) ──
 
-const CEREBRAS_URL  = 'https://api.cerebras.ai/v1/chat/completions';
-const GEMINI_URL    = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const MISTRAL_URL   = 'https://api.mistral.ai/v1/chat/completions';
+const CEREBRAS_URL   = 'https://api.cerebras.ai/v1/chat/completions';
+const GEMINI_URL     = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const MISTRAL_URL    = 'https://api.mistral.ai/v1/chat/completions';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const GROQ_URL      = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_URL       = 'https://api.groq.com/openai/v1/chat/completions';
 
 /**
  * Generic OpenAI-compatible chat completion with automatic fallback.
@@ -199,7 +197,7 @@ export async function chatComplete({ role = 'worker', messages, temperature = 0.
 
   for (const provider of providers) {
     try {
-      logger.debug(`[multi-model] Trying ${provider.url} (${provider.model}) for role=${role}`);
+      logger.debug(`[multi-model] Trying ${provider.model} (role=${role})`);
 
       const response = await fetch(provider.url, {
         method: 'POST',
@@ -217,9 +215,8 @@ export async function chatComplete({ role = 'worker', messages, temperature = 0.
 
       if (!response.ok) {
         const text = await response.text();
-        // 429 = rate limit — try next provider
         if (response.status === 429) {
-          logger.warn(`[multi-model] Rate limit hit on ${provider.model} — trying next provider`);
+          logger.warn(`[multi-model] Rate limit on ${provider.model} — trying next provider`);
           lastError = new Error(`Rate limit: ${text}`);
           continue;
         }
@@ -228,7 +225,6 @@ export async function chatComplete({ role = 'worker', messages, temperature = 0.
 
       const data = await response.json();
       const content = data?.choices?.[0]?.message?.content;
-
       if (!content) throw new Error(`Empty response from ${provider.model}`);
 
       logger.debug(`[multi-model] Success with ${provider.model}`);
@@ -236,12 +232,10 @@ export async function chatComplete({ role = 'worker', messages, temperature = 0.
 
     } catch (err) {
       lastError = err;
-      // Only continue to next provider on rate-limit or network errors
       if (err.message?.includes('Rate limit') || err.message?.includes('fetch')) {
-        logger.warn(`[multi-model] Provider ${provider.model} failed, trying next: ${err.message}`);
+        logger.warn(`[multi-model] ${provider.model} failed, trying next: ${err.message}`);
         continue;
       }
-      // Re-throw hard errors
       throw err;
     }
   }
