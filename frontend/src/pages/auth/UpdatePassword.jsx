@@ -60,33 +60,30 @@ export default function UpdatePassword() {
 
     if (status === 'success') {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-                <div className="max-w-md w-full bg-white rounded-2xl shadow-md p-8 text-center">
-                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
+            <div className="min-h-screen flex items-center justify-center bg-black p-4">
+                <div className="max-w-md w-full bg-black border border-white/10 rounded-2xl shadow-2xl p-8 text-center">
+                    <div className="w-16 h-16 bg-white/5 border border-white/10 rounded-full flex items-center justify-center mx-auto mb-6 text-white">
+                        <CheckCircle2 className="w-8 h-8" />
                     </div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Password Updated</h2>
-                    <p className="text-gray-600 mb-6">
-                        Your password has been changed successfully. Redirecting you to the app...
+                    <h2 className="text-2xl font-bold text-white mb-2 uppercase tracking-tight">Updated</h2>
+                    <p className="text-gray-700 text-sm font-bold uppercase tracking-widest mb-6">
+                        Your password was changed. Redirecting...
                     </p>
-                    <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-            <div className="max-w-md w-full bg-white rounded-2xl shadow-md p-8">
+        <div className="min-h-screen flex items-center justify-center bg-black p-4">
+            <div className="max-w-md w-full bg-black border border-white/10 rounded-2xl shadow-2xl p-8">
                 <div className="flex flex-col items-center mb-8">
-                    <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
-                    <h2 className="text-2xl font-bold text-center text-gray-900">
-                        Set New Password
+                    <img src="/logo.png" alt="Teama AI" className="w-12 h-12 object-contain mb-4" />
+                    <h2 className="text-2xl font-bold text-center text-white uppercase tracking-tight">
+                        Update Password
                     </h2>
-                    <p className="text-center text-gray-500 mt-2">
-                        Please enter your new password below.
+                    <p className="text-center text-gray-400 text-xs font-bold uppercase tracking-widest mt-2">
+                        Enter your new password below.
                     </p>
                 </div>
 
@@ -98,14 +95,14 @@ export default function UpdatePassword() {
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">
                             New Password
                         </label>
                         <input
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow outline-none"
+                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:bg-white/10 transition-all outline-none text-white text-sm font-bold placeholder-gray-800"
                             placeholder="••••••••"
                             required
                             disabled={status === 'loading'}
@@ -114,14 +111,14 @@ export default function UpdatePassword() {
                     </div>
                     
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">
                             Confirm Password
                         </label>
                         <input
                             type="password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow outline-none"
+                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:bg-white/10 transition-all outline-none text-white text-sm font-bold placeholder-gray-800"
                             placeholder="••••••••"
                             required
                             disabled={status === 'loading'}
@@ -132,13 +129,9 @@ export default function UpdatePassword() {
                     <button
                         type="submit"
                         disabled={status === 'loading' || !password || !confirmPassword}
-                        className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 disabled:opacity-70 transition-colors flex justify-center items-center"
+                        className="w-full py-4 bg-white text-black rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-gray-200 disabled:opacity-50 transition-all flex justify-center items-center"
                     >
-                        {status === 'loading' ? (
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                            'Update Password'
-                        )}
+                        {status === 'loading' ? 'Updating...' : 'Update Password'}
                     </button>
                 </form>
             </div>

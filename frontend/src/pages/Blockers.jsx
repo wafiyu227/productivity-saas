@@ -7,11 +7,22 @@ import {
     Github,
     MessageSquare,
     Search,
-    Target
+    Target,
+    Zap,
+    ShieldAlert,
+    ChevronRight,
+    Filter,
+    ArrowUpRight,
+    X,
+    PencilLine,
+    Sparkles,
+    CircleSlash
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
+import { assignBlockerToAgent } from '../utils/api-helpers';
 import {
     createEmptyAsanaDeadlines,
     createEmptyCalendarSignals,
@@ -26,141 +37,168 @@ import {
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 const GITHUB_STALE_DAYS = 7;
 const CALENDAR_BLOCKER_WINDOW_DAYS = 14;
-const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana'];
 const PROJECT_PLATFORM_LABELS = {
     jira: 'Jira',
-    asana: 'Asana',
-    trello: 'Trello'
+    asana: 'Asana'
 };
 const PROJECT_PLATFORM_DEADLINE_FETCHERS = {
-    jira: (teamId) => api.getJiraDeadlines(teamId),
-    asana: (teamId) => api.getAsanaDeadlines(teamId),
-    trello: (teamId) => api.getTrelloDeadlines(teamId)
+    jira: () => api.getJiraDeadlines(),
+    asana: () => api.getAsanaDeadlines()
 };
 
 const SOURCE_META = {
     slack: {
         label: 'Slack',
         icon: MessageSquare,
-        chipClass: 'bg-purple-100 text-purple-700',
-        activeClass: 'bg-purple-600 text-white',
-        buttonClass: 'bg-blue-600 hover:bg-blue-700',
-        openLabel: 'Open Source'
+        chipClass: 'border-white/10 bg-white/5 text-white',
+        activeClass: 'bg-white text-black',
+        buttonClass: 'bg-white text-black hover:bg-gray-200',
+        openLabel: 'Open Session'
     },
     asana: {
         label: 'Asana',
         icon: Target,
-        chipClass: 'bg-orange-100 text-orange-700',
-        activeClass: 'bg-orange-600 text-white',
-        buttonClass: 'bg-orange-600 hover:bg-orange-700',
+        chipClass: 'border-white/10 bg-white/5 text-white',
+        activeClass: 'bg-white text-black',
+        buttonClass: 'bg-white/5 border border-white/10 text-white hover:bg-white/10',
         openLabel: 'Open Task'
     },
     jira: {
         label: 'Jira',
         icon: Target,
-        chipClass: 'bg-blue-100 text-blue-700',
-        activeClass: 'bg-blue-600 text-white',
-        buttonClass: 'bg-blue-600 hover:bg-blue-700',
+        chipClass: 'border-white/10 bg-white/5 text-white',
+        activeClass: 'bg-white text-black',
+        buttonClass: 'bg-white/5 border border-white/10 text-white hover:bg-white/10',
         openLabel: 'Open Issue'
-    },
-    trello: {
-        label: 'Trello',
-        icon: Target,
-        chipClass: 'bg-sky-100 text-sky-700',
-        activeClass: 'bg-sky-600 text-white',
-        buttonClass: 'bg-sky-600 hover:bg-sky-700',
-        openLabel: 'Open Card'
     },
     github: {
         label: 'GitHub',
         icon: Github,
-        chipClass: 'bg-slate-100 text-slate-700',
-        activeClass: 'bg-slate-700 text-white',
-        buttonClass: 'bg-slate-700 hover:bg-slate-800',
+        chipClass: 'border-white/10 bg-white/5 text-white',
+        activeClass: 'bg-white text-black',
+        buttonClass: 'bg-white/5 border border-white/10 text-white hover:bg-white/10',
         openLabel: 'Open PR'
     },
     calendar: {
         label: 'Calendar',
         icon: Calendar,
-        chipClass: 'bg-blue-100 text-blue-700',
-        activeClass: 'bg-blue-600 text-white',
-        buttonClass: 'bg-blue-600 hover:bg-blue-700',
+        chipClass: 'border-white/10 bg-white/5 text-white',
+        activeClass: 'bg-white text-black',
+        buttonClass: 'bg-white/5 border border-white/10 text-white hover:bg-white/10',
         openLabel: 'Open Event'
     }
 };
 
+function getStorageKey(userId) {
+    return `teamaai_blockers_hidden_${userId || 'anon'}_personal`;
+}
+
+function readHiddenBlockerIds(userId) {
+    if (!userId) return [];
+
+    try {
+        const raw = localStorage.getItem(getStorageKey(userId));
+        const parsed = JSON.parse(raw || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveHiddenBlockerIds(userId, blockerIds) {
+    if (!userId) return;
+    localStorage.setItem(getStorageKey(userId), JSON.stringify(Array.from(new Set(blockerIds))));
+}
+
 export default function Blockers() {
-    const { user, profile } = useAuth();
+    const { user } = useAuth();
+    const navigate = useNavigate();
     const [blockers, setBlockers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
-    const [sourceFilter, setSourceFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
-    const [resolving, setResolving] = useState(null);
     const [activeProjectPlatform, setActiveProjectPlatform] = useState(null);
     const [projectPlatformNotice, setProjectPlatformNotice] = useState('');
-    const currentMembership = profile?.teams?.find((membership) => membership.team_id === profile?.current_team_id);
-    const canManageBlockers = !profile?.current_team_id || ['owner', 'admin'].includes(currentMembership?.role);
+    const [hiddenBlockerIds, setHiddenBlockerIds] = useState([]);
+    const [editingBlocker, setEditingBlocker] = useState(null);
+    const [assigningBlocker, setAssigningBlocker] = useState(null);
+    const [notice, setNotice] = useState('');
 
     useEffect(() => {
-        if (user && profile) {
+        if (user?.id) {
+            fetchDismissedIds();
+        }
+    }, [user?.id]);
+
+    const fetchDismissedIds = async () => {
+        try {
+            const ids = await api.listDismissedBlockers();
+            setHiddenBlockerIds(ids || []);
+        } catch (err) {
+            console.error('Failed to fetch dismissed ids:', err);
+        }
+    };
+
+    useEffect(() => {
+        if (user) {
             fetchBlockers();
         }
-    }, [user, profile?.current_team_id]);
+    }, [user]);
 
-    const getActiveProjectPlatform = async (teamId) => {
+    const visibleBlockers = useMemo(
+        () => blockers.filter((blocker) => !hiddenBlockerIds.includes(blocker.id)),
+        [blockers, hiddenBlockerIds]
+    );
+
+    const getActiveProjectPlatforms = async () => {
         const statuses = await Promise.all(
             PROJECT_PLATFORM_PRIORITY.map(async (platform) => ({
                 platform,
-                status: await api.getIntegrationStatus(platform, teamId)
+                status: await api.getIntegrationStatus(platform).catch(() => ({ connected: false }))
             }))
         );
-
-        const connected = statuses
-            .filter((entry) => entry.status?.connected)
-            .map((entry) => entry.platform);
-
-        return connected.length > 0 ? connected[0] : null;
+        return statuses.filter((entry) => entry.status?.connected).map((entry) => entry.platform);
     };
 
     const fetchBlockers = async () => {
         try {
             setLoading(true);
-            const teamId = profile?.current_team_id;
-            const connectedProjectPlatform = await getActiveProjectPlatform(teamId);
-            setActiveProjectPlatform(connectedProjectPlatform);
+            const connectedPlatforms = await getActiveProjectPlatforms();
+            setActiveProjectPlatform(connectedPlatforms.length > 0 ? connectedPlatforms[0] : null);
 
-            const projectDeadlineFetcher = PROJECT_PLATFORM_DEADLINE_FETCHERS[connectedProjectPlatform];
-            const projectDeadlinePromise = projectDeadlineFetcher
-                ? projectDeadlineFetcher(teamId).catch(() => createEmptyAsanaDeadlines())
-                : Promise.resolve(createEmptyAsanaDeadlines());
+            const projectDeadlinePromises = connectedPlatforms.map(platform => {
+                const fetcher = PROJECT_PLATFORM_DEADLINE_FETCHERS[platform];
+                return fetcher ? fetcher().then(res => ({platform, data: res})).catch(() => ({platform, data: createEmptyAsanaDeadlines()})) : Promise.resolve({platform, data: createEmptyAsanaDeadlines()});
+            });
 
-            const [summariesRes, projectDeadlineData, githubData, calendarData] = await Promise.all([
-                fetch(`${API_URL}/api/summaries?userId=${user.id}${teamId ? `&teamId=${teamId}` : ''}`)
-                    .then((response) => response.json())
-                    .catch(() => []),
-                projectDeadlinePromise,
-                api.getGithubPulls(teamId, { staleDays: GITHUB_STALE_DAYS, limit: 25 }).catch(() => createEmptyGithubPulls()),
-                api.getGoogleCalendarActionItems(teamId, CALENDAR_BLOCKER_WINDOW_DAYS).catch(() => createEmptyCalendarSignals())
+            const [summariesRes, deadlinesList, githubData, calendarData] = await Promise.all([
+                fetch(`${API_URL}/api/summaries?userId=${user.id}`).then((response) => response.json()).catch(() => []),
+                Promise.all(projectDeadlinePromises),
+                api.getGithubPulls({ staleDays: GITHUB_STALE_DAYS, limit: 25 }).catch(() => createEmptyGithubPulls()),
+                api.getGoogleCalendarActionItems(CALENDAR_BLOCKER_WINDOW_DAYS).catch(() => createEmptyCalendarSignals())
             ]);
 
             const summaries = Array.isArray(summariesRes) ? summariesRes : [];
-            const normalizedProjectDeadlines = projectDeadlineData?.error ? createEmptyAsanaDeadlines() : (projectDeadlineData || createEmptyAsanaDeadlines());
             const normalizedGithub = githubData?.error ? createEmptyGithubPulls() : (githubData || createEmptyGithubPulls());
-            const normalizedCalendar = (calendarData?.error || calendarData?.needsReauth)
-                ? createEmptyCalendarSignals()
-                : (calendarData || createEmptyCalendarSignals());
+            const normalizedCalendar = (calendarData?.error || calendarData?.needsReauth) ? createEmptyCalendarSignals() : (calendarData || createEmptyCalendarSignals());
+
+            let projectBlockers = [];
+            for (const {platform, data} of deadlinesList) {
+                const normalizedDeadlines = data?.error ? createEmptyAsanaDeadlines() : (data || createEmptyAsanaDeadlines());
+                projectBlockers = projectBlockers.concat(extractProjectPlatformBlockers(normalizedDeadlines, platform));
+            }
 
             const extracted = mergeBlockers(
                 extractSlackBlockers(summaries),
-                projectDeadlineFetcher ? extractProjectPlatformBlockers(normalizedProjectDeadlines, connectedProjectPlatform) : [],
+                projectBlockers,
                 extractGithubBlockers(normalizedGithub, GITHUB_STALE_DAYS),
                 extractCalendarBlockers(normalizedCalendar)
             );
 
             setBlockers(sortBlockers(extracted));
-            if (connectedProjectPlatform && !projectDeadlineFetcher) {
-                setProjectPlatformNotice(`${PROJECT_PLATFORM_LABELS[connectedProjectPlatform]} is connected as your project platform. Blockers extraction for this platform will appear after its endpoint rollout.`);
+            if (connectedPlatforms.length > 0) {
+                setProjectPlatformNotice(`${connectedPlatforms.map(p => PROJECT_PLATFORM_LABELS[p]).join(' and ')} active.`);
             } else {
                 setProjectPlatformNotice('');
             }
@@ -172,12 +210,64 @@ export default function Blockers() {
         }
     };
 
-    const resolveBlocker = async (blockerId) => {
-        if (!canManageBlockers) return;
-        const blocker = blockers.find((item) => item.id === blockerId);
-        if (!blocker || blocker.sourceType !== 'slack') return;
+    async function hideBlocker(blockerId, nextNotice = '') {
+        try {
+            // Optimistic update
+            const nextHidden = [...hiddenBlockerIds, blockerId];
+            setHiddenBlockerIds(nextHidden);
+            
+            // Persistent update
+            await api.dismissBlocker(blockerId);
+            
+            if (nextNotice) {
+                setNotice(nextNotice);
+            }
+        } catch (err) {
+            console.error('Failed to dismiss blocker:', err);
+            // Rollback on error
+            setHiddenBlockerIds(prev => prev.filter(id => id !== blockerId));
+            setNotice('Failed to dismiss blocker. Please try again.');
+        }
+    }
 
-        setResolving(blockerId);
+    async function handleAssignToAgent(blocker) {
+        setAssigningBlocker(blocker.id);
+        setNotice('');
+
+        try {
+            console.log('handleAssignToAgent called with blocker:', blocker);
+            
+            // Validate blocker has required fields
+            if (!blocker.id || !blocker.title) {
+                throw new Error('Blocker missing required fields (id or title)');
+            }
+
+            // Call the helper function
+            const result = await assignBlockerToAgent(blocker.id, user.id, blocker);
+            
+            // Hide blocker from list
+            hideBlocker(blocker.id, `${blocker.title} assigned to AI agent. Opening AgentChat...`);
+            setEditingBlocker(null);
+
+            // Navigate to AgentChat with the conversation
+            if (result.conversationId) {
+                setTimeout(() => {
+                    navigate(`/app/chat?conversation=${result.conversationId}`);
+                }, 1000);
+            }
+        } catch (error) {
+            console.error('Failed to assign blocker:', error);
+            setNotice(`Failed to assign blocker to agent: ${error.message}`);
+        } finally {
+            setAssigningBlocker(null);
+        }
+    }
+
+    async function handleResolveBlocker(blocker) {
+        if (blocker.sourceType !== 'slack') return;
+
+        setAssigningBlocker(blocker.id);
+        setNotice('');
 
         try {
             const response = await fetch(`${API_URL}/api/blockers/resolve`, {
@@ -197,212 +287,312 @@ export default function Blockers() {
                 throw new Error('Failed to save resolution');
             }
 
-            setBlockers((previous) => sortBlockers(
-                previous.map((entry) => (
-                    entry.id === blockerId
-                        ? { ...entry, status: 'resolved', resolvedAt: new Date().toISOString(), priority: 'low' }
-                        : entry
-                ))
-            ));
+            hideBlocker(blocker.id, `${blocker.title} marked as resolved.`);
+            setEditingBlocker(null);
         } catch (error) {
             console.error('Failed to resolve blocker:', error);
-            alert('Failed to resolve blocker. Please try again.');
+            setNotice('Failed to resolve blocker. Please try again.');
         } finally {
-            setResolving(null);
+            setAssigningBlocker(null);
         }
-    };
+    }
 
-    const filteredBlockers = blockers.filter((blocker) => {
+    const filteredBlockers = visibleBlockers.filter((blocker) => {
         const matchesFilter = filter === 'all' || blocker.status === filter;
-        const matchesSource = sourceFilter === 'all' || blocker.sourceType === sourceFilter;
         const loweredSearch = searchTerm.toLowerCase();
         const matchesSearch = blocker.title.toLowerCase().includes(loweredSearch) ||
             blocker.source.toLowerCase().includes(loweredSearch) ||
             blocker.description.toLowerCase().includes(loweredSearch);
-        return matchesFilter && matchesSource && matchesSearch;
+        return matchesFilter && matchesSearch;
     });
 
-    const activeCount = blockers.filter((blocker) => blocker.status === 'active').length;
-    const resolvedCount = blockers.filter((blocker) => blocker.status === 'resolved').length;
-    const sourceCounts = useMemo(() => blockers.reduce((acc, blocker) => {
-        acc[blocker.sourceType] = (acc[blocker.sourceType] || 0) + 1;
-        return acc;
-    }, {}), [blockers]);
+    const activeCount = visibleBlockers.filter((blocker) => blocker.status === 'active').length;
+    const resolvedCount = visibleBlockers.filter((blocker) => blocker.status === 'resolved').length;
 
-    const allCountForCurrentSource = sourceFilter === 'all'
-        ? blockers.length
-        : (sourceCounts[sourceFilter] || 0);
+    const allCount = visibleBlockers.length;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-red-50">
-            <div className="p-4 md:p-8">
-                <div className="max-w-6xl mx-auto">
-                    <div className="mb-6 md:mb-8">
-                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">
-                            Team Blockers
-                        </h1>
-                        <p className="text-base md:text-lg text-gray-600">
-                            Track and resolve blockers across Slack, project platforms, GitHub, and Calendar
+        <div className="min-h-screen bg-black text-white selection:bg-red-500/30">
+            {/* Background elements */}
+            <div className="relative mx-auto max-w-7xl px-4 pb-20 pt-4 md:px-8 md:pt-8">
+                {/* Header */}
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-8 mb-10 md:mb-16 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <div>
+                        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                            <Sparkles size={12} />
+                            AI Detected
+                        </div>
+                        <h1 className="text-4xl font-bold text-white tracking-tight md:text-6xl uppercase">Blockers</h1>
+                        <p className="mt-4 max-w-2xl text-base leading-relaxed text-gray-500 font-medium">
+                            We have identified critical issues across all connected tools. Review and take action.
                         </p>
-                        {activeProjectPlatform && (
-                            <p className="mt-2 text-sm text-gray-600">
-                                Active project platform: <span className="font-semibold">{PROJECT_PLATFORM_LABELS[activeProjectPlatform]}</span>
-                            </p>
-                        )}
-                        {projectPlatformNotice && (
-                            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                                {projectPlatformNotice}
-                            </div>
-                        )}
-                        {!canManageBlockers && (
-                            <p className="mt-3 text-sm text-gray-600">
-                                Resolution controls are read-only for members.
-                            </p>
-                        )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm text-gray-600 mb-1">Active Blockers</p>
-                                    <p className="text-3xl font-bold text-red-600">{activeCount}</p>
-                                </div>
-                                <div className="p-3 bg-red-50 rounded-xl">
-                                    <AlertTriangle className="text-red-600" size={24} />
-                                </div>
-                            </div>
+                    <div className="flex items-center gap-4">
+                        <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col items-center min-w-[120px]">
+                            <span className="text-[10px] font-bold text-gray-700 uppercase tracking-widest mb-2">Active</span>
+                            <span className="text-3xl font-bold text-white">{activeCount}</span>
                         </div>
-
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm text-gray-600 mb-1">Resolved Blockers</p>
-                                    <p className="text-3xl font-bold text-green-600">{resolvedCount}</p>
-                                </div>
-                                <div className="p-3 bg-green-50 rounded-xl">
-                                    <CheckCircle className="text-green-600" size={24} />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm text-gray-600 mb-1">Resolution Rate</p>
-                                    <p className="text-3xl font-bold text-blue-600">
-                                        {blockers.length > 0 ? Math.round((resolvedCount / blockers.length) * 100) : 0}%
-                                    </p>
-                                </div>
-                                <div className="p-3 bg-blue-50 rounded-xl">
-                                    <Clock className="text-blue-600" size={24} />
-                                </div>
-                            </div>
+                        <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 flex flex-col items-center min-w-[120px]">
+                            <span className="text-[10px] font-bold text-gray-700 uppercase tracking-widest mb-2">Resolved</span>
+                            <span className="text-3xl font-bold text-white">{resolvedCount}</span>
                         </div>
                     </div>
+                </div>
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-                        <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between mb-4">
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    onClick={() => setFilter('all')}
-                                    className={`px-4 py-2 rounded-lg font-medium transition-all ${filter === 'all'
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    All ({allCountForCurrentSource})
-                                </button>
-                                <button
-                                    onClick={() => setFilter('active')}
-                                    className={`px-4 py-2 rounded-lg font-medium transition-all ${filter === 'active'
-                                        ? 'bg-red-600 text-white'
-                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    Active ({activeCount})
-                                </button>
-                                <button
-                                    onClick={() => setFilter('resolved')}
-                                    className={`px-4 py-2 rounded-lg font-medium transition-all ${filter === 'resolved'
-                                        ? 'bg-green-600 text-white'
-                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    Resolved ({resolvedCount})
-                                </button>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                <button
-                                    onClick={() => setSourceFilter('all')}
-                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${sourceFilter === 'all'
-                                        ? 'bg-gray-800 text-white'
-                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    All Sources
-                                </button>
-                                {Object.entries(SOURCE_META).map(([sourceKey, meta]) => {
-                                    const SourceIcon = meta.icon;
-                                    return (
-                                        <button
-                                            key={sourceKey}
-                                            onClick={() => setSourceFilter(sourceKey)}
-                                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${sourceFilter === sourceKey
-                                                ? meta.activeClass
-                                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                }`}
-                                        >
-                                            <SourceIcon size={14} />
-                                            {meta.label} ({sourceCounts[sourceKey] || 0})
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                {projectPlatformNotice && (
+                    <div className="mb-10 rounded-2xl border border-white/10 bg-white/5 px-8 py-6 text-[11px] font-bold uppercase tracking-widest text-white animate-in fade-in flex items-center gap-4">
+                        <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+                        {projectPlatformNotice}
+                    </div>
+                )}
+
+                {notice && (
+                    <div className="mb-10 rounded-2xl border border-white/10 bg-green-500/10 px-8 py-6 text-[11px] font-bold uppercase tracking-widest text-green-300 animate-in fade-in flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-1.5 h-1.5 bg-green-300 rounded-full"></div>
+                            {notice}
+                        </div>
+                        <button
+                            onClick={() => setNotice('')}
+                            className="hover:opacity-75 transition-opacity"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
+
+                {/* Filters and Controls */}
+                <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-8 mb-12 animate-in fade-in duration-700">
+                    <div className="flex flex-col lg:flex-row gap-8 items-start lg:items-center justify-between">
+                        <div className="flex flex-wrap gap-2">
+                            <FilterButton 
+                                active={filter === 'all'} 
+                                onClick={() => setFilter('all')}
+                                count={allCount}
+                                label="All"
+                                accent="white"
+                            />
+                            <FilterButton 
+                                active={filter === 'active'} 
+                                onClick={() => setFilter('active')}
+                                count={activeCount}
+                                label="Active"
+                                accent="white"
+                            />
+                            <FilterButton 
+                                active={filter === 'resolved'} 
+                                onClick={() => setFilter('resolved')}
+                                count={resolvedCount}
+                                label="Resolved"
+                                accent="white"
+                            />
                         </div>
 
-                        <div className="relative">
-                            <Search size={20} className="absolute left-3 top-3 text-gray-400" />
+                        <div className="relative w-full lg:max-w-md">
+                            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-700" />
                             <input
                                 type="text"
-                                placeholder="Search blockers by title, source, or description..."
+                                placeholder="Search blockers..."
                                 value={searchTerm}
                                 onChange={(event) => setSearchTerm(event.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full pl-12 pr-6 py-4 bg-white/[0.01] border border-white/5 rounded-2xl text-[11px] font-bold uppercase tracking-widest text-white outline-none focus:bg-white/[0.03] focus:border-white/10 transition-all placeholder:text-gray-800"
                             />
                         </div>
                     </div>
+                </div>
 
-                    {loading ? (
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
-                            <p className="text-gray-600">Loading blockers...</p>
+                {loading ? (
+                    <div className="p-24 text-center">
+                        <div className="w-10 h-10 border-4 border-white/5 border-t-white rounded-full animate-spin mx-auto mb-8" />
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-800">Loading blockers...</p>
+                    </div>
+                ) : filteredBlockers.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-white/10 p-24 text-center">
+                        <h3 className="text-3xl font-bold text-white uppercase tracking-tight mb-4">
+                            All Clear
+                        </h3>
+                        <p className="text-gray-700 font-bold uppercase tracking-widest text-xs max-w-md mx-auto leading-relaxed">
+                            {filter === 'all' && searchTerm === ''
+                                ? 'No blockers detected at the moment.'
+                                : 'No blockers match your search.'}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 gap-6 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-200">
+                        {filteredBlockers.map((blocker) => (
+                            <BlockerCard
+                                key={blocker.id}
+                                blocker={blocker}
+                                onResolve={handleResolveBlocker}
+                                onAssignToAgent={handleAssignToAgent}
+                                isAssigning={assigningBlocker === blocker.id}
+                                isEditing={editingBlocker?.id === blocker.id}
+                                onEdit={() => setEditingBlocker(blocker)}
+                                onEditClose={() => setEditingBlocker(null)}
+                                onDismiss={() => hideBlocker(blocker.id, `${blocker.title} dismissed.`)}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {editingBlocker && (
+                <BlockerActionModal
+                    blocker={editingBlocker}
+                    onClose={() => setEditingBlocker(null)}
+                    onAssign={() => handleAssignToAgent(editingBlocker)}
+                    onResolve={() => handleResolveBlocker(editingBlocker)}
+                    isLoading={assigningBlocker === editingBlocker.id}
+                />
+            )}
+        </div>
+    );
+}
+function FilterButton({ active, onClick, count, label }) {
+    return (
+        <button
+            onClick={onClick}
+            className={`px-6 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all border ${active 
+                ? 'bg-white text-black border-white' 
+                : 'bg-transparent border-white/10 text-gray-500 hover:text-white hover:border-white/20'}`}
+        >
+            {label} ({count})
+        </button>
+    );
+}
+
+function SourceChip({ active, onClick, icon: Icon, label, count }) {
+    return (
+        <button
+            onClick={onClick}
+            className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border flex items-center gap-3 ${active 
+                ? 'bg-white text-black border-white' 
+                : 'bg-transparent border-white/5 text-gray-700 hover:text-white hover:border-white/10'}`}
+        >
+            {Icon && <Icon size={14} />}
+            {label} {count !== undefined && `(${count})`}
+        </button>
+    );
+}
+
+function BlockerCard({ blocker, onResolve, onAssignToAgent, isAssigning, isEditing, onEdit, onEditClose, onDismiss }) {
+    const priorityMeta = {
+        high: { label: 'High Priority', icon: ShieldAlert, color: 'text-red-400' },
+        medium: { label: 'Medium Priority', icon: AlertTriangle, color: 'text-yellow-400' },
+        low: { label: 'Low Priority', icon: Clock, color: 'text-blue-400' }
+    };
+
+    const sourceMeta = SOURCE_META[blocker.sourceType] || SOURCE_META.slack;
+    const SourceIcon = sourceMeta.icon;
+    const priority = priorityMeta[blocker.priority] || priorityMeta.medium;
+    const PriorityIcon = priority.icon;
+
+    return (
+        <div className="bg-white/[0.02] rounded-3xl border border-white/5 p-8 transition-all hover:bg-white/[0.03]">
+            <div className="flex flex-col lg:flex-row items-start justify-between gap-8">
+                <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-3 mb-6">
+                        <div className="flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-lg">
+                           <div className={`w-1 h-1 rounded-full ${blocker.status === 'resolved' ? 'bg-white' : 'bg-gray-600'}`}></div>
+                           <span className="text-[9px] font-bold uppercase tracking-widest text-white">{blocker.status === 'active' ? 'Active' : 'Resolved'}</span>
                         </div>
-                    ) : filteredBlockers.length === 0 ? (
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <CheckCircle className="text-green-600" size={40} />
+                        
+                        <div className="flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-lg">
+                           <PriorityIcon size={12} className={priority.color} />
+                           <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">{priority.label}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-lg">
+                           <SourceIcon size={12} className="text-gray-500" />
+                           <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">{sourceMeta.label}</span>
+                        </div>
+                    </div>
+
+                    <h3 className="text-2xl font-bold text-white uppercase tracking-tight mb-4">
+                        {blocker.title}
+                    </h3>
+                    
+                    <p className="text-gray-500 text-sm font-medium leading-relaxed mb-8 max-w-4xl">
+                        {blocker.description}
+                    </p>
+
+                    <div className="flex flex-wrap gap-8 pt-6 border-t border-white/5">
+                        <div className="flex flex-col gap-1">
+                            <span className="text-[9px] font-bold text-gray-800 uppercase tracking-widest">Found in</span>
+                            <span className="text-xs font-bold text-gray-600 italic">
+                                {blocker.source}
+                            </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                             <span className="text-[9px] font-bold text-gray-800 uppercase tracking-widest">Found at</span>
+                             <span className="text-xs font-bold text-gray-600">
+                                {formatDateTime(blocker.createdAt).toUpperCase()}
+                             </span>
+                        </div>
+                        {blocker.status === 'resolved' && blocker.resolvedAt && (
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[9px] font-bold text-gray-800 uppercase tracking-widest">Resolved at</span>
+                                <span className="text-xs font-bold text-white">
+                                    {formatDateTime(blocker.resolvedAt).toUpperCase()}
+                                </span>
                             </div>
-                            <h3 className="text-2xl font-bold text-gray-900 mb-2">
-                                No blockers found
-                            </h3>
-                            <p className="text-gray-600">
-                                {filter === 'all' && searchTerm === ''
-                                    ? 'Connect integrations and generate data to surface blockers.'
-                                    : 'No matching blockers found for your filters.'}
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {filteredBlockers.map((blocker) => (
-                                <BlockerCard
-                                    key={blocker.id}
-                                    blocker={blocker}
-                                    onResolve={resolveBlocker}
-                                    isResolving={resolving === blocker.id}
-                                    canResolve={canManageBlockers}
-                                />
-                            ))}
+                        )}
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {blocker.status === 'active' && (
+                        <>
+                            {blocker.sourceType === 'slack' && (
+                                <button
+                                    onClick={() => onResolve(blocker)}
+                                    disabled={isAssigning}
+                                    title="Mark as resolved"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-green-400 text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-green-500/15 hover:border-green-500/30 transition-all active:scale-95 disabled:opacity-40"
+                                >
+                                    <CheckCircle size={12} />
+                                    {isAssigning ? '...' : 'Resolve'}
+                                </button>
+                            )}
+                            
+                            <button
+                                onClick={() => onAssignToAgent(blocker)}
+                                disabled={isAssigning}
+                                title="Assign to AI agent"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-black text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-40"
+                            >
+                                <Zap size={12} />
+                                {isAssigning ? '...' : 'Agent'}
+                            </button>
+
+                            {blocker.externalUrl && (
+                                <a
+                                    href={blocker.externalUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title="View source"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-gray-400 text-[9px] font-bold uppercase tracking-widest rounded-lg hover:bg-white/10 hover:text-white transition-all"
+                                >
+                                    <ExternalLink size={12} />
+                                    Source
+                                </a>
+                            )}
+
+                            <button
+                                onClick={onDismiss}
+                                title="Dismiss blocker"
+                                className="inline-flex items-center justify-center p-1.5 bg-white/5 border border-white/10 text-gray-600 rounded-lg hover:bg-red-500/15 hover:border-red-500/30 hover:text-red-400 transition-all"
+                            >
+                                <CircleSlash size={12} />
+                            </button>
+                        </>
+                    )}
+                    
+                    {blocker.status === 'resolved' && (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-gray-500 text-[9px] font-bold uppercase tracking-widest rounded-lg">
+                            <CheckCircle size={12} />
+                            Resolved
                         </div>
                     )}
                 </div>
@@ -411,93 +601,63 @@ export default function Blockers() {
     );
 }
 
-function BlockerCard({ blocker, onResolve, isResolving, canResolve }) {
-    const priorityColors = {
-        high: 'border-red-500 bg-red-50',
-        medium: 'border-yellow-500 bg-yellow-50',
-        low: 'border-blue-500 bg-blue-50'
-    };
-
-    const statusColors = {
-        active: 'bg-red-100 text-red-700',
-        resolved: 'bg-green-100 text-green-700'
-    };
-
-    const sourceMeta = SOURCE_META[blocker.sourceType] || SOURCE_META.slack;
-    const SourceIcon = sourceMeta.icon;
-
+function BlockerActionModal({ blocker, onClose, onAssign, onResolve, isLoading }) {
     return (
-        <div className={`bg-white rounded-2xl shadow-sm border-l-4 p-4 md:p-6 hover:shadow-md transition-shadow ${priorityColors[blocker.priority] || priorityColors.medium}`}>
-            <div className="flex flex-col sm:flex-row items-start justify-between gap-3 mb-4">
-                <div className="flex-1">
-                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
-                        <h3 className="text-base sm:text-xl font-bold text-gray-900">
-                            {blocker.title}
-                        </h3>
-                        <span className={`px-3 py-1 text-xs font-semibold rounded-full ${statusColors[blocker.status] || statusColors.active}`}>
-                            {(blocker.status || 'active').toUpperCase()}
-                        </span>
-                        <span className="px-3 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full">
-                            {(blocker.priority || 'medium').toUpperCase()}
-                        </span>
-                    </div>
-                    <p className="text-gray-700 mb-4">{blocker.description}</p>
-                    <div className="flex flex-col gap-3 text-sm text-gray-600">
-                        <div className="flex items-center gap-6">
-                            <span className="flex items-center gap-2">
-                                <SourceIcon size={16} className="text-gray-700" />
-                                <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${sourceMeta.chipClass}`}>
-                                    {sourceMeta.label}
-                                </span>
-                                {blocker.source}
-                            </span>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                            <span className="flex items-center gap-2">
-                                <Clock size={16} />
-                                <span className="font-medium">Created:</span> {formatDateTime(blocker.createdAt)}
-                            </span>
-                            {blocker.status === 'resolved' && blocker.resolvedAt && (
-                                <span className="flex items-center gap-2 text-green-700">
-                                    <CheckCircle size={16} />
-                                    <span className="font-medium">Resolved:</span> {formatDateTime(blocker.resolvedAt)}
-                                </span>
-                            )}
-                        </div>
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={onClose}
+        >
+            <div
+                className="max-w-2xl w-full rounded-3xl border border-white/10 bg-black/95 p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-300"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-start justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-white uppercase tracking-tight">
+                        Take Action
+                    </h2>
+                    <button
+                        onClick={onClose}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="mb-8">
+                    <p className="text-gray-400 text-sm leading-relaxed mb-4">
+                        {blocker.description}
+                    </p>
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                        <p className="text-gray-300 text-xs">
+                            <span className="font-bold text-white">From:</span> {blocker.source}
+                        </p>
                     </div>
                 </div>
-                {canResolve && blocker.status === 'active' && blocker.sourceType === 'slack' && (
+
+                <div className="flex flex-col gap-3">
+                    {blocker.sourceType === 'slack' && (
+                        <button
+                            onClick={() => onResolve(blocker)}
+                            disabled={isLoading}
+                            className="w-full px-6 py-4 bg-green-500 text-black text-[11px] font-bold uppercase tracking-widest rounded-xl hover:bg-green-400 disabled:opacity-50 transition-all"
+                        >
+                            {isLoading ? 'Marking as Resolved...' : 'Mark as Resolved'}
+                        </button>
+                    )}
                     <button
-                        onClick={() => onResolve(blocker.id)}
-                        disabled={isResolving}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        onClick={() => onAssign(blocker)}
+                        disabled={isLoading}
+                        className="w-full px-6 py-4 bg-blue-500 text-white text-[11px] font-bold uppercase tracking-widest rounded-xl hover:bg-blue-400 disabled:opacity-50 transition-all"
                     >
-                        {isResolving ? (
-                            <>
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                Resolving...
-                            </>
-                        ) : (
-                            'Resolve'
-                        )}
+                        {isLoading ? 'Assigning to Agent...' : 'Assign to AI Agent'}
                     </button>
-                )}
-                {blocker.status === 'active' && blocker.sourceType !== 'slack' && blocker.externalUrl && (
-                    <a
-                        href={blocker.externalUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={`px-4 py-2 text-white rounded-lg transition whitespace-nowrap flex items-center gap-2 ${sourceMeta.buttonClass}`}
+                    <button
+                        onClick={onClose}
+                        className="w-full px-6 py-4 bg-white/5 border border-white/10 text-white text-[11px] font-bold uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all"
                     >
-                        <ExternalLink size={16} />
-                        {sourceMeta.openLabel}
-                    </a>
-                )}
-                {blocker.status === 'resolved' && (
-                    <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg font-medium whitespace-nowrap">
-                        Resolved
-                    </div>
-                )}
+                        Cancel
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -505,9 +665,8 @@ function BlockerCard({ blocker, onResolve, isResolving, canResolve }) {
 
 function formatDateTime(isoString) {
     const date = new Date(isoString);
-    if (Number.isNaN(date.getTime())) return 'Unknown';
+    if (Number.isNaN(date.getTime())) return 'UNKNOWN';
     const formattedDate = date.toLocaleDateString('en-US', {
-        weekday: 'short',
         year: 'numeric',
         month: 'short',
         day: 'numeric'
@@ -515,10 +674,9 @@ function formatDateTime(isoString) {
     const formattedTime = date.toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit',
         hour12: true
     });
-    return `${formattedDate} at ${formattedTime}`;
+    return `${formattedDate} @ ${formattedTime}`;
 }
 
 function sortBlockers(list) {
@@ -539,3 +697,4 @@ function sortBlockers(list) {
         return rightTime - leftTime;
     });
 }
+

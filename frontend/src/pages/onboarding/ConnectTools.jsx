@@ -13,13 +13,10 @@ export default function ConnectTools() {
         slack: { connected: false, loading: true },
         asana: { connected: false, loading: true },
         jira: { connected: false, loading: true },
-        trello: { connected: false, loading: true },
         google: { connected: false, loading: true }
     });
     const [notification, setNotification] = useState(null);
     const [oauthProcessed, setOauthProcessed] = useState(false);
-
-    const teamId = profile?.current_team_id || sessionStorage.getItem('onboarding_team_id');
 
     const clearPaymentQueryParams = () => {
         const url = new URL(window.location.href);
@@ -31,7 +28,7 @@ export default function ConnectTools() {
 
     const clearIntegrationQueryParams = () => {
         const url = new URL(window.location.href);
-        ['error', 'success', 'message', 'trello_oauth', 'state'].forEach((param) => {
+        ['error', 'success', 'message', 'state'].forEach((param) => {
             url.searchParams.delete(param);
         });
         window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
@@ -47,69 +44,17 @@ export default function ConnectTools() {
     }, [searchParams]);
 
     useEffect(() => {
-        if (user && teamId) {
+        if (user && !oauthProcessed) {
             checkAllStatuses();
         }
-    }, [user, teamId]);
+    }, [user, oauthProcessed]);
 
     useEffect(() => {
-        if (!user || !teamId || oauthProcessed) return;
+        if (!user || oauthProcessed) return;
 
         const error = searchParams.get('error');
         const success = searchParams.get('success');
-        const trelloOauth = searchParams.get('trello_oauth');
-        const trelloState = searchParams.get('state');
 
-        if (trelloOauth === '1') {
-            setOauthProcessed(true);
-
-            const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-            const trelloToken = hashParams.get('token') || hashParams.get('access_token');
-
-            if (!trelloToken || !trelloState) {
-                setNotification({
-                    type: 'error',
-                    message: 'Trello authorization did not return a valid token. Please try again.'
-                });
-                clearIntegrationQueryParams();
-                return;
-            }
-
-            const saveTrelloToken = async () => {
-                try {
-                    const response = await fetch(`${API_URL}/api/auth/trello/token`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            token: trelloToken,
-                            state: trelloState
-                        })
-                    });
-
-                    const data = await response.json().catch(() => ({}));
-                    if (!response.ok) {
-                        throw new Error(data.error || 'Failed to store Trello token');
-                    }
-
-                    setNotification({
-                        type: 'success',
-                        message: 'Trello workspace connected successfully!'
-                    });
-
-                    await checkAllStatuses();
-                } catch (tokenError) {
-                    setNotification({
-                        type: 'error',
-                        message: tokenError.message || 'Failed to complete Trello authentication.'
-                    });
-                } finally {
-                    clearIntegrationQueryParams();
-                }
-            };
-
-            saveTrelloToken();
-            return;
-        }
 
         if (error || success) {
             setOauthProcessed(true);
@@ -120,7 +65,6 @@ export default function ConnectTools() {
                     slack_auth_failed: 'Slack authentication was denied. Please try again.',
                     asana_auth_failed: 'Asana authentication was denied. Please try again.',
                     jira_auth_failed: 'Jira authentication was denied. Please try again.',
-                    trello_auth_failed: 'Trello authentication was denied. Please try again.',
                     google_auth_failed: 'Google authentication was denied. Please try again.',
                     missing_params: 'Missing required parameters. Please try again.'
                 };
@@ -140,7 +84,6 @@ export default function ConnectTools() {
                     slack_connected: 'Slack workspace connected successfully!',
                     asana_connected: 'Asana workspace connected successfully!',
                     jira_connected: 'Jira workspace connected successfully!',
-                    trello_connected: 'Trello workspace connected successfully!',
                     google_connected: 'Google Calendar connected successfully!'
                 };
 
@@ -154,15 +97,15 @@ export default function ConnectTools() {
 
             clearIntegrationQueryParams();
         }
-    }, [oauthProcessed, searchParams, setSearchParams, teamId, user]);
+    }, [oauthProcessed, searchParams, setSearchParams, user]);
 
     const checkAllStatuses = async () => {
-        const platforms = ['slack', 'asana', 'jira', 'trello', 'google'];
+        const platforms = ['slack', 'asana', 'jira', 'google'];
 
         for (const platform of platforms) {
             try {
                 const res = await fetch(
-                    `${API_URL}/api/auth/status?userId=${user.id}&platform=${platform}&teamId=${teamId}`
+                    `${API_URL}/api/auth/status?userId=${user.id}&platform=${platform}`
                 );
                 const data = await res.json();
 
@@ -181,15 +124,15 @@ export default function ConnectTools() {
     };
 
     const handleConnect = (platform) => {
-        if (!user || !teamId) {
+        if (!user) {
             return;
         }
 
-        if (!['slack', 'asana', 'jira', 'trello', 'google'].includes(platform)) {
+        if (!['slack', 'asana', 'jira', 'google'].includes(platform)) {
             return;
         }
 
-        const isProjectPlatform = ['asana', 'jira', 'trello'].includes(platform);
+        const isProjectPlatform = ['asana', 'jira'].includes(platform);
         if (isProjectPlatform && connectedProjectPlatform && connectedProjectPlatform.toLowerCase() !== platform) {
             alert(`Only one project platform can be connected at once. Disconnect ${connectedProjectPlatform} first from Integrations.`);
             return;
@@ -197,8 +140,6 @@ export default function ConnectTools() {
 
         const url = new URL(`${API_URL}/api/auth/${platform}/connect`);
         url.searchParams.set('userId', user.id);
-        url.searchParams.set('teamId', teamId);
-        url.searchParams.set('scope', 'team');
         url.searchParams.set('returnTo', '/onboarding/connect-tools');
         window.location.href = url.toString();
     };
@@ -207,9 +148,7 @@ export default function ConnectTools() {
         ? 'Jira'
         : statuses.asana.connected
             ? 'Asana'
-            : statuses.trello.connected
-                ? 'Trello'
-                : null;
+            : null;
 
     const connectedCount = [
         statuses.slack.connected,
@@ -218,22 +157,21 @@ export default function ConnectTools() {
     ].filter(Boolean).length;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
-            <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-8">
-                <div className="flex flex-col items-center mb-8">
-                    <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Connect Your Team's Tools</h1>
+        <div className="min-h-screen bg-black text-white selection:bg-gray-800 font-sans flex items-center justify-center p-4">
+            <div className="max-w-2xl w-full bg-white/[0.02] border border-white/5 rounded-[2.5rem] p-8 md:p-12">
+                <div className="flex flex-col items-center mb-10">
+                    <h1 className="text-4xl font-bold text-white tracking-tight mb-4">Connect your tools</h1>
+                    <p className="text-gray-500 text-lg text-center max-w-md">
+                        Connect the tools you use daily to get summaries and insights.
+                    </p>
                 </div>
-                <p className="text-gray-600 mb-8 text-center sm:text-left">
-                    These integrations will be shared with all team members. You can always add more later.
-                </p>
 
                 {notification && (
                     <div
-                        className={`mb-6 rounded-lg border p-4 ${
+                        className={`mb-8 rounded-2xl border p-5 ${
                             notification.type === 'error'
-                                ? 'border-red-200 bg-red-50 text-red-800'
-                                : 'border-green-200 bg-green-50 text-green-800'
+                                ? 'border-red-500/20 bg-red-500/5 text-red-400'
+                                : 'border-white/20 bg-white/5 text-white'
                         }`}
                     >
                         <div className="flex items-start gap-3">
@@ -242,44 +180,41 @@ export default function ConnectTools() {
                             ) : (
                                 <CheckCircle className="mt-0.5 flex-shrink-0" size={18} />
                             )}
-                            <p className="text-sm">{notification.message}</p>
+                            <p className="text-sm font-medium">{notification.message}</p>
                         </div>
                     </div>
                 )}
 
                 <div className="space-y-4">
                     {/* Slack */}
-                    <div className="border border-gray-200 rounded-xl p-6 hover:border-purple-300 transition">
-                        <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-4 flex-1">
-                                <img
-                                    src="https://upload.wikimedia.org/wikipedia/commons/d/d5/Slack_icon_2019.svg"
-                                    alt="Slack"
-                                    className="w-12 h-12 rounded-lg"
-                                />
-                                <div className="flex-1">
-                                    <h3 className="text-lg font-semibold text-gray-900">Slack</h3>
-                                    <p className="text-sm text-gray-600 mt-1">
-                                        Get AI summaries of your team channels and detect blockers
+                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-all">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-5">
+                                <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-gray-400">
+                                    <Layers size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-white">Slack</h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Summarize channels and identify blockers
                                     </p>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            <div>
                                 {statuses.slack.loading ? (
-                                    <Loader className="animate-spin text-gray-400" size={20} />
+                                    <Loader className="animate-spin text-gray-700" size={20} />
                                 ) : statuses.slack.connected ? (
-                                    <div className="flex items-center gap-2 text-green-600">
-                                        <CheckCircle size={20} />
-                                        <span className="text-sm font-medium">Connected</span>
+                                    <div className="flex items-center gap-2 text-white/50 text-xs font-bold">
+                                        <CheckCircle size={16} />
+                                        Connected
                                     </div>
                                 ) : (
                                     <button
                                         onClick={() => handleConnect('slack')}
-                                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center gap-2"
+                                        className="px-6 py-2 bg-white text-black rounded-lg text-xs font-bold hover:bg-gray-200 transition-all active:scale-95"
                                     >
                                         Connect
-                                        <ExternalLink size={16} />
                                     </button>
                                 )}
                             </div>
@@ -287,55 +222,46 @@ export default function ConnectTools() {
                     </div>
 
                     {/* Project Platform */}
-                    <div className="border border-gray-200 rounded-xl p-6 hover:border-purple-300 transition">
-                        <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-4 flex-1">
-                                <img
-                                    src="https://upload.wikimedia.org/wikipedia/commons/3/3b/Asana_logo.svg"
-                                    alt="Project Platform"
-                                    className="w-12 h-12 rounded-lg"
-                                />
-                                <div className="flex-1">
-                                    <h3 className="text-lg font-semibold text-gray-900">Project Platform</h3>
-                                    <p className="text-sm text-gray-600 mt-1">
-                                        Use one platform at a time (Jira, Asana, or Trello)
+                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-all">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-5">
+                                <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-gray-400">
+                                    <Users size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-white">Project Management</h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Connect Jira or Asana
                                     </p>
-                                    <p className="text-xs text-gray-500 mt-2">
-                                        Active: {connectedProjectPlatform || 'None'}
-                                    </p>
+                                    {connectedProjectPlatform && (
+                                        <p className="text-[10px] text-gray-600 mt-1 font-bold uppercase tracking-widest">
+                                            Active: {connectedProjectPlatform}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
-                                {statuses.asana.loading || statuses.jira.loading || statuses.trello.loading ? (
-                                    <Loader className="animate-spin text-gray-400" size={20} />
+                            <div>
+                                {statuses.asana.loading || statuses.jira.loading ? (
+                                    <Loader className="animate-spin text-gray-700" size={20} />
                                 ) : connectedProjectPlatform ? (
-                                    <div className="flex items-center gap-2 text-green-600">
-                                        <CheckCircle size={20} />
-                                        <span className="text-sm font-medium">{connectedProjectPlatform} Connected</span>
+                                    <div className="flex items-center gap-2 text-white/50 text-xs font-bold">
+                                        <CheckCircle size={16} />
+                                        Connected
                                     </div>
                                 ) : (
-                                    <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex gap-2">
                                         <button
                                             onClick={() => handleConnect('jira')}
-                                            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm flex items-center gap-2"
+                                            className="px-4 py-2 bg-white/5 border border-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/10 transition-all active:scale-95"
                                         >
                                             Jira
-                                            <ExternalLink size={14} />
                                         </button>
                                         <button
                                             onClick={() => handleConnect('asana')}
-                                            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm flex items-center gap-2"
+                                            className="px-4 py-2 bg-white/5 border border-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/10 transition-all active:scale-95"
                                         >
                                             Asana
-                                            <ExternalLink size={14} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleConnect('trello')}
-                                            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm flex items-center gap-2"
-                                        >
-                                            Trello
-                                            <ExternalLink size={14} />
                                         </button>
                                     </div>
                                 )}
@@ -344,37 +270,34 @@ export default function ConnectTools() {
                     </div>
 
                     {/* Google Calendar */}
-                    <div className="border border-gray-200 rounded-xl p-6 hover:border-purple-300 transition">
-                        <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-4 flex-1">
-                                <img
-                                    src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Google_Calendar_icon_%282020%29.svg"
-                                    alt="Google Calendar"
-                                    className="w-12 h-12 rounded-lg"
-                                />
-                                <div className="flex-1">
-                                    <h3 className="text-lg font-semibold text-gray-900">Google Calendar</h3>
-                                    <p className="text-sm text-gray-600 mt-1">
-                                        Sync meetings and team schedules
+                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-all">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-5">
+                                <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-gray-400">
+                                    <Calendar size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-white">Google Calendar</h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Sync meetings and schedules
                                     </p>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            <div>
                                 {statuses.google.loading ? (
-                                    <Loader className="animate-spin text-gray-400" size={20} />
+                                    <Loader className="animate-spin text-gray-700" size={20} />
                                 ) : statuses.google.connected ? (
-                                    <div className="flex items-center gap-2 text-green-600">
-                                        <CheckCircle size={20} />
-                                        <span className="text-sm font-medium">Connected</span>
+                                    <div className="flex items-center gap-2 text-white/50 text-xs font-bold">
+                                        <CheckCircle size={16} />
+                                        Connected
                                     </div>
                                 ) : (
                                     <button
                                         onClick={() => handleConnect('google')}
-                                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center gap-2"
+                                        className="px-6 py-2 bg-white text-black rounded-lg text-xs font-bold hover:bg-gray-200 transition-all active:scale-95"
                                     >
                                         Connect
-                                        <ExternalLink size={16} />
                                     </button>
                                 )}
                             </div>
@@ -382,30 +305,27 @@ export default function ConnectTools() {
                     </div>
                 </div>
 
-                <div className="mt-8 flex items-center justify-between">
-                    <p className="text-sm text-gray-600">
-                        Connected: {connectedCount}/3
+                <div className="mt-12 flex items-center justify-between">
+                    <p className="text-xs font-bold text-gray-700 uppercase tracking-widest">
+                        {connectedCount}/3 Connected
                     </p>
 
-                    <div className="flex gap-3">
+                    <div className="flex gap-4">
                         <button
-                            onClick={() => navigate('/onboarding/invite-team')}
-                            className="px-6 py-3 text-gray-700 hover:text-gray-900 transition"
+                            onClick={() => navigate('/app/dashboard')}
+                            className="text-xs font-bold text-gray-600 hover:text-white transition-colors"
                         >
                             Skip for now
                         </button>
                         <button
-                            onClick={() => navigate('/onboarding/invite-team')}
-                            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg transition"
+                            onClick={() => navigate('/app/dashboard')}
+                            className="px-8 py-3 bg-white text-black rounded-xl text-sm font-bold hover:bg-gray-200 transition-all active:scale-95 flex items-center gap-2"
                         >
-                            Continue →
+                            Continue
+                            <ArrowRight size={18} />
                         </button>
                     </div>
                 </div>
-
-                <p className="text-xs text-gray-500 mt-4 text-center">
-                    💡 Tip: You can add more integrations later from Settings
-                </p>
             </div>
         </div>
     );

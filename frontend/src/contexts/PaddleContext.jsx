@@ -80,9 +80,8 @@ export const PaddleProvider = ({ children }) => {
             }
             
             // Add metadata for webhook tracking
-            if (customData.teamId || customData.userId) {
+            if (customData.userId) {
                 checkoutConfig.customData = {
-                    teamId: customData.teamId,
                     userId: customData.userId,
                     planName: customData.planName
                 };

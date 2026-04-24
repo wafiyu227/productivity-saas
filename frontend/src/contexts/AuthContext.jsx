@@ -77,24 +77,22 @@ export function AuthProvider({ children }) {
         return false;
     };
 
-    const redirectToDashboard = (profileData = profile) => {
+    const redirectToDashboard = () => {
         if (isRedirectBlocked()) return;
         const currentPath = window.location.pathname;
+        // Only auto-redirect if we are on a login/landing page
         if (!['/', '/login', '/signup'].includes(currentPath)) return;
-
-        if (profileData?.userId && (profileData.current_team_id || profileData.teams?.length > 0)) {
-            navigate('/app/dashboard', { replace: true });
-        } else {
-            navigate('/onboarding/team-setup', { replace: true });
-        }
+        navigate('/app/dashboard', { replace: true });
     };
 
-    const redirectToOnboardingIfNeeded = () => {
+    const redirectToOnboarding = () => {
         if (isRedirectBlocked()) return;
         const currentPath = window.location.pathname;
-        if (currentPath.includes('/onboarding') || currentPath.includes('/join')) return;
-        navigate('/onboarding/team-setup', { replace: true });
+        if (currentPath.includes('/onboarding')) return;
+        navigate('/onboarding', { replace: true });
     };
+
+
 
     const ensureProfileFromAuth = async (userId, sessionUser = null) => {
         const authUser = sessionUser || user;
@@ -164,13 +162,12 @@ export function AuthProvider({ children }) {
                 // Cache the profile for offline resilience
                 if (data) saveCachedProfile(data);
                 if (data?.userId) {
-                    const hasTeam = !!(data.current_team_id || data.teams?.length > 0);
-                    if (hasTeam) {
-                        redirectToDashboard(data);
-                    } else {
-                        redirectToOnboardingIfNeeded();
-                    }
+                    // individual flow: if no integrations, maybe onboarding?
+                    // For now, let's just go to dashboard if they are on a landing page.
+                    // The dashboard or a separate guard can handle the "connect tools" prompt.
+                    redirectToDashboard();
                 }
+
             } else if (res.status === 404) {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (session) {
@@ -181,14 +178,17 @@ export function AuthProvider({ children }) {
                             const retryData = await retry.json();
                             setProfile(retryData || {});
                             if (retryData) saveCachedProfile(retryData);
-                            redirectToOnboardingIfNeeded();
+                            redirectToDashboard();
                             return;
                         }
+
                     } catch (e) {
                         console.error('Profile sync error:', e);
                     }
                     setProfile({ id: userId, is_new_user: true });
-                    redirectToOnboardingIfNeeded();
+                    // New user -> definitely onboarding
+                    redirectToOnboarding();
+
                 } else {
                     setProfile(null);
                     clearCachedProfile();
@@ -265,7 +265,7 @@ export function AuthProvider({ children }) {
     };
 
     const signUpWithGoogle = async (plan = 'free') =>
-        signInWithGoogle({ nextPath: '/onboarding/team-setup', plan });
+        signInWithGoogle({ nextPath: '/app/dashboard', plan });
 
     const signOut = async () => {
         setUser(null);

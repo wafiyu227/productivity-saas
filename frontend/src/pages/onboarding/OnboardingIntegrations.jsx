@@ -1,71 +1,63 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Layers, Check, ArrowRight, Calendar, Users } from 'lucide-react';
+import { Layers, Check, ArrowRight, Calendar, Users, Cpu, Zap, Signal, Shield, Terminal, ArrowLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 
-const IntegrationCard = ({ name, description, icon, connected, onConnect }) => {
-    const IconComponent = icon;
-
+const IntegrationCard = ({ name, description, icon: Icon, connected, onConnect }) => {
     return (
-        <div className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all">
+        <div className={`group flex items-center justify-between p-6 rounded-2xl border transition-all duration-300 ${connected 
+            ? 'bg-white/5 border-white/20' 
+            : 'bg-white/[0.02] border-white/5 hover:border-white/10'}`}>
+            
             <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${connected ? 'bg-green-100 text-green-600' : 'bg-white text-slate-400 border border-slate-100'}`}>
-                    <IconComponent size={24} />
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-all text-white">
+                    <Icon size={20} />
                 </div>
                 <div>
-                    <h3 className="font-semibold text-slate-900">{name}</h3>
-                    <p className="text-xs text-slate-500">{description}</p>
+                    <h3 className="text-sm font-bold text-white mb-1 uppercase tracking-widest leading-none">{name}</h3>
+                    <p className="text-[10px] text-gray-700 font-bold uppercase tracking-widest">{description}</p>
                 </div>
             </div>
+
             <button
                 onClick={() => {
                     if (connected) return;
                     onConnect();
                 }}
                 disabled={connected}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${connected
-                    ? 'bg-green-50 text-green-600 cursor-default flex items-center gap-1 border border-green-100'
-                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                className={`px-6 py-2 rounded-lg text-xs font-bold transition-all uppercase tracking-widest ${connected
+                    ? 'text-gray-800'
+                    : 'bg-white text-black hover:bg-gray-200 active:scale-95'
                     }`}
             >
-                {connected ? (
-                    <>
-                        <Check size={16} />
-                        Connected
-                    </>
-                ) : 'Connect'}
+                {connected ? 'Connected' : 'Connect'}
             </button>
         </div>
     );
 };
 
 const OnboardingIntegrations = () => {
-    const { user, profile } = useAuth();
+    const { user } = useAuth();
     const navigate = useNavigate();
     const [integrations, setIntegrations] = useState({
         slack: false,
         asana: false,
         jira: false,
-        trello: false,
         google: false
     });
-    const teamId = profile?.current_team_id;
 
     useEffect(() => {
         const checkStatus = async () => {
             if (!user) return;
             try {
-                const platforms = ['slack', 'asana', 'jira', 'trello', 'google'];
+                const platforms = ['slack', 'asana', 'jira', 'google'];
                 const status = {};
                 for (const platform of platforms) {
                     const url = new URL(`${API_URL}/api/auth/status`);
                     url.searchParams.append('userId', user.id);
                     url.searchParams.append('platform', platform);
-                    if (teamId) {
-                        url.searchParams.append('teamId', teamId);
-                    }
 
                     const res = await fetch(url.toString());
                     if (res.ok) {
@@ -79,102 +71,86 @@ const OnboardingIntegrations = () => {
             }
         };
         checkStatus();
-    }, [user, teamId]);
+    }, [user]);
 
     const handleConnect = (platform) => {
-        if (!['slack', 'asana', 'jira', 'trello', 'google'].includes(platform)) {
+        if (!['slack', 'asana', 'jira', 'google'].includes(platform)) {
             return;
         }
-
-        const isProjectPlatform = ['asana', 'jira', 'trello'].includes(platform);
-        if (isProjectPlatform && connectedProjectPlatform && connectedProjectPlatform.toLowerCase() !== platform) {
-            alert(`Only one project platform can be connected at once. Disconnect ${connectedProjectPlatform} first from Integrations.`);
-            return;
-        }
-
-        const scope = 'team';
-        window.location.assign(`${API_URL}/api/auth/${platform}/connect?userId=${user.id}&teamId=${teamId}&scope=${scope}`);
+        window.location.assign(`${API_URL}/api/auth/${platform}/connect?userId=${user.id}`);
     };
 
-    const connectedProjectPlatforms = ['jira', 'asana', 'trello'].filter((platform) => integrations[platform]);
-    const connectedProjectPlatform = connectedProjectPlatforms.includes('jira')
-        ? 'Jira'
-        : connectedProjectPlatforms.includes('asana')
-            ? 'Asana'
-            : connectedProjectPlatforms.includes('trello')
-                ? 'Trello'
-                : null;
-    const hasProjectPlatformConflict = connectedProjectPlatforms.length > 1;
+    const connectedProjectPlatform = integrations.jira ? 'Jira' : integrations.asana ? 'Asana' : null;
 
     return (
-        <div className="space-y-6 animate-fadeIn">
-            <div className="flex items-center gap-3 mb-4 text-blue-600">
-                <Layers className="w-6 h-6" />
-                <h2 className="text-xl font-semibold">Connect Team Tools</h2>
+        <div className="space-y-10">
+            <div className="mb-10">
+                <div className="flex items-center gap-4 mb-4">
+                    <h2 className="text-3xl font-bold text-white tracking-tight uppercase">Connect your tools</h2>
+                </div>
+                <p className="text-gray-700 text-sm font-bold uppercase tracking-widest leading-relaxed max-w-md">
+                    Connect your workspace tools to automatically summarize conversations and tasks.
+                </p>
             </div>
-            <p className="text-sm text-slate-500 mb-6">These integrations will be shared with all team members to provide unified insights.</p>
 
             <div className="space-y-4">
                 <IntegrationCard
                     name="Slack"
-                    description="Get AI summaries of team channels"
+                    description="Summarize your team's messages"
                     icon={Layers}
                     connected={integrations.slack}
                     onConnect={() => handleConnect('slack')}
                 />
-                <IntegrationCard
-                    name="Project Platform"
-                    description={`Use one at a time (active: ${connectedProjectPlatform || 'None'})`}
-                    icon={Users}
-                    connected={!!connectedProjectPlatform}
-                    onConnect={() => handleConnect('asana')}
-                />
-                {!connectedProjectPlatform ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                            onClick={() => handleConnect('jira')}
-                            className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                            Connect Jira
-                        </button>
-                        <button
-                            onClick={() => handleConnect('asana')}
-                            className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                            Connect Asana
-                        </button>
-                        <button
-                            onClick={() => handleConnect('trello')}
-                            className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                            Connect Trello
-                        </button>
-                    </div>
-                ) : (
-                    <p className="text-xs text-green-700 mt-2">{connectedProjectPlatform} is connected.</p>
-                )}
+                
+                <div className="space-y-4">
+                    <IntegrationCard
+                        name="Project Management"
+                        description={connectedProjectPlatform ? `Connected to ${connectedProjectPlatform}` : "Connect Jira or Asana"}
+                        icon={Users}
+                        connected={!!connectedProjectPlatform}
+                        onConnect={() => {}}
+                    />
+                    
+                    {!connectedProjectPlatform && (
+                        <div className="flex gap-4">
+                            <button
+                                onClick={() => handleConnect('jira')}
+                                className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[10px] font-bold text-white uppercase tracking-widest hover:bg-white/10 transition-all"
+                            >
+                                Connect Jira
+                            </button>
+                            <button
+                                onClick={() => handleConnect('asana')}
+                                className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-[10px] font-bold text-white uppercase tracking-widest hover:bg-white/10 transition-all"
+                            >
+                                Connect Asana
+                            </button>
+                        </div>
+                    )}
+                </div>
+
                 <IntegrationCard
                     name="Google Calendar"
-                    description="Sync meetings and schedules"
+                    description="Sync meetings and availability"
                     icon={Calendar}
                     connected={integrations.google}
                     onConnect={() => handleConnect('google')}
                 />
             </div>
-            {hasProjectPlatformConflict && (
-                <p className="text-xs text-red-600">
-                    Multiple project platforms are connected. Keep only one active to avoid inconsistent project analytics.
-                </p>
-            )}
 
-            <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
-                <p className="text-xs text-slate-400 italic">You can add more or skip for now</p>
+            <div className="mt-12 pt-8 border-t border-white/5 flex flex-col md:flex-row gap-6 justify-between items-center">
                 <button
-                    onClick={() => navigate('/onboarding/invite-team')}
-                    className="flex items-center gap-2 bg-blue-600 text-white font-semibold py-3 px-8 rounded-xl shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all transform active:scale-[0.98]"
+                    onClick={() => navigate('/app/dashboard')}
+                    className="text-[10px] font-bold text-gray-800 hover:text-white transition-colors uppercase tracking-widest"
                 >
-                    Continue
-                    <ArrowRight className="w-5 h-5" />
+                    Skip for now
+                </button>
+                <button
+                    onClick={() => navigate('/app/dashboard')}
+                    className="w-full md:w-auto flex items-center justify-center gap-3 bg-white text-black font-bold py-3 px-10 rounded-xl text-[10px] uppercase tracking-widest transition-all active:scale-95"
+                >
+                    Dashboard
+                    <ArrowRight size={18} />
                 </button>
             </div>
         </div>

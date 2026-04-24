@@ -1,11 +1,32 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
 import {
-    RefreshCw, MessageSquare, AlertTriangle, TrendingUp,
-    Sparkles, Clock, ArrowRight, Activity, Target
+    Activity,
+    AlertCircle,
+    ArrowRight,
+    Bot,
+    Clock,
+    MessageSquare,
+    RefreshCw,
+    Sparkles,
+    Target,
+    TrendingUp,
+    Zap,
+    Calendar,
+    ChevronRight,
+    Signal,
+    Users,
+    Layers,
+    Lightbulb,
+    MapPin,
+    Sun,
+    CloudRain,
+    Cloud,
+    Moon
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { api } from '../api/client';
+import { prepareMeeting } from '../utils/api-helpers';
 import {
     createEmptyCalendarSignals,
     createEmptyGithubPulls,
@@ -17,26 +38,74 @@ import {
 } from '../utils/blockerSignals';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
-const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana'];
 const PROJECT_PLATFORM_LABELS = {
     jira: 'Jira',
-    asana: 'Asana',
-    trello: 'Trello'
+    asana: 'Asana'
 };
 const PROJECT_PLATFORM_EXTRACTORS = {
     jira: {
-        fetchProjects: (teamId) => api.getJiraProjects(teamId),
-        fetchDeadlines: (teamId) => api.getJiraDeadlines(teamId)
+        fetchProjects: () => api.getJiraProjects(),
+        fetchDeadlines: () => api.getJiraDeadlines()
     },
     asana: {
-        fetchProjects: (teamId) => api.getAsanaProjects(teamId),
-        fetchDeadlines: (teamId) => api.getAsanaDeadlines(teamId)
-    },
-    trello: {
-        fetchProjects: (teamId) => api.getTrelloProjects(teamId),
-        fetchDeadlines: (teamId) => api.getTrelloDeadlines(teamId)
+        fetchProjects: () => api.getAsanaProjects(),
+        fetchDeadlines: () => api.getAsanaDeadlines()
     }
 };
+const PROMPT_SUGGESTIONS = [
+    'What needs attention today?',
+    'Summarize Slack activity',
+    'Prepare for my next meeting'
+];
+const DASHBOARD_CACHE_PREFIX = 'teamaai-dashboard-cache-v1-';
+const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function getDashboardCacheKey(userId) {
+    return `${DASHBOARD_CACHE_PREFIX}${userId}`;
+}
+
+function loadDashboardCache(userId) {
+    try {
+        const raw = sessionStorage.getItem(getDashboardCacheKey(userId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return null;
+
+        const cachedAt = Number(parsed.cachedAt || 0);
+        if (!cachedAt || (Date.now() - cachedAt) > DASHBOARD_CACHE_TTL_MS) {
+            sessionStorage.removeItem(getDashboardCacheKey(userId));
+            return null;
+        }
+
+        return parsed.payload || null;
+    } catch {
+        return null;
+    }
+}
+
+function saveDashboardCache(userId, payload) {
+    try {
+        sessionStorage.setItem(
+            getDashboardCacheKey(userId),
+            JSON.stringify({
+                cachedAt: Date.now(),
+                payload
+            })
+        );
+    } catch {
+        // Ignore storage errors.
+    }
+}
+
+function buildMeetingKeywords(meeting = {}) {
+    return String(meeting?.title || '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .map((keyword) => keyword.trim())
+        .filter((keyword) => keyword.length >= 3)
+        .slice(0, 6);
+}
 
 export default function Dashboard() {
     const { user, profile } = useAuth();
@@ -44,10 +113,13 @@ export default function Dashboard() {
     const [channels, setChannels] = useState([]);
     const [summaries, setSummaries] = useState([]);
     const [workInsightsPreview, setWorkInsightsPreview] = useState([]);
-    const [workInsightsMessage, setWorkInsightsMessage] = useState('');
+    const [workInsightsMessage, setWorkInsightsMessage] = useState('Load workspace data to fetch the latest insights.');
     const [activities, setActivities] = useState([]);
+    const [agentConversations, setAgentConversations] = useState([]);
+    const [notice, setNotice] = useState(null);
     const [blockerStats, setBlockerStats] = useState({ active: 0, resolved: 0, total: 0 });
     const [refreshing, setRefreshing] = useState(false);
+    const [hasLoadedData, setHasLoadedData] = useState(false);
     const [projectStats, setProjectStats] = useState({
         connected: false,
         platform: null,
@@ -58,734 +130,519 @@ export default function Dashboard() {
     const [projectDeadlineSignals, setProjectDeadlineSignals] = useState(null);
     const [githubSignals, setGithubSignals] = useState(createEmptyGithubPulls());
     const [calendarSignals, setCalendarSignals] = useState(createEmptyCalendarSignals());
+    const [preparingMeetingId, setPreparingMeetingId] = useState(null);
+    const [dismissedBlockerIds, setDismissedBlockerIds] = useState([]);
+    const [personalContext, setPersonalContext] = useState({
+        greeting: 'Welcome back.',
+        timeString: '',
+        location: null,
+        weather: null,
+        loaded: false
+    });
 
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const success = params.get('success');
-        const error = params.get('error');
+        if (!user) return;
 
-        if (success === 'slack_connected') {
-            alert('✅ Slack connected successfully!');
-            loadChannels();
-            window.history.replaceState({}, '', '/app');
-        } else if (error) {
-            alert('❌ Connection failed: ' + error);
-            window.history.replaceState({}, '', '/app');
+        const handleNotice = () => {
+            const params = new URLSearchParams(window.location.search);
+            const success = params.get('success');
+            const error = params.get('error');
+
+            if (success === 'slack_connected') {
+                setNotice({
+                    tone: 'success',
+                    message: 'Slack connected successfully.'
+                });
+                window.history.replaceState({}, '', '/app/dashboard');
+            } else if (error) {
+                setNotice({
+                    tone: 'error',
+                    message: `Connection failed: ${error.replace(/_/g, ' ').toUpperCase()}`
+                });
+                window.history.replaceState({}, '', '/app/dashboard');
+            }
+        };
+
+        handleNotice();
+
+        const cachedDashboard = loadDashboardCache(user.id);
+        if (cachedDashboard && !hasLoadedData) {
+            setChannels(Array.isArray(cachedDashboard.channels) ? cachedDashboard.channels : []);
+            setSummaries(Array.isArray(cachedDashboard.summaries) ? cachedDashboard.summaries : []);
+            setWorkInsightsPreview(Array.isArray(cachedDashboard.workInsightsPreview) ? cachedDashboard.workInsightsPreview : []);
+            setWorkInsightsMessage(cachedDashboard.workInsightsMessage || '');
+            setBlockerStats(cachedDashboard.blockerStats || { active: 0, resolved: 0, total: 0 });
+            setProjectStats(cachedDashboard.projectStats || {
+                connected: false,
+                platform: null,
+                projects: 0,
+                atRisk: 0,
+                extractorReady: false
+            });
+            setProjectDeadlineSignals(cachedDashboard.projectDeadlineSignals || null);
+            setGithubSignals(cachedDashboard.githubSignals || createEmptyGithubPulls());
+            setCalendarSignals(cachedDashboard.calendarSignals || createEmptyCalendarSignals());
+            setDismissedBlockerIds(Array.isArray(cachedDashboard.dismissedBlockerIds) ? cachedDashboard.dismissedBlockerIds : []);
+            if (cachedDashboard.personalContext) {
+                setPersonalContext((prev) => ({
+                    ...prev,
+                    ...cachedDashboard.personalContext
+                }));
+            }
+            setHasLoadedData(true);
         }
-    }, []);
+
+        // Update time every minute
+        const timer = setInterval(updateTime, 60000);
+        updateTime();
+
+        return () => clearInterval(timer);
+    }, [user, profile]);
 
     useEffect(() => {
-        if (user && profile) {
-            loadChannels();
-            loadSummaries();
-            loadWorkInsights();
-            loadActivities();
-            loadBlockerStats();
-            loadProjectStats();
-            loadGithubSignals();
-            loadCalendarSignals();
-        }
-    }, [user, profile?.current_team_id]);
+        if (!user?.id || !hasLoadedData) return;
 
-    const getActiveProjectPlatform = async (teamId) => {
+        saveDashboardCache(user.id, {
+            channels: Array.isArray(channels) ? channels.slice(0, 30) : [],
+            summaries: Array.isArray(summaries) ? summaries.slice(0, 20) : [],
+            workInsightsPreview: Array.isArray(workInsightsPreview) ? workInsightsPreview.slice(0, 10) : [],
+            workInsightsMessage,
+            blockerStats,
+            projectStats,
+            projectDeadlineSignals,
+            githubSignals,
+            calendarSignals,
+            dismissedBlockerIds: Array.isArray(dismissedBlockerIds) ? dismissedBlockerIds : [],
+            personalContext
+        });
+    }, [
+        user?.id,
+        hasLoadedData,
+        channels,
+        summaries,
+        workInsightsPreview,
+        workInsightsMessage,
+        blockerStats,
+        projectStats,
+        projectDeadlineSignals,
+        githubSignals,
+        calendarSignals,
+        dismissedBlockerIds,
+        personalContext
+    ]);
+
+    const updateTime = () => {
+        const now = new Date();
+        const hours = now.getHours();
+        
+        let greeting = 'Welcome back.';
+        if (hours < 12) greeting = 'Good morning';
+        else if (hours < 17) greeting = 'Good afternoon';
+        else greeting = 'Good evening';
+
+        const firstName = profile?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || '';
+        const finalGreeting = firstName ? `${greeting}, ${firstName}.` : `${greeting}.`;
+
+        const timeString = now.toLocaleTimeString(undefined, { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: true 
+        }).toUpperCase();
+
+        const dateString = now.toLocaleDateString(undefined, {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric'
+        }).toUpperCase();
+
+        setPersonalContext(prev => ({
+            ...prev,
+            greeting: finalGreeting,
+            timeString: `${dateString} • ${timeString}`
+        }));
+    };
+
+    const loadPersonalContext = async () => {
+        try {
+            // Fetch location and weather via our internal backend proxy to avoid CORS/429 errors
+            const res = await fetch(`${API_URL}/api/user/personal-context?userId=${user.id}`);
+            if (!res.ok) throw new Error('Proxy context fetch failed');
+            const data = await res.json();
+            
+            setPersonalContext(prev => ({
+                ...prev,
+                location: data.location,
+                weather: data.weather,
+                loaded: true
+            }));
+        } catch (err) {
+            console.error('Failed to load personal context:', err);
+            setPersonalContext(prev => ({ ...prev, loaded: true }));
+        }
+    };
+
+    const loadAllData = async () => {
+        if (!user) return;
+        // Load dismissed blockers first to ensure counts are correct
+        const dismissed = await api.listDismissedBlockers();
+        setDismissedBlockerIds(dismissed || []);
+
+        await Promise.all([
+            loadChannels(),
+            loadSummaries(),
+            loadWorkInsights(),
+            loadBlockerStats(dismissed || []),
+            loadProjectStats(),
+            loadGithubSignals(),
+            loadCalendarSignals()
+        ]);
+    };
+
+    const getActiveProjectPlatforms = async () => {
         const statuses = await Promise.all(
             PROJECT_PLATFORM_PRIORITY.map(async (platform) => ({
                 platform,
-                status: await api.getIntegrationStatus(platform, teamId)
+                status: await api.getIntegrationStatus(platform).catch(() => ({ connected: false }))
             }))
         );
 
-        const connected = statuses
+        return statuses
             .filter((entry) => entry.status?.connected)
             .map((entry) => entry.platform);
-
-        return connected.length > 0 ? connected[0] : null;
     };
 
     const loadChannels = async () => {
-        if (!user) return;
-
         try {
-            const data = await api.getChannels(profile?.current_team_id);
-            setChannels(data.channels || []);
-        } catch (error) {
-            console.error('Failed to load channels:', error);
+            const data = await api.getChannels();
+            setChannels(Array.isArray(data?.channels) ? data.channels : []);
+        } catch (err) {
             setChannels([]);
         }
     };
 
     const loadSummaries = async () => {
-        if (!user) return;
-
         try {
-            const data = await api.getSummaries(profile?.current_team_id);
-            setSummaries(data || []);
-        } catch (error) {
-            console.error('Failed to load summaries:', error);
+            const data = await api.getSummaries();
+            setSummaries(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setSummaries([]);
         }
     };
 
     const loadWorkInsights = async () => {
-        if (!user) return;
-
         try {
-            const data = await api.getWorkInsights(profile?.current_team_id, { limit: 6 });
-            setWorkInsightsPreview(Array.isArray(data?.insights) ? data.insights : []);
+            const data = await api.getWorkInsights({ limit: 6 });
+            const allInsights = Array.isArray(data?.insights) ? data.insights : [];
+            
+            // Filter dismissed insights like we do on the Insights page
+            let hiddenIds = [];
+            try {
+                const storageKey = `teamaai_work_insights_hidden_${user?.id || 'anon'}_personal`;
+                const raw = localStorage.getItem(storageKey);
+                hiddenIds = JSON.parse(raw || '[]');
+                if (!Array.isArray(hiddenIds)) hiddenIds = [];
+            } catch (e) {
+                hiddenIds = [];
+            }
+
+            const visibleInsights = allInsights.filter(insight => !hiddenIds.includes(insight.id));
+            setWorkInsightsPreview(visibleInsights);
             setWorkInsightsMessage(data?.message || '');
-        } catch (error) {
-            console.error('Failed to load work insights:', error);
+        } catch (err) {
             setWorkInsightsPreview([]);
-            setWorkInsightsMessage('');
         }
     };
 
-    const loadBlockerStats = async () => {
-        if (!user) return;
+    const loadAgentConversations = async () => {
+        // Removed as per request to keep dashboard minimal
+    };
 
+    const loadBlockerStats = async (currentDismissed = dismissedBlockerIds) => {
         try {
-            const teamId = profile?.current_team_id;
+            const connectedPlatforms = await getActiveProjectPlatforms();
+            const deadlinePromises = connectedPlatforms.map(platform => {
+                const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
+                return extractor ? extractor.fetchDeadlines().catch(() => ({ overdue: { count: 0 }, dueToday: { count: 0 } })) : Promise.resolve({ overdue: { count: 0 }, dueToday: { count: 0 } });
+            });
 
-            const activeProjectPlatform = await getActiveProjectPlatform(teamId);
-            const extractor = PROJECT_PLATFORM_EXTRACTORS[activeProjectPlatform];
-            const projectDeadlinePromise = extractor
-                ? extractor.fetchDeadlines(teamId).catch(() => ({ overdue: { count: 0 }, dueToday: { count: 0 } }))
-                : Promise.resolve({ overdue: { count: 0 }, dueToday: { count: 0 } });
-
-            const [slackRes, projectPlatformDeadlines] = await Promise.all([
-                fetch(`${API_URL}/api/blockers?userId=${user.id}${teamId ? `&teamId=${teamId}` : ''}`).then(r => r.json()).catch(() => []),
-                projectDeadlinePromise
+            const [slackRes, ...platformsDeadlinesList] = await Promise.all([
+                fetch(`${API_URL}/api/blockers?userId=${user.id}`).then((res) => res.json()).catch(() => []),
+                ...deadlinePromises
             ]);
 
             const summariesWithBlockers = Array.isArray(slackRes) ? slackRes : [];
-
             let activeCount = 0;
             let resolvedCount = 0;
             let totalCount = 0;
 
-            // Count Slack blockers
-            summariesWithBlockers.forEach(summary => {
-                if (summary.blockers && Array.isArray(summary.blockers)) {
-                    summary.blockers.forEach((blocker, index) => {
-                        totalCount++;
-                        const status = summary.blocker_status?.[index]?.status || 'active';
-                        if (status === 'active') {
-                            activeCount++;
-                        } else if (status === 'resolved') {
-                            resolvedCount++;
-                        }
-                    });
-                }
+            summariesWithBlockers.forEach((summary) => {
+                if (!Array.isArray(summary.blockers)) return;
+                summary.blockers.forEach((blocker, index) => {
+                    if (!blocker) return;
+
+                    const blockerId = `slack-${summary.id}-${index}`;
+                    if (currentDismissed.includes(blockerId)) return;
+
+                    totalCount += 1;
+                    const status = summary.blocker_status?.[index]?.status || 'active';
+                    if (status === 'active') activeCount += 1;
+                    if (status === 'resolved') resolvedCount += 1;
+                });
             });
 
-            // Add project platform blockers where extractor is available.
-            const projectPlatformActive = (projectPlatformDeadlines?.overdue?.count || 0) + (projectPlatformDeadlines?.dueToday?.count || 0);
+            let projectPlatformActive = 0;
+            platformsDeadlinesList.forEach(deadlines => {
+                projectPlatformActive += (deadlines?.overdue?.count || 0) + (deadlines?.dueToday?.count || 0);
+            });
             activeCount += projectPlatformActive;
             totalCount += projectPlatformActive;
-
-            setBlockerStats({
-                active: activeCount,
-                resolved: resolvedCount,
-                total: totalCount
-            });
-        } catch (error) {
-            console.error('Failed to load blocker stats:', error);
+            setBlockerStats({ active: activeCount, resolved: resolvedCount, total: totalCount });
+        } catch (err) {
+            console.error('Blocker stats error:', err);
         }
     };
 
     const loadProjectStats = async () => {
-        if (!user) return;
-
         try {
-            const teamId = profile?.current_team_id;
-            const activeProjectPlatform = await getActiveProjectPlatform(teamId);
-
-            if (!activeProjectPlatform) {
-                setProjectStats({
-                    connected: false,
-                    platform: null,
-                    projects: 0,
-                    atRisk: 0,
-                    extractorReady: false
-                });
-                setProjectDeadlineSignals(null);
+            const connectedPlatforms = await getActiveProjectPlatforms();
+            if (connectedPlatforms.length === 0) {
+                setProjectStats({ connected: false, platform: null, projects: 0, atRisk: 0, extractorReady: false });
                 return;
             }
 
-            const extractor = PROJECT_PLATFORM_EXTRACTORS[activeProjectPlatform];
-            if (!extractor) {
-                setProjectStats({
-                    connected: true,
-                    platform: activeProjectPlatform,
-                    projects: 0,
-                    atRisk: 0,
-                    extractorReady: false
-                });
-                setProjectDeadlineSignals(null);
-                return;
-            }
+            let totalProjects = 0;
+            let totalAtRisk = 0;
+            const mergedDeadlinesList = [];
 
-            const [projectsData, deadlinesData] = await Promise.all([
-                extractor.fetchProjects(teamId).catch(() => ({ projects: [] })),
-                extractor.fetchDeadlines(teamId).catch(() => ({ totalAtRisk: 0 }))
-            ]);
+            await Promise.all(connectedPlatforms.map(async (platform) => {
+                const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
+                const [projectsData, deadlinesData] = await Promise.all([
+                    extractor.fetchProjects().catch(() => ({ projects: [] })),
+                    extractor.fetchDeadlines().catch(() => ({ totalAtRisk: 0 }))
+                ]);
+                totalProjects += projectsData.projects?.length || 0;
+                totalAtRisk += deadlinesData.totalAtRisk || 0;
+                mergedDeadlinesList.push({ platform, deadlines: deadlinesData });
+            }));
 
-            setProjectDeadlineSignals({
-                platform: activeProjectPlatform,
-                deadlines: deadlinesData
-            });
-
+            setProjectDeadlineSignals(mergedDeadlinesList);
             setProjectStats({
                 connected: true,
-                platform: activeProjectPlatform,
-                projects: projectsData.projects?.length || 0,
-                atRisk: deadlinesData.totalAtRisk || 0,
+                platform: connectedPlatforms[0],
+                projects: totalProjects,
+                atRisk: totalAtRisk,
                 extractorReady: true
             });
-        } catch (error) {
-            if (!error.message?.includes('401')) {
-                console.error('Failed to load project platform stats:', error);
-            }
-            setProjectDeadlineSignals(null);
+        } catch (err) {
+            setProjectStats({ connected: false, platform: null, projects: 0, atRisk: 0, extractorReady: false });
         }
     };
 
     const loadGithubSignals = async () => {
-        if (!user) return;
-
         try {
-            const data = await api.getGithubPulls(profile?.current_team_id, { limit: 12, staleDays: 7 });
-            if (data?.error) {
-                setGithubSignals(createEmptyGithubPulls());
-                return;
-            }
-
+            const data = await api.getGithubPulls({ limit: 12, staleDays: 7 });
             setGithubSignals({
                 pulls: Array.isArray(data?.pulls) ? data.pulls : [],
                 meta: data?.meta || {}
             });
-        } catch (error) {
-            console.error('Failed to load GitHub signals:', error);
+        } catch (err) {
             setGithubSignals(createEmptyGithubPulls());
         }
     };
 
     const loadCalendarSignals = async () => {
-        if (!user) return;
-
         try {
-            const teamId = profile?.current_team_id;
             const [eventsData, actionItemsData] = await Promise.all([
-                api.getGoogleCalendarEvents(teamId, 7),
-                api.getGoogleCalendarActionItems(teamId, 7)
+                api.getGoogleCalendarEvents(7),
+                api.getGoogleCalendarActionItems(7)
             ]);
-
             setCalendarSignals({
-                events: Array.isArray(eventsData?.events) && !eventsData?.error ? eventsData.events : [],
-                actionItems: Array.isArray(actionItemsData?.actionItems) && !actionItemsData?.error
-                    ? actionItemsData.actionItems
-                    : []
+                events: Array.isArray(eventsData?.events) ? eventsData.events : [],
+                actionItems: Array.isArray(actionItemsData?.actionItems) ? actionItemsData.actionItems : []
             });
-        } catch (error) {
-            console.error('Failed to load calendar signals:', error);
+        } catch (err) {
             setCalendarSignals(createEmptyCalendarSignals());
         }
     };
 
     const loadActivities = async () => {
-        if (!user) return;
+        // Removed as per request to keep dashboard minimal
+    };
+
+    const triggerDashboardLoad = async ({ force = false } = {}) => {
+        if (!user || refreshing) return;
+        if (!force && hasLoadedData) return;
+
+        setRefreshing(true);
+        setNotice(null);
 
         try {
-            const data = await api.getSummaries(profile?.current_team_id);
-            const activityList = [];
+            await Promise.all([
+                loadAllData(),
+                loadPersonalContext()
+            ]);
+            setHasLoadedData(true);
+        } catch (error) {
+            console.error('Failed to load dashboard data:', error);
+            setNotice({
+                tone: 'error',
+                message: 'Could not load workspace data. Please try again.'
+            });
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
-            data?.forEach(summary => {
-                activityList.push({
-                    id: `summary-${summary.id}`,
-                    type: 'summary',
-                    text: `Summary generated for #${summary.channel_name}`,
-                    time: new Date(summary.created_at),
-                    icon: Sparkles,
-                    color: 'blue'
+    const handlePrepareMeeting = async (meeting) => {
+        setPreparingMeetingId(meeting.id);
+        setNotice(null);
+
+        try {
+            // Build context from related data
+            const relatedContext = {};
+            const meetingKeywords = buildMeetingKeywords(meeting);
+            
+            // Try to find related tasks from project deadlines
+            let candidateTasks = [];
+            if (Array.isArray(projectDeadlineSignals)) {
+                projectDeadlineSignals.forEach(signal => {
+                    candidateTasks = candidateTasks.concat(signal.deadlines?.dueToday?.tasks || []);
+                    candidateTasks = candidateTasks.concat(signal.deadlines?.overdue?.tasks || []);
                 });
+            }
 
-                const blockers = summary.blockers || [];
-                if (Array.isArray(blockers) && blockers.length > 0) {
-                    blockers.forEach((blocker, idx) => {
-                        activityList.push({
-                            id: `blocker-${summary.id}-${idx}`,
-                            type: 'blocker',
-                            text: `Blocker detected: "${blocker}" in #${summary.channel_name}`,
-                            time: new Date(summary.created_at),
-                            icon: AlertTriangle,
-                            color: 'red'
-                        });
-                    });
-                }
+            if (candidateTasks.length > 0) {
+                relatedContext.relatedTasks = candidateTasks
+                    .filter((task) => {
+                        const haystack = `${task?.name || ''} ${task?.project?.name || ''}`.toLowerCase();
+                        return meetingKeywords.length === 0 || meetingKeywords.some((keyword) => haystack.includes(keyword));
+                    })
+                    .slice(0, 4)
+                    .map(t => `${t.name} - ${t.project?.name || 'Project'}`)
+                    .filter(Boolean);
+            }
+
+            const relatedMessages = (Array.isArray(summaries) ? summaries : [])
+                .filter((summary) => {
+                    const text = String(summary?.summary || '').toLowerCase();
+                    return meetingKeywords.length > 0 && meetingKeywords.some((keyword) => text.includes(keyword));
+                })
+                .slice(0, 3)
+                .map((summary) => summary.summary.substring(0, 220));
+
+            const matchingActionItems = (Array.isArray(calendarSignals?.actionItems) ? calendarSignals.actionItems : [])
+                .filter((item) => item?.eventId === meeting.id || String(item?.source || '').toLowerCase().includes(String(meeting?.title || '').toLowerCase()))
+                .slice(0, 3)
+                .map((item) => item?.text)
+                .filter(Boolean);
+
+            const combinedMessages = [...relatedMessages, ...matchingActionItems];
+            if (combinedMessages.length > 0) {
+                relatedContext.relatedMessages = combinedMessages.slice(0, 4);
+            }
+
+            const result = await prepareMeeting(user.id, meeting, relatedContext);
+            
+            setNotice({
+                tone: 'success',
+                message: `${meeting.title} - Opening meeting prep...`
             });
 
-            activityList.sort((a, b) => b.time - a.time);
-            setActivities(activityList.slice(0, 10));
-        } catch (error) {
-            console.error('Failed to load activities:', error);
-        }
-    };
-
-    const generateSummary = async () => {
-        if (!selectedChannel) {
-            alert('Please select a channel');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const result = await api.createSummary(selectedChannel, 24, profile?.current_team_id);
-
-            if (result.count === 0) {
-                alert('ℹ️ No new messages found in this channel over the last 24 hours to summarize.');
-            } else {
-                alert('✅ Summary generated successfully!');
-                await loadSummaries();
-                await loadActivities();
-                await loadBlockerStats();
+            // Navigate to AgentChat with the conversation
+            if (result.conversationId) {
+                setTimeout(() => {
+                    navigate(`/app/chat?conversation=${result.conversationId}`);
+                }, 1000);
             }
-
-            setSelectedChannel('');
         } catch (error) {
-            if (error.message?.includes('not_in_channel')) {
-                alert('⚠️ The bot is not in this channel!\n\nTo fix:\n1. Go to the channel in Slack\n2. Type: /invite @Teama AI Bot\n3. Try again');
-            } else if (error.message?.includes('Monthly summary limit reached')) {
-                const wantsUpgrade = window.confirm(`🛑 ${error.message}\n\nWould you like to go to Team Settings to upgrade your plan?`);
-                if (wantsUpgrade) {
-                    navigate('/app/team');
-                }
-            } else {
-                alert('Failed to generate summary: ' + (error.message || 'Unknown error'));
-            }
+            console.error('Failed to prepare meeting:', error);
+            setNotice({
+                tone: 'error',
+                message: `Failed to prepare for meeting: ${error.message}`
+            });
         } finally {
-            setLoading(false);
+            setPreparingMeetingId(null);
         }
     };
 
-    const handleRefresh = async () => {
-        setRefreshing(true);
-        await Promise.all([
-            loadSummaries(),
-            loadWorkInsights(),
-            loadActivities(),
-            loadBlockerStats(),
-            loadProjectStats(),
-            loadGithubSignals(),
-            loadCalendarSignals()
-        ]);
-        setRefreshing(false);
-    };
 
-    const stats = {
-        pendingApprovals: workInsightsPreview.length,
-        channelsMonitored: channels.length,
-        summariesGenerated: summaries.length,
-        activeBlockers: blockerStats.active,
-        totalMessages: summaries.reduce((acc, s) => acc + (s.message_count || 0), 0),
-        followUps: Array.isArray(calendarSignals?.actionItems) ? calendarSignals.actionItems.length : 0
-    };
-    const teamBriefing = buildTeamBriefing({
+    const nextMeeting = getNextMeeting(calendarSignals);
+    const upcomingMeetings = [...(calendarSignals?.events || [])]
+        .filter(e => e?.start && new Date(e.start) > new Date())
+        .sort((a, b) => new Date(a.start) - new Date(b.start))
+        .slice(0, 5);
+    
+    const briefing = buildDashboardBriefing({
         channels,
         summaries,
         projectStats,
         projectDeadlineSignals,
         githubSignals,
-        calendarSignals
+        calendarSignals,
+        dismissedBlockerIds
     });
 
+    const snapshotItems = [
+        { label: 'Approvals', value: workInsightsPreview.length, hint: 'Ready for review', icon: Sparkles, path: '/app/insights' },
+        { label: 'Blockers', value: blockerStats.active, hint: `${blockerStats.resolved} resolved`, icon: AlertCircle, path: '/app/blockers' },
+        { label: 'Meetings', value: calendarSignals.events.length, hint: nextMeeting ? `Next: ${trimSentence(nextMeeting.title, 20)}` : 'No meetings', icon: Clock, path: '/app/meetings' },
+        { label: 'Projects', value: projectStats.connected ? projectStats.projects : '-', hint: projectStats.atRisk > 0 ? `${projectStats.atRisk} at risk` : 'On track', icon: Target, path: '/app/projects' }
+    ];
+
+
+
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-            <div className="p-4 md:p-8">
-                <div className="max-w-7xl mx-auto">
-                    {/* Header */}
-                    <div className="mb-6 md:mb-8">
-                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-2">
-                            Command Center
-                        </h1>
-                        <p className="text-base md:text-lg text-gray-600">
-                            Teama is watching your workspace, surfacing what matters, and waiting for approval before it acts.
-                        </p>
+        <div className="min-h-screen bg-black text-white selection:bg-gray-800">
+            <div className="mx-auto max-w-7xl px-4 pb-20 pt-8 md:px-8">
+                {notice && <DashboardNotice notice={notice} />}
+                {!hasLoadedData && (
+                    <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.02] px-6 py-5">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
+                                Data sync is paused to save API usage. Load when you are ready.
+                            </p>
+                            <button
+                                onClick={() => triggerDashboardLoad({ force: true })}
+                                disabled={refreshing}
+                                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-white hover:bg-white/10 disabled:opacity-60"
+                            >
+                                <Activity size={14} className={refreshing ? 'animate-pulse' : ''} />
+                                {refreshing ? 'Loading...' : 'Load Workspace Data'}
+                            </button>
+                        </div>
                     </div>
+                )}
 
-                    <TeamBriefingCard briefing={teamBriefing} navigate={navigate} />
-
-                    {/* Stats Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 md:gap-6 mb-6 md:mb-8">
-                        <StatCard
-                            title="Pending Approvals"
-                            value={stats.pendingApprovals}
-                            icon={<Sparkles className="text-violet-600" size={24} />}
-                            change={stats.pendingApprovals > 0 ? 'Needs review' : 'All clear'}
-                            trend={stats.pendingApprovals > 0 ? "down" : "up"}
-                            onClick={() => navigate('/app/insights')}
-                        />
-                        <StatCard
-                            title="Channels"
-                            value={stats.channelsMonitored}
-                            icon={<MessageSquare className="text-blue-600" size={24} />}
-                            change={`${stats.channelsMonitored} connected`}
-                            trend="neutral"
-                        />
-                        <StatCard
-                            title="Active Blockers"
-                            value={stats.activeBlockers}
-                            icon={<AlertTriangle className="text-red-600" size={24} />}
-                            change={`${blockerStats.resolved} resolved`}
-                            trend={stats.activeBlockers > 0 ? "down" : "up"}
-                            onClick={() => navigate('/app/blockers')}
-                        />
-                        <StatCard
-                            title="Messages Analyzed"
-                            value={stats.totalMessages}
-                            icon={<TrendingUp className="text-green-600" size={24} />}
-                            change={`${stats.totalMessages} messages`}
-                            trend="up"
-                        />
-                        <StatCard
-                            title="Meeting Follow-ups"
-                            value={stats.followUps}
-                            icon={<Clock className="text-amber-600" size={24} />}
-                            change={stats.followUps > 0 ? 'Still open' : 'No open items'}
-                            trend={stats.followUps > 0 ? "down" : "up"}
-                            onClick={() => navigate('/app/meetings')}
-                        />
-                        <StatCard
-                            title={projectStats.platform ? `${PROJECT_PLATFORM_LABELS[projectStats.platform]} Projects` : 'Project Platform'}
-                            value={projectStats.extractorReady ? projectStats.projects : (projectStats.connected ? '—' : 0)}
-                            icon={<Target className="text-cyan-600" size={24} />}
-                            change={projectStats.connected
-                                ? (projectStats.extractorReady
-                                    ? (projectStats.atRisk > 0 ? `${projectStats.atRisk} at risk` : 'All on track')
-                                    : 'Extractor not wired yet')
-                                : 'Not connected'}
-                            trend={projectStats.connected && projectStats.extractorReady && projectStats.atRisk > 0 ? "down" : "up"}
-                            onClick={() => navigate('/app/projects')}
-                        />
-                    </div>
-
-                    <ApprovalModelCard
-                        insights={workInsightsPreview}
-                        message={workInsightsMessage}
+                <div className="grid gap-6 xl:grid-cols-[1.5fr_0.5fr] animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <AgentHeroCard
+                        briefing={briefing}
+                        personalContext={personalContext}
+                        refreshing={refreshing}
+                        hasLoadedData={hasLoadedData}
+                        onLoadData={() => triggerDashboardLoad({ force: true })}
+                        onRefresh={() => triggerDashboardLoad({ force: true })}
                         navigate={navigate}
                     />
+                    <CommandSnapshotCard items={snapshotItems} navigate={navigate} />
+                </div>
 
-                    {/* Generate Summary Card */}
-                    {false && (
-                    <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl shadow-xl p-5 md:p-8 mb-6 md:mb-8 text-white">
-                        <div className="flex items-start justify-between mb-4 md:mb-6">
-                            <div>
-                                <h2 className="text-2xl font-bold mb-2">
-                                    Generate AI Summary
-                                </h2>
-                                <p className="text-blue-100">
-                                    Get instant insights from any Slack channel
-                                </p>
-                            </div>
-                            <img src="/logo.png" alt="Teama AI Logo" className="w-8 h-8 object-contain" />
-                        </div>
+                <div className="mt-8 grid gap-6 xl:grid-cols-2 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100">
+                    <FocusPanel briefing={briefing} navigate={navigate} />
+                    <SuggestionsPanel insights={workInsightsPreview} message={workInsightsMessage} navigate={navigate} />
+                </div>
 
-                        <div className="flex flex-col md:flex-row gap-4">
-                            <select
-                                value={selectedChannel}
-                                onChange={(e) => setSelectedChannel(e.target.value)}
-                                className="flex-1 px-4 py-3 bg-white/20 backdrop-blur-sm border border-white/30 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
-                            >
-                                <option value="" className="text-gray-900">
-                                    Select a channel...
-                                </option>
-                                {channels.length === 0 && (
-                                    <option value="" className="text-gray-900">
-                                        No channels - Connect Slack in Integrations →
-                                    </option>
-                                )}
-                                {channels.map((ch) => (
-                                    <option key={ch.id} value={ch.id} className="text-gray-900">
-                                        #{ch.name}
-                                    </option>
-                                ))}
-                            </select>
-                            <button
-                                onClick={generateSummary}
-                                disabled={loading || !selectedChannel}
-                                className="px-8 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 whitespace-nowrap"
-                            >
-                                {loading ? (
-                                    <>
-                                        <RefreshCw size={20} className="animate-spin" />
-                                        Analyzing...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Sparkles size={20} />
-                                        Generate Summary
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                    )}
+                <div className="mt-8 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-200">
+                    <CommandCenterCard actions={briefing.actions} navigate={navigate} />
+                </div>
 
-                    {/* Main Content Grid */}
-                    <div className="grid lg:grid-cols-3 gap-8">
-                        <ApprovalQueueCard
-                            insights={workInsightsPreview}
-                            message={workInsightsMessage}
+                {upcomingMeetings.length > 0 && (
+                    <div className="mt-8 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300">
+                        <UpcomingMeetingsCard 
+                            meetings={upcomingMeetings} 
+                            preparingMeetingId={preparingMeetingId}
+                            onPrepareMeeting={handlePrepareMeeting}
                             navigate={navigate}
                         />
-
-                        {/* Recent Summaries */}
-                        {false && (
-                        <div className="lg:col-span-2">
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                                <div className="flex items-center justify-between mb-6">
-                                    <h2 className="text-2xl font-bold text-gray-900">
-                                        Recent Summaries
-                                    </h2>
-                                    <button
-                                        onClick={() => navigate('/app/summaries')}
-                                        className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
-                                    >
-
-
-                                        View all summaries
-
-
-                                    </button>
-                                </div>
-
-                                {summaries.length === 0 ? (
-                                    <EmptyState />
-                                ) : (
-                                    <div className="space-y-4">
-                                        {summaries.slice(0, 3).map((summary, idx) => (
-                                            <SummaryCard key={idx} summary={summary} />
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                        )}
-
-                        {/* Quick Actions & Activity */}
-                        <div className="space-y-6">
-                            <QuickActionsCard navigate={navigate} />
-                            <ActivityFeed activities={activities} refreshing={refreshing} onRefresh={handleRefresh} />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function StatCard({ title, value, icon, change, trend, onClick }) {
-    return (
-        <div
-            onClick={onClick}
-            className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow ${onClick ? 'cursor-pointer' : ''}`}
-        >
-            <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl">
-                    {icon}
-                </div>
-                <span className={`text-sm font-medium ${trend === 'up' ? 'text-green-600' :
-                    trend === 'down' ? 'text-red-600' :
-                        'text-gray-600'
-                    }`}>
-                    {change}
-                </span>
-            </div>
-            <p className="text-sm text-gray-600 mb-1">{title}</p>
-            <p className="text-3xl font-bold text-gray-900">{value}</p>
-        </div>
-    );
-}
-
-function ApprovalModelCard({ insights, message, navigate }) {
-    const previewInsights = Array.isArray(insights) ? insights.slice(0, 2) : [];
-
-    return (
-        <section className="mb-6 md:mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-sky-700 via-blue-700 to-cyan-700 p-6 md:p-8 text-white shadow-xl">
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
-                <div>
-                    <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">
-                        <Sparkles size={14} />
-                        Approval-First AI
-                    </div>
-                    <h2 className="mb-3 text-2xl font-bold leading-tight md:text-4xl">
-                        Teama works proactively, but it never writes without approval.
-                    </h2>
-                    <p className="max-w-3xl text-sm leading-7 text-blue-50 md:text-base">
-                        This is the core product contract: Teama learns from Slack, Jira, GitHub, Calendar, and your other tools,
-                        explains what it found, then waits for a human to accept, edit, or ignore the next action.
-                    </p>
-
-                    <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                        <ApprovalPrinciple
-                            title="Evidence-backed"
-                            description="Every suggestion shows the exact signals and source context behind it."
-                        />
-                        <ApprovalPrinciple
-                            title="Human-in-loop"
-                            description="Nothing gets pushed back to a connected tool until a user approves it."
-                        />
-                        <ApprovalPrinciple
-                            title="Cross-tool aware"
-                            description="Insights combine workspace activity instead of forcing users to jump between apps."
-                        />
-                    </div>
-
-                    <div className="mt-6 flex flex-wrap gap-3">
-                        <button
-                            onClick={() => navigate('/app/insights')}
-                            className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
-                        >
-                            Review Approvals
-                            <ArrowRight size={16} />
-                        </button>
-                        <button
-                            onClick={() => navigate('/app/integrations')}
-                            className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
-                        >
-                            Manage Sources
-                        </button>
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    <div className="rounded-3xl border border-white/15 bg-white/10 p-5">
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                            <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">Approval Queue</p>
-                                <p className="mt-1 text-3xl font-bold text-white">{previewInsights.length}</p>
-                            </div>
-                            <div className="rounded-2xl bg-white/10 p-3">
-                                <Sparkles size={22} className="text-blue-100" />
-                            </div>
-                        </div>
-                        <p className="text-sm leading-6 text-blue-50">
-                            {previewInsights.length > 0
-                                ? 'Teama has surfaced actions that are ready for review right now.'
-                                : (message || 'No approvals are waiting right now. Teama is still watching your connected workspace.')}
-                        </p>
-                    </div>
-
-                    {previewInsights.length > 0 ? (
-                        previewInsights.map((insight) => (
-                            <div key={insight.id} className="rounded-3xl border border-white/15 bg-white/10 p-5">
-                                <div className="mb-2 flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-2">
-                                        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-50">
-                                            {insight.platformLabel}
-                                        </span>
-                                        <p className="font-semibold text-white">{insight.ticketKey}</p>
-                                    </div>
-                                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-blue-50">
-                                        {insight.suggestedStatus}
-                                    </span>
-                                </div>
-                                <p className="text-sm leading-6 text-blue-50">
-                                    {insight.signals?.join(' • ') || 'Signals detected'}
-                                </p>
-                            </div>
-                        ))
-                    ) : (
-                        <div className="rounded-3xl border border-dashed border-white/20 bg-black/10 p-5 text-sm leading-6 text-blue-50">
-                            Connect sources and share work-item updates in Slack so Teama can start surfacing approval-ready actions.
-                        </div>
-                    )}
-                </div>
-            </div>
-        </section>
-    );
-}
-
-function ApprovalPrinciple({ title, description }) {
-    return (
-        <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-            <p className="text-sm font-semibold text-white">{title}</p>
-            <p className="mt-2 text-xs leading-6 text-blue-50">{description}</p>
-        </div>
-    );
-}
-
-function ApprovalQueueCard({ insights, message, navigate }) {
-    const items = Array.isArray(insights) ? insights.slice(0, 4) : [];
-
-    return (
-        <div className="lg:col-span-2">
-            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-                <div className="mb-6 flex items-center justify-between">
-                    <div>
-                        <h2 className="text-2xl font-bold text-gray-900">Approval Queue</h2>
-                        <p className="mt-1 text-sm leading-6 text-gray-600">
-                            Review Teama's latest evidence-backed suggestions before anything is written back to your tools.
-                        </p>
-                    </div>
-                    <button
-                        onClick={() => navigate('/app/insights')}
-                        className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
-                    >
-                        View all
-                        <ArrowRight size={16} />
-                    </button>
-                </div>
-
-                {items.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
-                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-sm">
-                            <Sparkles className="text-sky-600" size={24} />
-                        </div>
-                        <h3 className="text-lg font-semibold text-gray-900">No approvals waiting</h3>
-                        <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-gray-600">
-                            {message || 'Teama has not found any approval-ready actions yet.'}
-                        </p>
-                    </div>
-                ) : (
-                    <div className="space-y-4">
-                        {items.map((insight) => (
-                            <button
-                                key={insight.id}
-                                onClick={() => navigate('/app/insights')}
-                                className="w-full rounded-2xl border border-gray-200 p-5 text-left transition hover:border-blue-200 hover:bg-blue-50/40"
-                            >
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                        <div className="mb-2 flex items-center gap-2">
-                                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
-                                                {insight.platformLabel}
-                                            </span>
-                                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-                                                {insight.ticketKey}
-                                            </span>
-                                            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
-                                                {insight.suggestedStatus}
-                                            </span>
-                                        </div>
-                                        <p className="text-lg font-semibold text-gray-900">{insight.ticketName}</p>
-                                        <p className="mt-1 text-sm leading-6 text-gray-600">
-                                            {insight.evidence?.[0]?.text || 'Teama found activity worth reviewing.'}
-                                        </p>
-                                    </div>
-                                    <ArrowRight size={18} className="mt-1 text-gray-400" />
-                                </div>
-
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    {insight.signals?.map((signal) => (
-                                        <span
-                                            key={`${insight.id}-${signal}`}
-                                            className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
-                                        >
-                                            {signal}
-                                        </span>
-                                    ))}
-                                </div>
-                            </button>
-                        ))}
                     </div>
                 )}
             </div>
@@ -793,534 +650,368 @@ function ApprovalQueueCard({ insights, message, navigate }) {
     );
 }
 
-function TeamBriefingCard({ briefing, navigate }) {
+function DashboardNotice({ notice }) {
     return (
-        <section className="mb-6 md:mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 md:p-8 text-white shadow-xl">
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
-                <div>
-                    <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">
-                        <Activity size={14} />
-                        Proactive Briefing
-                    </div>
-                    <h2 className="mb-3 text-2xl font-bold leading-tight md:text-4xl">
-                        {briefing.headline}
-                    </h2>
-                    <p className="max-w-3xl text-sm leading-7 text-slate-200 md:text-base">
-                        {briefing.summary}
-                    </p>
+        <div className={`mb-8 rounded-2xl border px-6 py-4 text-xs font-bold uppercase tracking-widest ${notice.tone === 'success' ? 'border-white/10 bg-white/5 text-white' : 'border-red-500/20 bg-red-500/5 text-red-500'}`}>
+            <p>{notice.message}</p>
+        </div>
+    );
+}
 
-                    <div className="mt-5 flex flex-wrap gap-2">
-                        {briefing.sources.map((source) => (
-                            <span
-                                key={source}
-                                className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-slate-100"
-                            >
-                                {source}
-                            </span>
-                        ))}
-                    </div>
+function AgentHeroCard({ briefing, personalContext, refreshing, hasLoadedData, onLoadData, onRefresh, navigate }) {
+    const WeatherIcon = getWeatherIcon(personalContext?.weather?.code);
 
-                    <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        {briefing.metrics.map((metric) => (
-                            <div
-                                key={metric.label}
-                                className="rounded-2xl border border-white/10 bg-white/10 p-4"
-                            >
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                                    {metric.label}
-                                </p>
-                                <p className="mt-2 text-2xl font-bold text-white">{metric.value}</p>
-                                <p className="mt-1 text-xs text-slate-300">{metric.description}</p>
+    return (
+        <section className="relative overflow-hidden rounded-[2.5rem] bg-white/[0.02] border border-white/5 p-8 md:p-10 transition-all hover:border-white/10 group">
+            <div className="flex flex-wrap items-center justify-between gap-6 mb-12">
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="px-4 py-1.5 bg-white text-black rounded-full">
+                        <span className="text-[10px] font-bold uppercase tracking-widest">Today's Overview</span>
+                    </div>
+                    
+                    {personalContext?.loaded && (
+                        <div className="flex items-center gap-3 px-4 py-1.5 bg-white/5 border border-white/10 rounded-full animate-in fade-in slide-in-from-left-4 duration-700">
+                            <div className="flex items-center gap-1.5 text-gray-400">
+                                <Clock size={12} className="text-gray-500" />
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{personalContext.timeString}</span>
                             </div>
-                        ))}
-                    </div>
+                            
+                            {personalContext.location && (
+                                <>
+                                    <div className="w-1 h-1 rounded-full bg-white/10"></div>
+                                    <div className="flex items-center gap-1.5 text-gray-400">
+                                        <MapPin size={12} className="text-gray-500" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest">{personalContext.location.city}</span>
+                                    </div>
+                                </>
+                            )}
+
+                            {personalContext.weather && (
+                                <>
+                                    <div className="w-1 h-1 rounded-full bg-white/10"></div>
+                                    <div className="flex items-center gap-1.5 text-gray-400">
+                                        <WeatherIcon size={12} className="text-gray-500" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest">{personalContext.weather.temp}°C</span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-                    <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                        <div className="mb-4 flex items-center gap-2">
-                            <AlertTriangle size={18} className="text-amber-300" />
-                            <h3 className="text-lg font-semibold">Needs Attention</h3>
-                        </div>
-                        <div className="space-y-3">
-                            {briefing.attentionItems.map((item) => (
-                                <button
-                                    key={item.title}
-                                    onClick={() => item.path && navigate(item.path)}
-                                    className="w-full rounded-2xl border border-white/10 bg-black/10 p-4 text-left transition hover:border-white/20 hover:bg-white/10"
-                                >
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="font-semibold text-white">{item.title}</p>
-                                            <p className="mt-1 text-sm leading-6 text-slate-200">{item.description}</p>
-                                        </div>
-                                        <ArrowRight size={16} className="mt-1 shrink-0 text-slate-300" />
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                {hasLoadedData ? (
+                    <button
+                        onClick={onRefresh}
+                        className="p-3 rounded-2xl bg-white/5 border border-white/5 text-gray-500 hover:text-white transition-all active:scale-95"
+                    >
+                        <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
+                    </button>
+                ) : (
+                    <button
+                        onClick={onLoadData}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-all active:scale-95"
+                    >
+                        <Activity size={16} className={refreshing ? 'animate-pulse' : ''} />
+                        {refreshing ? 'Loading' : 'Load Data'}
+                    </button>
+                )}
+            </div>
 
-                    <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
-                        <div className="mb-4 flex items-center gap-2">
-                            <Sparkles size={18} className="text-blue-200" />
-                            <h3 className="text-lg font-semibold">Recommended Next Steps</h3>
+            <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-white mb-6 leading-tight uppercase">
+                {personalContext?.greeting || 'Welcome back.'}
+            </h1>
+            <p className="text-xl font-medium text-gray-400 mb-4">{briefing.headline}</p>
+            <p className="max-w-2xl text-sm leading-relaxed text-gray-500 font-medium mb-10">
+                {trimSentence(briefing.summary, 180)}
+            </p>
+
+            <div className="flex flex-wrap gap-4">
+                <button
+                    onClick={() => navigate('/app/chat')}
+                    className="inline-flex items-center gap-3 bg-white text-black px-8 py-4 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-gray-200 transition-all active:scale-95"
+                >
+                    Start Chatting
+                    <ArrowRight size={18} />
+                </button>
+            </div>
+
+            <div className="mt-12 pt-8 border-t border-white/5 flex flex-wrap gap-6">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Tools Connected:</span>
+                <div className="flex gap-4">
+                    {briefing.sources.map(source => (
+                        <div key={source} className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 bg-white/10 rounded-full"></div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{source}</span>
                         </div>
-                        <div className="space-y-3">
-                            {briefing.actions.map((action) => (
-                                <button
-                                    key={action.title}
-                                    onClick={() => navigate(action.path)}
-                                    className="w-full rounded-2xl border border-white/10 bg-black/10 p-4 text-left transition hover:border-white/20 hover:bg-white/10"
-                                >
-                                    <p className="font-semibold text-white">{action.title}</p>
-                                    <p className="mt-1 text-sm leading-6 text-slate-200">{action.description}</p>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    ))}
                 </div>
             </div>
         </section>
     );
 }
 
-function SummaryCard({ summary }) {
-    const channelName = summary.channel_name || summary.channelName || 'unknown';
-    const summaryText = summary.summary || '';
-    const blockers = summary.blockers || [];
-    const keyTopics = summary.key_topics || summary.keyTopics || [];
-    const messageCount = summary.message_count || summary.messageCount || 0;
-    const createdAt = summary.created_at ? new Date(summary.created_at).toLocaleDateString() : 'Just now';
-
+function CommandSnapshotCard({ items, navigate }) {
     return (
-        <div className="border border-gray-200 rounded-xl p-5 hover:shadow-md hover:border-blue-200 transition-all">
-            <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-                        <MessageSquare className="text-white" size={20} />
-                    </div>
-                    <div>
-                        <h3 className="font-semibold text-gray-900">#{channelName}</h3>
-                        <p className="text-sm text-gray-500 flex items-center gap-1">
-                            <Clock size={14} />
-                            {createdAt} • {messageCount} messages
-                        </p>
-                    </div>
-                </div>
+        <section className="rounded-[2rem] bg-white/[0.02] border border-white/5 p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-white mb-8 tracking-tight">Quick Stats</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+                {items.map((item) => (
+                    <button
+                        key={item.label}
+                        onClick={() => navigate(item.path)}
+                        className="rounded-2xl bg-white/[0.02] border border-white/5 p-5 text-left transition-all hover:border-white/10 active:scale-[0.98]"
+                    >
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">{item.label}</p>
+                        <p className="text-3xl font-bold text-white mb-1">{item.value}</p>
+                        <p className="text-[10px] font-medium text-gray-400 truncate">{item.hint}</p>
+                    </button>
+                ))}
             </div>
+        </section>
+    );
+}
 
-            <p className="text-gray-700 mb-4 leading-relaxed">{summaryText}</p>
+function FocusPanel({ briefing, navigate }) {
+    return (
+        <section className="rounded-[2rem] bg-white/[0.02] border border-white/5 p-8">
+            <h2 className="text-3xl font-bold text-white mb-10 tracking-tight">Attention Needed</h2>
+            <div className="space-y-4">
+                {briefing.attentionItems.map((item, i) => (
+                    <button
+                        key={i}
+                        onClick={() => item.path && navigate(item.path)}
+                        className="w-full flex items-center justify-between p-6 rounded-3xl bg-white/[0.01] border border-white/5 hover:border-white/10 transition-all text-left group"
+                    >
+                        <div>
+                            <p className="text-sm font-bold text-white mb-2 group-hover:text-gray-300 transition-colors">{item.title}</p>
+                            <p className="text-sm text-gray-400 leading-relaxed font-medium">{item.description}</p>
+                        </div>
+                        <ChevronRight size={20} className="text-gray-400 group-hover:text-white" />
+                    </button>
+                ))}
+            </div>
+        </section>
+    );
+}
 
-            {Array.isArray(blockers) && blockers.length > 0 && (
-                <div className="mb-3">
-                    <p className="text-xs font-semibold text-red-600 mb-2 uppercase">Blockers Detected</p>
-                    <div className="flex flex-wrap gap-2">
-                        {blockers.map((blocker, i) => (
-                            <span
-                                key={i}
-                                className="px-3 py-1.5 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 flex items-center gap-1"
-                            >
-                                <AlertTriangle size={14} />
-                                {blocker}
-                            </span>
-                        ))}
-                    </div>
+function SuggestionsPanel({ insights, message, navigate }) {
+    const preview = Array.isArray(insights) ? insights.slice(0, 3) : [];
+    return (
+        <section className="rounded-[2rem] bg-white/[0.02] border border-white/5 p-8">
+            <h2 className="text-3xl font-bold text-white mb-10 tracking-tight">Ready for Review</h2>
+            {preview.length === 0 ? (
+                <div className="p-10 text-center border border-dashed border-white/5 rounded-3xl">
+                    <p className="text-sm font-bold uppercase tracking-widest text-gray-400">{message || 'Checking for updates...'}</p>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    {preview.map((insight, i) => (
+                        <button
+                            key={i}
+                            onClick={() => navigate('/app/insights')}
+                            className="w-full p-6 text-left rounded-3xl bg-white/[0.01] border border-white/5 hover:border-white/10 transition-all group"
+                        >
+                            <p className="text-sm font-bold text-white mb-2 group-hover:text-gray-300 transition-colors">
+                                {insight.ticketName || 'Proposed Update'}
+                            </p>
+                            <p className="text-xs text-gray-400 leading-relaxed font-medium line-clamp-2">
+                                {trimSentence(insight.evidence?.[0]?.text || 'Review suggested improvements for your workflow.', 120)}
+                            </p>
+                        </button>
+                    ))}
+                    <button onClick={() => navigate('/app/insights')} className="w-full pt-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-white">
+                        View All Insights →
+                    </button>
                 </div>
             )}
+        </section>
+    );
+}
 
-            {Array.isArray(keyTopics) && keyTopics.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                    {keyTopics.map((topic, i) => (
-                        <span
-                            key={i}
-                            className="px-3 py-1 bg-blue-50 text-blue-700 text-sm rounded-lg"
+function CommandCenterCard({ actions, navigate }) {
+    return (
+        <section className="rounded-[2.5rem] bg-white/[0.02] border border-white/5 p-8">
+            <h2 className="text-3xl font-bold text-white mb-10 tracking-tight">Quick Actions</h2>
+            <div className="space-y-3 mb-10">
+                {actions.map((action, i) => (
+                    <button
+                        key={i}
+                        onClick={() => navigate(action.path)}
+                        className="w-full flex items-center justify-between p-5 rounded-2xl bg-white/[0.01] border border-white/5 hover:border-white/10 transition-all group"
+                    >
+                        <div className="text-left">
+                            <p className="text-xs font-bold text-white mb-1 group-hover:text-gray-300 transition-colors uppercase tracking-tight">{action.title}</p>
+                            <p className="text-xs text-gray-400 font-medium">{action.description}</p>
+                        </div>
+                        <ArrowRight size={16} className="text-gray-400 group-hover:text-white" />
+                    </button>
+                ))}
+            </div>
+
+        </section>
+    );
+}
+
+function UpcomingMeetingsCard({ meetings, preparingMeetingId, onPrepareMeeting, navigate }) {
+    return (
+        <section className="rounded-[2.5rem] bg-white/[0.02] border border-white/5 p-8">
+            <div className="flex items-center justify-between mb-10">
+                <h2 className="text-3xl font-bold text-white tracking-tight">Upcoming Meetings</h2>
+                <button onClick={() => navigate('/app/meetings')} className="p-3 text-gray-400 hover:text-white transition-all">
+                    <ChevronRight size={20} />
+                </button>
+            </div>
+            {meetings.length === 0 ? (
+                <div className="p-10 text-center border border-dashed border-white/5 rounded-3xl">
+                    <p className="text-xs font-bold uppercase tracking-widest text-gray-400">No upcoming meetings</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {meetings.map((meeting) => (
+                        <div
+                            key={meeting.id}
+                            className="p-5 rounded-2xl bg-white/[0.01] border border-white/5 hover:border-white/10 transition-all"
                         >
-                            #{topic}
-                        </span>
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1">
+                                    <p className="text-sm font-bold text-white mb-2">{meeting.title || 'Untitled Meeting'}</p>
+                                    <p className="text-xs text-gray-400">
+                                        {meeting.start ? new Date(meeting.start).toLocaleString(undefined, { 
+                                            month: 'short',
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        }) : 'Time not set'}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => onPrepareMeeting(meeting)}
+                                    disabled={preparingMeetingId === meeting.id}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-xs font-bold"
+                                >
+                                    <Lightbulb size={14} />
+                                    {preparingMeetingId === meeting.id ? 'Preparing...' : 'Prepare'}
+                                </button>
+                            </div>
+                        </div>
                     ))}
                 </div>
             )}
-        </div>
+        </section>
     );
 }
 
-function EmptyState() {
-    return (
-        <div className="text-center py-12">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Sparkles className="text-blue-600" size={32} />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                No summaries yet
-            </h3>
-            <p className="text-gray-600 mb-4">
-                Generate your first AI summary from a Slack channel above
-            </p>
-        </div>
+function buildDashboardBriefing({ channels, summaries, projectStats, projectDeadlineSignals, githubSignals, calendarSignals, dismissedBlockerIds = [] }) {
+    const sorted = [...(summaries || [])].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    const latest = sorted[0] || null;
+
+    const slackBlockers = extractSlackBlockers(sorted).filter(item => 
+        item.status === 'active' && !dismissedBlockerIds.includes(item.id)
     );
-}
-
-function QuickActionsCard({ navigate }) {
-    return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h3 className="font-bold text-gray-900 mb-4">Workspace Actions</h3>
-            <div className="space-y-3">
-                <QuickAction
-                    icon={<Sparkles size={18} className="text-violet-600" />}
-                    title="Review Approvals"
-                    description="Accept, edit, or ignore Teama suggestions"
-                    onClick={() => navigate('/app/insights')}
-                />
-                <QuickAction
-                    icon={<Target size={18} className="text-cyan-600" />}
-                    title="Check Project Health"
-                    description="Review cross-tool delivery risk"
-                    onClick={() => navigate('/app/projects')}
-                />
-                <QuickAction
-                    icon={<Clock size={18} className="text-amber-600" />}
-                    title="Prep for Meetings"
-                    description="Open meeting context and follow-ups"
-                    onClick={() => navigate('/app/meetings')}
-                />
-                <QuickAction
-                    icon={<MessageSquare size={18} className="text-blue-600" />}
-                    title="Review Slack Context"
-                    description="Inspect the signals Teama is learning from"
-                    onClick={() => navigate('/app/summaries')}
-                />
-                <QuickAction
-                    icon={<AlertTriangle size={18} className="text-red-600" />}
-                    title="Manage Sources"
-                    description="Connect or tune the tools Teama watches"
-                    onClick={() => navigate('/app/integrations')}
-                />
-            </div>
-        </div>
-    );
-}
-
-function QuickAction({ icon, title, description, onClick }) {
-    return (
-        <button
-            onClick={onClick}
-            className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-        >
-            <div className="p-2 bg-gray-50 rounded-lg">
-                {icon}
-            </div>
-            <div>
-                <p className="font-medium text-gray-900 text-sm">{title}</p>
-                <p className="text-xs text-gray-500">{description}</p>
-            </div>
-        </button>
-    );
-}
-
-function ActivityFeed({ activities, refreshing, onRefresh }) {
-    const formatTime = (date) => {
-        const now = new Date();
-        const diffMs = now - new Date(date);
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMs / 3600000);
-        const diffDays = Math.floor(diffMs / 86400000);
-
-        if (diffMins < 1) return 'Just now';
-        if (diffMins < 60) return `${diffMins}m ago`;
-        if (diffHours < 24) return `${diffHours}h ago`;
-        if (diffDays < 7) return `${diffDays}d ago`;
-        return new Date(date).toLocaleDateString();
-    };
-
-    const colorMap = {
-        blue: 'bg-blue-500',
-        red: 'bg-red-500',
-        green: 'bg-green-500',
-        purple: 'bg-purple-500'
-    };
-
-    return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                    <Activity size={20} />
-                    Recent Signals
-                </h3>
-                <button
-                    onClick={onRefresh}
-                    disabled={refreshing}
-                    className="text-gray-400 hover:text-gray-600 transition"
-                >
-                    <RefreshCw
-                        size={16}
-                        className={refreshing ? 'animate-spin' : ''}
-                    />
-                </button>
-            </div>
-            <div className="space-y-4">
-                {activities.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-4">No signals yet</p>
-                ) : (
-                    activities.map((activity) => (
-                        <div key={activity.id} className="flex gap-3">
-                            <div className={`w-2 h-2 rounded-full mt-2 ${colorMap[activity.color]}`} />
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm text-gray-900 truncate">{activity.text}</p>
-                                <p className="text-xs text-gray-500">{formatTime(activity.time)}</p>
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
-        </div>
-    );
-}
-
-function buildTeamBriefing({
-    channels,
-    summaries,
-    projectStats,
-    projectDeadlineSignals,
-    githubSignals,
-    calendarSignals
-}) {
-    const sortedSummaries = [...(Array.isArray(summaries) ? summaries : [])].sort(
-        (first, second) => new Date(second.created_at || 0) - new Date(first.created_at || 0)
-    );
-    const latestSummary = sortedSummaries[0] || null;
-    const slackBlockers = extractSlackBlockers(sortedSummaries).filter((item) => item.status === 'active');
-    const projectBlockers = projectDeadlineSignals?.platform && projectDeadlineSignals?.deadlines
-        ? extractProjectPlatformBlockers(projectDeadlineSignals.deadlines, projectDeadlineSignals.platform)
-        : [];
-    const githubBlockers = extractGithubBlockers(githubSignals, 7).filter((item) => item.status === 'active');
-    const calendarBlockers = extractCalendarBlockers(calendarSignals).filter((item) => item.status === 'active');
-    const activeSignals = mergeBlockers(slackBlockers, projectBlockers, githubBlockers, calendarBlockers)
-        .filter((item) => item.status === 'active');
-    const meetingActionItems = Array.isArray(calendarSignals?.actionItems) ? calendarSignals.actionItems : [];
-    const upcomingEvents = [...(Array.isArray(calendarSignals?.events) ? calendarSignals.events : [])]
-        .filter((event) => event?.start)
-        .sort((first, second) => new Date(first.start) - new Date(second.start));
-    const nextMeeting = upcomingEvents[0] || null;
-    const githubMeta = githubSignals?.meta || {};
-    const openPullRequests = githubMeta.total_open || githubSignals?.pulls?.length || 0;
-    const latestTopics = latestSummary?.key_topics || latestSummary?.keyTopics || [];
-
-    const sources = [];
-    if (channels.length > 0 || sortedSummaries.length > 0) sources.push('Slack');
-    if (projectStats?.connected && projectStats?.platform) {
-        sources.push(PROJECT_PLATFORM_LABELS[projectStats.platform] || projectStats.platform);
+    let projectBlockers = [];
+    if (Array.isArray(projectDeadlineSignals)) {
+        projectDeadlineSignals.forEach(signal => {
+            if (signal.platform && signal.deadlines) {
+                const blockers = extractProjectPlatformBlockers(signal.deadlines, signal.platform).filter(item => 
+                    !dismissedBlockerIds.includes(item.id)
+                );
+                projectBlockers = projectBlockers.concat(blockers);
+            }
+        });
     }
-    if (openPullRequests > 0 || githubBlockers.length > 0) sources.push('GitHub');
-    if (meetingActionItems.length > 0 || upcomingEvents.length > 0) sources.push('Calendar');
-    if (sources.length === 0) sources.push('Workspace setup');
+    const githubBlockers = extractGithubBlockers(githubSignals, 7).filter(item => 
+        item.status === 'active' && !dismissedBlockerIds.includes(item.id)
+    );
+    const calendarBlockers = extractCalendarBlockers(calendarSignals).filter(item => 
+        item.status === 'active' && !dismissedBlockerIds.includes(item.id)
+    );
+    
+    const active = mergeBlockers(slackBlockers, projectBlockers, githubBlockers, calendarBlockers).filter(item => item.status === 'active');
+    
+    const sources = [];
+    if (channels.length > 0) sources.push('Slack');
+    if (projectStats?.connected) sources.push(PROJECT_PLATFORM_LABELS[projectStats.platform] || 'Projects');
+    if (githubSignals?.pulls?.length > 0) sources.push('GitHub');
+    if (calendarSignals?.events?.length > 0) sources.push('Calendar');
+    if (sources.length === 0) sources.push('Setup needed');
 
-    let headline = 'Teama has not found any connected work signals yet.';
-    if (activeSignals.length > 0) {
-        headline = `${activeSignals.length} cross-tool signal${activeSignals.length === 1 ? '' : 's'} need attention today.`;
-    } else if (projectStats?.connected || sortedSummaries.length > 0 || upcomingEvents.length > 0 || openPullRequests > 0) {
-        headline = 'Your team is steady right now, with no critical blockers surfaced.';
-    } else if (channels.length > 0) {
-        headline = 'Slack is ready. The next step is to turn activity into proactive team context.';
+    let headline = 'Welcome. Here is an overview of your workspace.';
+    if (active.length > 0) {
+        headline = `There are ${active.length} items that need your attention.`;
     }
 
     const summaryParts = [];
-    if (latestSummary?.summary) {
-        summaryParts.push(`Latest Slack signal: ${trimSentence(latestSummary.summary)}`);
-    }
-    if (projectStats?.connected && projectStats?.atRisk > 0) {
-        summaryParts.push(`${projectStats.atRisk} project task${projectStats.atRisk === 1 ? '' : 's'} are already at risk in ${PROJECT_PLATFORM_LABELS[projectStats.platform] || projectStats.platform}.`);
-    }
-    if (githubBlockers.length > 0) {
-        summaryParts.push(`${githubBlockers.length} pull request${githubBlockers.length === 1 ? '' : 's'} need review or have gone stale.`);
-    }
-    if (meetingActionItems.length > 0) {
-        summaryParts.push(`${meetingActionItems.length} meeting follow-up item${meetingActionItems.length === 1 ? '' : 's'} are still open.`);
-    }
-    if (summaryParts.length === 0 && nextMeeting?.title) {
-        summaryParts.push(`Next meeting on deck: ${nextMeeting.title} ${formatRelativeDate(nextMeeting.start)}.`);
-    }
-    if (summaryParts.length === 0) {
-        summaryParts.push('Connect Slack, a project platform, and your team workflow tools so Teama can start surfacing what matters automatically.');
-    }
+    if (latest?.summary) summaryParts.push(`Latest from Slack: ${trimSentence(latest.summary, 120)}`);
+    if (projectStats?.atRisk > 0) summaryParts.push(`${projectStats.atRisk} deliverables are marked at risk.`);
+    if (githubBlockers.length > 0) summaryParts.push(`${githubBlockers.length} code reviews are pending.`);
+    if (summaryParts.length === 0) summaryParts.push('Your workspace is quiet. Use the dashboard to stay on top of team activities.');
 
     const attentionItems = [];
-    if (slackBlockers.length > 0) {
-        attentionItems.push({
-            title: `${slackBlockers.length} Slack blocker${slackBlockers.length === 1 ? '' : 's'} surfaced`,
-            description: describeSignals(slackBlockers),
-            path: '/app/blockers'
-        });
-    }
-    if (projectStats?.connected && projectStats?.atRisk > 0) {
-        attentionItems.push({
-            title: `${projectStats.atRisk} ${PROJECT_PLATFORM_LABELS[projectStats.platform] || 'project'} task${projectStats.atRisk === 1 ? '' : 's'} at risk`,
-            description: projectBlockers.length > 0
-                ? describeSignals(projectBlockers)
-                : 'Deadlines are slipping or clustering close together. Review the project health panel for details.',
-            path: '/app/projects'
-        });
-    }
-    if (githubBlockers.length > 0) {
-        attentionItems.push({
-            title: `${githubBlockers.length} GitHub review signal${githubBlockers.length === 1 ? '' : 's'}`,
-            description: describeSignals(githubBlockers),
-            path: '/app/code'
-        });
-    }
-    if (meetingActionItems.length > 0) {
-        attentionItems.push({
-            title: `${meetingActionItems.length} meeting follow-up item${meetingActionItems.length === 1 ? '' : 's'}`,
-            description: describeActionItems(meetingActionItems),
-            path: '/app/meetings'
-        });
-    }
-    if (attentionItems.length === 0) {
-        attentionItems.push({
-            title: 'No urgent blockers detected',
-            description: nextMeeting?.title
-                ? `Next scheduled touchpoint: ${nextMeeting.title} ${formatRelativeDate(nextMeeting.start)}.`
-                : 'Teama is not seeing any urgent blockers across your connected data right now.',
-            path: '/app/analytics'
-        });
-    }
+    if (slackBlockers.length > 0) attentionItems.push({ title: 'Slack Blockers', description: describeSignals(slackBlockers), path: '/app/blockers' });
+    if (projectStats?.atRisk > 0) attentionItems.push({ title: 'At-Risk Tasks', description: 'Some tasks are due soon or late.', path: '/app/projects' });
+    if (githubBlockers.length > 0) attentionItems.push({ title: 'Pending Code Reviews', description: describeSignals(githubBlockers), path: '/app/code' });
+    if (attentionItems.length === 0) attentionItems.push({ title: 'No Critical Issues', description: 'Everything is running smoothly.', path: '/app/chat' });
 
-    const actions = [];
-    if (channels.length === 0) {
-        actions.push({
-            title: 'Connect Slack first',
-            description: 'Slack is the fastest way to start capturing live work signals, blockers, and progress updates.',
-            path: '/app/integrations'
-        });
-    } else if (sortedSummaries.length === 0) {
-        actions.push({
-            title: 'Review Slack context',
-            description: 'Use the Slack context view to inspect the conversation signals Teama is learning from across your workspace.',
-            path: '/app/summaries'
-        });
-    }
-    if (!projectStats?.connected) {
-        actions.push({
-            title: 'Add a project platform',
-            description: 'Connect Jira, Asana, or Trello so Teama can link conversation signals to execution status.',
-            path: '/app/integrations'
-        });
-    } else if (projectStats.atRisk > 0) {
-        actions.push({
-            title: 'Review at-risk project work',
-            description: 'Open project health to triage overdue or due-soon tasks before they turn into missed commitments.',
-            path: '/app/projects'
-        });
-    }
-    if (githubBlockers.length > 0 || openPullRequests > 0) {
-        actions.push({
-            title: 'Check the code queue',
-            description: githubBlockers.length > 0
-                ? 'Teama found pull requests waiting on review or sitting stale.'
-                : 'Use the code view to stay ahead of open pull request activity.',
-            path: '/app/code'
-        });
-    }
-    if (meetingActionItems.length > 0) {
-        actions.push({
-            title: 'Close meeting follow-ups',
-            description: 'Review extracted action items from upcoming and recent meetings to keep follow-through visible.',
-            path: '/app/meetings'
-        });
-    }
-    if (actions.length === 0) {
-        actions.push({
-            title: 'Review team analytics',
-            description: 'Dive into the trend view to understand workload, blockers, and communication patterns over time.',
-            path: '/app/analytics'
-        });
-    }
+    const actions = [
+        { title: 'Chat with AI', description: 'Ask questions about your work.', path: '/app/chat' },
+        { title: 'View Blockers', description: 'Check what is stopping progress.', path: '/app/blockers' }
+    ];
+    if (channels.length === 0) actions.push({ title: 'Connect Slack', description: 'Get team summaries.', path: '/app/integrations' });
+    if (!projectStats?.connected) actions.push({ title: 'Connect Projects', description: 'Track task deadlines.', path: '/app/integrations' });
 
     return {
         headline,
         summary: summaryParts.join(' '),
         sources,
-        metrics: [
-            {
-                label: 'Signals',
-                value: activeSignals.length,
-                description: 'Active cross-tool issues or risk cues'
-            },
-            {
-                label: 'Summaries',
-                value: sortedSummaries.length,
-                description: latestSummary
-                    ? `${latestTopics.length} topic${latestTopics.length === 1 ? '' : 's'} in the latest read`
-                    : 'No recent Slack summaries yet'
-            },
-            {
-                label: 'Project Risk',
-                value: projectStats?.connected ? projectStats.atRisk : '-',
-                description: projectStats?.connected
-                    ? `${PROJECT_PLATFORM_LABELS[projectStats.platform] || projectStats.platform} due-soon or overdue work`
-                    : 'Connect a project platform'
-            },
-            {
-                label: 'Meetings',
-                value: upcomingEvents.length > 0 ? upcomingEvents.length : '-',
-                description: nextMeeting?.title
-                    ? `${nextMeeting.title} ${formatRelativeDate(nextMeeting.start)}`
-                    : 'No upcoming meetings found'
-            }
-        ],
         attentionItems: attentionItems.slice(0, 4),
         actions: actions.slice(0, 4)
     };
 }
 
+function getNextMeeting(signals) {
+    const upcoming = [...(signals?.events || [])]
+        .filter(e => e?.start && new Date(e.start) > new Date())
+        .sort((a, b) => new Date(a.start) - new Date(b.start));
+    return upcoming[0] || null;
+}
+
 function describeSignals(signals) {
-    const titles = signals
-        .map((item) => item?.title)
-        .filter(Boolean)
-        .slice(0, 2);
-
-    if (titles.length === 0) {
-        return 'Teama detected risk signals that need a closer look.';
-    }
-
-    return titles.join('  ');
+    const texts = (signals || []).map(s => s?.title).filter(Boolean).slice(0, 2);
+    return texts.length > 0 ? texts.join('; ') : 'High-risk items detected.';
 }
 
-function describeActionItems(actionItems) {
-    const items = actionItems
-        .map((item) => item?.text)
-        .filter(Boolean)
-        .slice(0, 2);
-
-    if (items.length === 0) {
-        return 'Open the meeting workspace to review extracted follow-up work.';
-    }
-
-    return items.join('  ');
-}
-
-function formatRelativeDate(value) {
+function formatConversationTime(value) {
     if (!value) return '';
-
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
-
-    const diffMs = date.getTime() - Date.now();
-    const diffHours = Math.round(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-    if (Math.abs(diffHours) < 24) {
-        if (diffHours === 0) return 'today';
-        return diffHours > 0 ? `in ${diffHours}h` : `${Math.abs(diffHours)}h ago`;
-    }
-
-    if (diffDays === 0) return 'today';
-    if (diffDays > 0) return `in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
-    return `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} ago`;
+    const diff = Math.floor((Date.now() - date.getTime()) / 60000);
+    if (diff < 1) return 'NOW';
+    if (diff < 60) return `${diff}M`;
+    const hours = Math.floor(diff / 60);
+    if (hours < 24) return `${hours}H`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}D`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase();
 }
 
 function trimSentence(value, maxLength = 160) {
-    const text = typeof value === 'string' ? value.trim() : '';
-    if (text.length <= maxLength) return text;
-    return `${text.slice(0, maxLength).trimEnd()}...`;
+    const normalized = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+    if (!normalized) return '';
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function getWeatherIcon(code) {
+    if (code === undefined || code === null) return Sun;
+    
+    // WMO Weather interpretation codes (WW)
+    // https://open-meteo.com/en/docs
+    if (code === 0) return Sun; // Clear sky
+    if (code >= 1 && code <= 3) return Cloud; // Mainly clear, partly cloudy, and overcast
+    if (code >= 45 && code <= 48) return Cloud; // Fog
+    if (code >= 51 && code <= 67) return CloudRain; // Drizzle/Rain
+    if (code >= 71 && code <= 77) return Cloud; // Snow
+    if (code >= 80 && code <= 82) return CloudRain; // Rain showers
+    if (code >= 95) return CloudRain; // Thunderstorm
+    
+    return Cloud;
 }

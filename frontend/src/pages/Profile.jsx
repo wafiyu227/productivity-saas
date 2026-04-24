@@ -1,8 +1,8 @@
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Calendar, Shield, Bell, Key, Trash2 } from 'lucide-react';
+import { User, Mail, Calendar, Shield, Bell, Key, Trash2, Zap, Settings, ArrowRight, ShieldAlert, Sparkles, ChevronRight, Check } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 const DEFAULT_SETTINGS = {
     email_notifications: true,
     slack_notifications: true,
@@ -143,8 +143,8 @@ export default function Profile() {
             'You are about to permanently delete your account and ALL associated data:\n\n' +
             '• Your profile and all settings\n' +
             '• All meetings, summaries, and analytics\n' +
-            '• All integrations and API connections\n' +
-            '• Team memberships and data\n\n' +
+            '• All integrations and API connections\n\n' +
+
             'This action CANNOT be undone.\n\n' +
             'Click OK to continue with deletion steps.'
         );
@@ -182,187 +182,210 @@ export default function Profile() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50">
-            <div className="p-4 md:p-8">
-                <div className="max-w-4xl mx-auto">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 md:mb-8">
-                        <h1 className="text-2xl md:text-4xl font-bold text-gray-900">Profile Settings</h1>
-                        {saved && !saving && (
-                            <div className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium">
-                                Saved
-                            </div>
-                        )}
-                    </div>
+        <div className="min-h-screen bg-black text-gray-100 selection:bg-blue-500/30">
 
-                    {saveError && (
-                        <div className="mb-6 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-                            {saveError}
+            <div className="relative mx-auto max-w-4xl px-4 pb-20 pt-4 md:px-8 md:pt-8">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 mb-10 md:mb-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <div>
+                        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white">
+                            Settings
+                        </div>
+                        <h1 className="text-4xl font-bold text-white uppercase tracking-tight md:text-5xl">Profile</h1>
+                        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-gray-400 font-bold uppercase tracking-widest">
+                            Change your profile settings and notifications.
+                        </p>
+                    </div>
+                    {saved && !saving && (
+                        <div className="px-6 py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 animate-in fade-in zoom-in duration-300">
+                            <Check size={14} />
+                            Parameters Saved
                         </div>
                     )}
+                </div>
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-8 mb-6">
-                        <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 mb-6 md:mb-8">
-                            <div className="w-20 h-20 md:w-24 md:h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
-                                <User className="text-white" size={40} />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-1">
+                {saveError && (
+                    <div className="mb-10 rounded-[2rem] border border-rose-500/20 bg-rose-500/10 px-8 py-6 text-[10px] font-black uppercase tracking-widest text-rose-400 animate-in fade-in slide-in-from-top-4 duration-500 flex items-center gap-4">
+                        <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
+                        {saveError}
+                    </div>
+                )}
+
+                <div className="rounded-[2.5rem] border border-white/5 bg-white/[0.01] p-8 md:p-10 shadow-2xl mb-8 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100 group transition-all hover:border-white/10">
+                    <div className="flex flex-col sm:flex-row items-center gap-8 md:gap-10">
+                        <div className="w-24 h-24 md:w-32 md:h-32 bg-white/5 border border-white/10 rounded-[2.5rem] flex items-center justify-center transition-transform duration-500">
+                            <User className="text-white" size={48} />
+                        </div>
+                        <div className="text-center sm:text-left">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-2">
+                                <h2 className="text-3xl font-bold text-white uppercase tracking-tight">
                                     {user?.email?.split('@')[0] || 'User'}
                                 </h2>
-                                <p className="text-gray-600 flex items-center gap-2">
-                                    <Mail size={16} />
+                                <span className="inline-flex items-center gap-2 rounded-lg bg-white/5 border border-white/10 px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-white">
+                                    Active
+                                </span>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <p className="text-gray-400 font-bold uppercase tracking-widest text-xs flex items-center justify-center sm:justify-start gap-3">
                                     {user?.email}
                                 </p>
-                                <p className="text-sm text-gray-500 flex items-center gap-2 mt-1">
-                                    <Calendar size={14} />
-                                    Joined {new Date(user?.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center justify-center sm:justify-start gap-3 mt-1">
+                                    Joined {new Date(user?.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()}
                                 </p>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    {loading ? (
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
-                            <p className="text-gray-600">Loading settings...</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-6">
-                            <SettingsSection
-                                icon={<Bell className="text-blue-600" size={24} />}
-                                title="Notifications"
-                                description="Manage your notification preferences"
-                            >
+                {loading ? (
+                    <div className="rounded-[2.5rem] border border-white/5 bg-[#09090b] p-20 text-center animate-in fade-in duration-500">
+                        <div className="w-12 h-12 border-4 border-white/5 border-t-white rounded-full animate-spin mx-auto mb-6" />
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-300">Syncing Parameters...</p>
+                    </div>
+                ) : (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-200">
+                        <SettingsSection
+                            icon={<Bell size={20} />}
+                            title="Notifications"
+                            description="Manage how you receive updates."
+                            accent="white"
+                        >
+                            <div className="space-y-2">
                                 <ToggleSetting
-                                    label="Email notifications"
+                                    label="Emails"
                                     enabled={settings?.email_notifications}
                                     onChange={(val) => updateSettings('email_notifications', val)}
                                 />
                                 <ToggleSetting
-                                    label="Slack notifications"
+                                    label="Slack"
                                     enabled={settings?.slack_notifications}
                                     onChange={(val) => updateSettings('slack_notifications', val)}
                                 />
                                 <ToggleSetting
-                                    label="Blocker alerts"
+                                    label="Alerts"
                                     enabled={settings?.blocker_alerts}
                                     onChange={(val) => updateSettings('blocker_alerts', val)}
                                 />
                                 <ToggleSetting
-                                    label="Daily digest email"
+                                    label="Daily Email"
                                     enabled={settings?.daily_digest}
                                     disabled={!settings?.email_notifications}
                                     onChange={(val) => updateSettings('daily_digest', val)}
                                 />
                                 {!settings?.email_notifications && (
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Enable Email notifications to receive digest emails.
+                                    <p className="text-[9px] font-bold uppercase tracking-widest text-white mt-4 ml-1 flex items-center gap-2">
+                                        Email must be on for daily emails.
                                     </p>
                                 )}
-                            </SettingsSection>
+                            </div>
+                        </SettingsSection>
 
-                            <SettingsSection
-                                icon={<Shield className="text-red-600" size={24} />}
-                                title="Account Management"
-                                description="Secure your account or remove your data"
-                            >
-                                <div className="space-y-4">
-                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                        <div>
-                                            <h4 className="font-semibold text-gray-900">Reset Password</h4>
-                                            <p className="text-sm text-gray-600">Receive an email to securely change your password</p>
-                                        </div>
-                                        <button
-                                            onClick={handleResetPassword}
-                                            className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm font-medium flex items-center gap-2"
-                                        >
-                                            <Key size={16} />
-                                            Reset
-                                        </button>
+                        <SettingsSection
+                            icon={<Shield size={20} />}
+                            title="Security"
+                            description="Manage your password and account."
+                            accent="white"
+                        >
+                            <div className="space-y-4">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 p-6 bg-white/[0.02] border border-white/5 rounded-[1.5rem] hover:bg-white/[0.04] transition-all">
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-1.5 flex items-center gap-3">
+                                            Reset Password
+                                        </h4>
+                                        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Send a link to reset your password.</p>
                                     </div>
-
-                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-red-50 rounded-xl border border-red-100">
-                                        <div>
-                                            <h4 className="font-semibold text-red-900">Delete Account</h4>
-                                            <p className="text-sm text-red-700">Permanently remove your account and all associated data</p>
-                                        </div>
-                                        <button
-                                            onClick={handleDeleteAccount}
-                                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-medium flex items-center gap-2"
-                                        >
-                                            <Trash2 size={16} />
-                                            Delete
-                                        </button>
-                                    </div>
+                                    <button
+                                        onClick={handleResetPassword}
+                                        className="w-full sm:w-auto px-8 py-3 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-gray-200 transition-all active:scale-95 shadow-xl flex items-center justify-center gap-3"
+                                    >
+                                        Send Link
+                                    </button>
                                 </div>
-                            </SettingsSection>
 
-                            <SettingsSection
-                                icon={<Mail className="text-orange-600" size={24} />}
-                                title="Email"
-                                description="Test your email settings"
-                            >
-                                <button
-                                    onClick={sendTestDigest}
-                                    disabled={!settings?.email_notifications || !settings?.daily_digest || digestSending || digestCooldown}
-                                    className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {digestSending ? 'Sending...' : digestCooldown ? 'Sent - wait a few seconds' : 'Send Test Digest Email'}
-                                </button>
-                                <p className="text-sm text-gray-600 mt-3">
-                                    Send a preview of your daily digest to test email delivery
-                                </p>
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 p-6 bg-white/[0.01] border border-white/10 rounded-[1.5rem] transition-all">
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-1.5">
+                                            Delete Account
+                                        </h4>
+                                        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Permanently remove your account and data.</p>
+                                    </div>
+                                    <button
+                                        onClick={handleDeleteAccount}
+                                        className="w-full sm:w-auto px-8 py-3 bg-white/5 border border-white/10 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all active:scale-95 shadow-xl flex items-center justify-center gap-3"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </SettingsSection>
+
+                        <SettingsSection
+                            icon={<Zap size={20} />}
+                            title="Test"
+                            description="Send a test email to check your settings."
+                            accent="white"
+                        >
+                            <div className="p-6 bg-white/[0.02] border border-white/5 rounded-[1.5rem] hover:bg-white/[0.04] transition-all">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 mb-6">
+                                    <div className="min-w-0 flex-1">
+                                        <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-1.5">
+                                            Test Email
+                                        </h4>
+                                        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Send a test email to your account.</p>
+                                    </div>
+                                    <button
+                                        onClick={sendTestDigest}
+                                        disabled={!settings?.email_notifications || !settings?.daily_digest || digestSending || digestCooldown}
+                                        className="w-full sm:w-auto px-8 py-4 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-2xl transition-all active:scale-95 shadow-2xl disabled:opacity-20 disabled:cursor-not-allowed group flex items-center justify-center gap-3"
+                                    >
+                                        {digestSending ? 'SENDING...' : digestCooldown ? 'WAITING' : 'SEND TEST'}
+                                    </button>
+                                </div>
+                                
                                 {digestFeedback && (
-                                    <p className={`text-sm mt-2 ${digestFeedback.toLowerCase().includes('success') ? 'text-green-600' : 'text-red-600'}`}>
-                                        {digestFeedback}
+                                    <p className="text-[10px] font-bold uppercase tracking-widest mt-6 p-4 rounded-xl border border-white/10 bg-white/5 text-white">
+                                        {digestFeedback.toUpperCase()}
                                     </p>
                                 )}
-                                {(!settings?.email_notifications || !settings?.daily_digest) && (
-                                    <p className="text-xs text-gray-500 mt-2">
-                                        Turn on both Email notifications and Daily digest email to test.
-                                    </p>
-                                )}
-                            </SettingsSection>
-                        </div>
-                    )}
-                </div>
+                            </div>
+                        </SettingsSection>
+                    </div>
+                )}
             </div>
         </div>
     );
 }
 
-function SettingsSection({ icon, title, description, children }) {
+function SettingsSection({ icon, title, description, accent, children }) {
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-gray-50 rounded-lg">
+        <section className="bg-white/[0.01] rounded-[2.5rem] border border-white/5 p-8 md:p-10 shadow-2xl transition-all hover:border-white/10 group">
+            <div className="flex items-center gap-6 mb-10">
+                <div className="p-4 rounded-2xl border border-white/10 bg-white/5 text-white">
                     {icon}
                 </div>
                 <div>
-                    <h3 className="font-bold text-gray-900">{title}</h3>
-                    <p className="text-sm text-gray-600">{description}</p>
+                    <h3 className="text-xl font-bold text-white uppercase tracking-tight group-hover:text-blue-400 transition-colors uppercase tracking-widest">{title}</h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">{description}</p>
                 </div>
             </div>
-            <div className="ml-0 sm:ml-14">
+            <div className="ml-0 sm:ml-[88px]">
                 {children}
             </div>
-        </div>
+        </section>
     );
 }
 
 function ToggleSetting({ label, enabled, onChange, disabled = false }) {
     return (
-        <div className="flex items-center justify-between py-3">
-            <span className={`text-gray-700 ${disabled ? 'opacity-60' : ''}`}>{label}</span>
+        <div className={`flex items-center justify-between py-5 border-b border-white/5 last:border-0 ${disabled ? 'opacity-30' : ''}`}>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{label}</span>
             <button
                 disabled={disabled}
                 onClick={() => onChange?.(!enabled)}
-                className={`w-12 h-6 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed ${enabled ? 'bg-blue-600' : 'bg-gray-300'
-                    }`}
+                className={`w-14 h-7 rounded-full transition-all relative border border-white/10 ${enabled ? 'bg-white' : 'bg-white/5'}`}
             >
                 <div
-                    className={`w-5 h-5 bg-white rounded-full transition transform ${enabled ? 'translate-x-6' : 'translate-x-1'
-                        }`}
+                    className={`absolute top-1 w-5 h-5 rounded transition-all transform ${enabled ? 'translate-x-8 bg-black' : 'translate-x-1 bg-gray-800'}`}
                 />
             </button>
         </div>

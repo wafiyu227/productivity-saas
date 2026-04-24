@@ -32,11 +32,38 @@ const getUserId = () => {
 };
 
 export const api = {
-    // ==================== SLACK API ====================
-    async getChannels(teamId = null) {
-        const userId = getUserId();
+    // ==================== GENERIC HTTP METHODS ====================
+    async get(endpoint, options = {}) {
+        const url = new URL(`${API_BASE_URL}${endpoint}`);
+        
+        try {
+            const res = await fetch(url.toString(), {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                ...options
+            });
 
-        console.log('getChannels - userId:', userId, 'teamId:', teamId);
+            const data = await res.json();
+
+            if (!res.ok) {
+                const error = new Error(data.error || `HTTP ${res.status}`);
+                error.response = { status: res.status, data };
+                throw error;
+            }
+
+            return { data, status: res.status };
+        } catch (error) {
+            console.error('GET request failed:', error);
+            throw error;
+        }
+    },
+
+    // ==================== SLACK API ====================
+    async getChannels() {
+        const userId = getUserId();
 
         if (!userId) {
             const error = 'Not authenticated - no user ID';
@@ -45,118 +72,83 @@ export const api = {
         }
 
         let url = `${API_BASE_URL}/api/slack/channels?userId=${userId}`;
-        if (teamId) url += `&teamId=${teamId}`;
-        console.log('Fetching channels from:', url);
 
         try {
             const res = await fetch(url);
-            console.log('Channels response status:', res.status);
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Channels error response:', data);
                 return { channels: [], error: data.error };
             }
-            const data = await res.json();
-            console.log('Channels fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
-            console.error('Fetch error:', error);
+            console.error('Fetch channels error:', error);
             return { channels: [], error: error.message };
         }
     },
 
-    async createSummary(channelId, hours = 24, teamId = null) {
+    async createSummary(channelId, hours = 24) {
         const userId = getUserId();
-
-        if (!userId) {
-            throw new Error('Not authenticated - cannot create summary');
-        }
-
-        console.log('Creating summary for channel:', channelId, 'userId:', userId, 'teamId:', teamId);
+        if (!userId) throw new Error('Not authenticated - cannot create summary');
 
         try {
             const res = await fetch(`${API_BASE_URL}/api/slack/summarize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ channelId, hours, userId, teamId })
+                body: JSON.stringify({ channelId, hours, userId })
             });
-
-            console.log('Summary response status:', res.status);
 
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Summary error:', data);
                 throw new Error(data.error || 'Failed to create summary');
             }
 
-            const data = await res.json();
-            console.log('Summary created:', data);
-            return data;
+            return await res.json();
         } catch (error) {
             console.error('Summary creation error:', error);
             throw error;
         }
     },
 
-    async getSummaries(teamId = null, options = {}) {
+    async getSummaries(options = {}) {
         const userId = getUserId();
         const { limit } = options;
-
-        if (!userId) {
-            throw new Error('Not authenticated - cannot fetch summaries');
-        }
-
-        console.log('Fetching summaries for user:', userId, 'team:', teamId);
+        if (!userId) throw new Error('Not authenticated - cannot fetch summaries');
 
         try {
             const url = new URL(`${API_BASE_URL}/api/summaries`);
             url.searchParams.append('userId', userId);
-            if (teamId) url.searchParams.append('teamId', teamId);
             if (Number.isFinite(limit) && limit > 0) {
                 url.searchParams.append('limit', Math.floor(limit).toString());
             }
 
             const res = await fetch(url.toString());
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Summaries error:', data);
                 throw new Error(data.error || 'Failed to fetch summaries');
             }
 
-            const data = await res.json();
-            console.log('Summaries fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
             console.error('Fetch summaries error:', error);
             throw error;
         }
     },
 
-    async getWorkInsights(teamId = null, options = {}) {
+    async getWorkInsights(options = {}) {
         const userId = getUserId();
         const { limit = 12 } = options;
-
-        if (!userId) {
-            throw new Error('Not authenticated - cannot fetch work insights');
-        }
+        if (!userId) throw new Error('Not authenticated - cannot fetch work insights');
 
         try {
             const url = new URL(`${API_BASE_URL}/api/work-insights`);
             url.searchParams.append('userId', userId);
-            if (teamId) url.searchParams.append('teamId', teamId);
             if (Number.isFinite(limit) && limit > 0) {
                 url.searchParams.append('limit', Math.floor(limit).toString());
             }
 
             const res = await fetch(url.toString());
             const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to fetch work insights');
-            }
-
+            if (!res.ok) throw new Error(data.error || 'Failed to fetch work insights');
             return data;
         } catch (error) {
             console.error('Fetch work insights error:', error);
@@ -164,30 +156,19 @@ export const api = {
         }
     },
 
-    async applyWorkInsight(teamId = null, payload = {}) {
+    async applyWorkInsight(payload = {}) {
         const userId = getUserId();
-
-        if (!userId) {
-            throw new Error('Not authenticated - cannot apply work insight');
-        }
+        if (!userId) throw new Error('Not authenticated - cannot apply work insight');
 
         try {
             const res = await fetch(`${API_BASE_URL}/api/work-insights/apply`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...payload,
-                    userId,
-                    teamId
-                })
+                body: JSON.stringify({ ...payload, userId })
             });
 
             const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to apply work insight');
-            }
-
+            if (!res.ok) throw new Error(data.error || 'Failed to apply work insight');
             return data;
         } catch (error) {
             console.error('Apply work insight error:', error);
@@ -195,24 +176,18 @@ export const api = {
         }
     },
 
-    async getIntegrationStatus(platform, teamId = null) {
+    async getIntegrationStatus(platform) {
         const userId = getUserId();
-        if (!userId) {
-            return { connected: false, platform, error: 'Not authenticated' };
-        }
+        if (!userId) return { connected: false, platform, error: 'Not authenticated' };
 
         try {
             const url = new URL(`${API_BASE_URL}/api/auth/status`);
             url.searchParams.append('userId', userId);
             url.searchParams.append('platform', platform);
-            if (teamId) url.searchParams.append('teamId', teamId);
 
             const res = await fetch(url.toString());
             const data = await res.json();
-            if (!res.ok) {
-                return { connected: false, platform, error: data?.error || 'Failed to fetch integration status' };
-            }
-
+            if (!res.ok) return { connected: false, platform, error: data?.error || 'Failed to fetch integration status' };
             return data;
         } catch (error) {
             return { connected: false, platform, error: error.message };
@@ -220,225 +195,131 @@ export const api = {
     },
 
     // ==================== ASANA API ====================
-    async getAsanaProjects(teamId = null) {
+    async getAsanaProjects() {
         const userId = getUserId();
-
-        if (!userId) {
-            const error = 'Not authenticated - no user ID';
-            console.error(error);
-            return { projects: [], error };
-        }
+        if (!userId) return { projects: [], error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/asana/projects`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-
-        console.log('Fetching Asana projects from:', url.toString());
 
         try {
             const res = await fetch(url.toString());
-            console.log('Asana projects response status:', res.status);
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Asana projects error response:', data);
                 return { projects: [], error: data.error };
             }
-
-            const data = await res.json();
-            console.log('Asana projects fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
-            console.error('Fetch Asana projects error:', error);
             return { projects: [], error: error.message };
         }
     },
 
-    async getAsanaProjectHealth(projectId, teamId = null) {
+    async getAsanaProjectHealth(projectId) {
         const userId = getUserId();
-
-        if (!userId) {
-            throw new Error('Not authenticated - cannot fetch project health');
-        }
-
-        if (!projectId) {
-            throw new Error('Project ID is required');
-        }
+        if (!userId) throw new Error('Not authenticated');
+        if (!projectId) throw new Error('Project ID is required');
 
         const url = new URL(`${API_BASE_URL}/api/asana/projects/${projectId}/health`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-
-        console.log('Fetching project health from:', url.toString());
 
         try {
             const res = await fetch(url.toString());
-            console.log('Project health response status:', res.status);
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Project health error response:', data);
                 throw new Error(data.error || 'Failed to fetch project health');
             }
-
-            const data = await res.json();
-            console.log('Project health fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
-            console.error('Fetch project health error:', error);
             throw error;
         }
     },
 
-    async getAsanaWorkload(teamId = null) {
+    async getAsanaWorkload() {
         const userId = getUserId();
-
-        if (!userId) {
-            const error = 'Not authenticated - no user ID';
-            console.error(error);
-            return { workload: [], error };
-        }
+        if (!userId) return { workload: [], error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/asana/workload`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-
-        console.log('Fetching Asana workload from:', url.toString());
 
         try {
             const res = await fetch(url.toString());
-            console.log('Asana workload response status:', res.status);
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Asana workload error response:', data);
                 return { workload: [], error: data.error };
             }
-
-            const data = await res.json();
-            console.log('Asana workload fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
-            console.error('Fetch Asana workload error:', error);
             return { workload: [], error: error.message };
         }
     },
 
-    async getAsanaWorkspaces(teamId = null) {
+    async getAsanaWorkspaces() {
         const userId = getUserId();
-
-        if (!userId) {
-            const error = 'Not authenticated - no user ID';
-            console.error(error);
-            return { workspaces: [], error };
-        }
+        if (!userId) return { workspaces: [], error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/asana/workspaces`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-        console.log('Fetching Asana workspaces from:', url.toString());
 
         try {
             const res = await fetch(url.toString());
-            console.log('Asana workspaces response status:', res.status);
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Asana workspaces error response:', data);
                 return { workspaces: [], error: data.error };
             }
-
-            const data = await res.json();
-            console.log('Asana workspaces fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
-            console.error('Fetch Asana workspaces error:', error);
             return { workspaces: [], error: error.message };
         }
     },
 
-    async getAsanaDeadlines(teamId = null) {
+    async getAsanaDeadlines() {
         const userId = getUserId();
-
-        if (!userId) {
-            const error = 'Not authenticated - no user ID';
-            console.error(error);
-            return { error };
-        }
+        if (!userId) return { error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/asana/deadlines`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-        console.log('Fetching Asana deadlines from:', url.toString());
 
         try {
             const res = await fetch(url.toString());
-            console.log('Asana deadlines response status:', res.status);
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Asana deadlines error response:', data);
                 return { error: data.error, needsReauth: data.needsReauth };
             }
-
-            const data = await res.json();
-            console.log('Asana deadlines fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
-            console.error('Fetch Asana deadlines error:', error);
             return { error: error.message };
         }
     },
 
-    async getAsanaTasks(filters = {}, teamId = null) {
+    async getAsanaTasks(filters = {}) {
         const userId = getUserId();
-
-        if (!userId) {
-            const error = 'Not authenticated - no user ID';
-            console.error(error);
-            return { tasks: [], error };
-        }
+        if (!userId) return { tasks: [], error: 'Not authenticated' };
 
         const params = new URLSearchParams({ userId });
-        if (teamId) params.append('teamId', teamId);
         if (filters.status) params.append('status', filters.status);
         if (filters.projectId) params.append('projectId', filters.projectId);
 
         const url = `${API_BASE_URL}/api/asana/tasks?${params}`;
-        console.log('Fetching Asana tasks from:', url);
 
         try {
             const res = await fetch(url);
-            console.log('Asana tasks response status:', res.status);
-
             if (!res.ok) {
                 const data = await res.json();
-                console.error('Asana tasks error response:', data);
                 return { tasks: [], error: data.error, needsReauth: data.needsReauth };
             }
-
-            const data = await res.json();
-            console.log('Asana tasks fetched:', data);
-            return data;
+            return await res.json();
         } catch (error) {
-            console.error('Fetch Asana tasks error:', error);
             return { tasks: [], error: error.message };
         }
     },
 
     // ==================== JIRA API ====================
-    async getJiraProjects(teamId = null) {
+    async getJiraProjects() {
         const userId = getUserId();
-
-        if (!userId) {
-            const error = 'Not authenticated - no user ID';
-            console.error(error);
-            return { projects: [], error };
-        }
+        if (!userId) return { projects: [], error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/jira/projects`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
 
         try {
             const res = await fetch(url.toString());
@@ -452,36 +333,32 @@ export const api = {
         }
     },
 
-    async getJiraProjectHealth(projectId, teamId = null) {
+    async getJiraProjectHealth(projectId) {
         const userId = getUserId();
-        if (!userId) {
-            throw new Error('Not authenticated - cannot fetch project health');
-        }
-        if (!projectId) {
-            throw new Error('Project ID is required');
-        }
+        if (!userId) throw new Error('Not authenticated');
+        if (!projectId) throw new Error('Project ID is required');
 
         const url = new URL(`${API_BASE_URL}/api/jira/projects/${projectId}/health`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
 
-        const res = await fetch(url.toString());
-        if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.error || 'Failed to fetch Jira project health');
+        try {
+            const res = await fetch(url.toString());
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to fetch Jira project health');
+            }
+            return await res.json();
+        } catch (error) {
+            throw error;
         }
-        return await res.json();
     },
 
-    async getJiraWorkload(teamId = null) {
+    async getJiraWorkload() {
         const userId = getUserId();
-        if (!userId) {
-            return { workload: [], error: 'Not authenticated - no user ID' };
-        }
+        if (!userId) return { workload: [], error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/jira/workload`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
 
         try {
             const res = await fetch(url.toString());
@@ -495,15 +372,12 @@ export const api = {
         }
     },
 
-    async getJiraDeadlines(teamId = null) {
+    async getJiraDeadlines() {
         const userId = getUserId();
-        if (!userId) {
-            return { error: 'Not authenticated - no user ID' };
-        }
+        if (!userId) return { error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/jira/deadlines`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
 
         try {
             const res = await fetch(url.toString());
@@ -517,14 +391,11 @@ export const api = {
         }
     },
 
-    async getJiraTasks(filters = {}, teamId = null) {
+    async getJiraTasks(filters = {}) {
         const userId = getUserId();
-        if (!userId) {
-            return { tasks: [], error: 'Not authenticated - no user ID' };
-        }
+        if (!userId) return { tasks: [], error: 'Not authenticated' };
 
         const params = new URLSearchParams({ userId });
-        if (teamId) params.append('teamId', teamId);
         if (filters.status) params.append('status', filters.status);
         if (filters.projectId) params.append('projectId', filters.projectId);
 
@@ -542,130 +413,14 @@ export const api = {
         }
     },
 
-    // ==================== TRELLO API ====================
-    async getTrelloProjects(teamId = null) {
-        const userId = getUserId();
-
-        if (!userId) {
-            const error = 'Not authenticated - no user ID';
-            console.error(error);
-            return { projects: [], error };
-        }
-
-        const url = new URL(`${API_BASE_URL}/api/trello/projects`);
-        url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-
-        try {
-            const res = await fetch(url.toString());
-            if (!res.ok) {
-                const data = await res.json();
-                return { projects: [], error: data.error || 'Failed to fetch Trello projects' };
-            }
-            return await res.json();
-        } catch (error) {
-            return { projects: [], error: error.message };
-        }
-    },
-
-    async getTrelloProjectHealth(projectId, teamId = null) {
-        const userId = getUserId();
-        if (!userId) {
-            throw new Error('Not authenticated - cannot fetch project health');
-        }
-        if (!projectId) {
-            throw new Error('Project ID is required');
-        }
-
-        const url = new URL(`${API_BASE_URL}/api/trello/projects/${projectId}/health`);
-        url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-
-        const res = await fetch(url.toString());
-        if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.error || 'Failed to fetch Trello project health');
-        }
-        return await res.json();
-    },
-
-    async getTrelloWorkload(teamId = null) {
-        const userId = getUserId();
-        if (!userId) {
-            return { workload: [], error: 'Not authenticated - no user ID' };
-        }
-
-        const url = new URL(`${API_BASE_URL}/api/trello/workload`);
-        url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-
-        try {
-            const res = await fetch(url.toString());
-            if (!res.ok) {
-                const data = await res.json();
-                return { workload: [], error: data.error || 'Failed to fetch Trello workload' };
-            }
-            return await res.json();
-        } catch (error) {
-            return { workload: [], error: error.message };
-        }
-    },
-
-    async getTrelloDeadlines(teamId = null) {
-        const userId = getUserId();
-        if (!userId) {
-            return { error: 'Not authenticated - no user ID' };
-        }
-
-        const url = new URL(`${API_BASE_URL}/api/trello/deadlines`);
-        url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
-
-        try {
-            const res = await fetch(url.toString());
-            if (!res.ok) {
-                const data = await res.json();
-                return { error: data.error || 'Failed to fetch Trello deadlines' };
-            }
-            return await res.json();
-        } catch (error) {
-            return { error: error.message };
-        }
-    },
-
-    async getTrelloTasks(filters = {}, teamId = null) {
-        const userId = getUserId();
-        if (!userId) {
-            return { tasks: [], error: 'Not authenticated - no user ID' };
-        }
-
-        const params = new URLSearchParams({ userId });
-        if (teamId) params.append('teamId', teamId);
-        if (filters.status) params.append('status', filters.status);
-        if (filters.projectId) params.append('projectId', filters.projectId);
-
-        const url = `${API_BASE_URL}/api/trello/tasks?${params}`;
-
-        try {
-            const res = await fetch(url);
-            if (!res.ok) {
-                const data = await res.json();
-                return { tasks: [], error: data.error || 'Failed to fetch Trello tasks' };
-            }
-            return await res.json();
-        } catch (error) {
-            return { tasks: [], error: error.message };
-        }
-    },
-
-    async getGoogleCalendarEvents(teamId = null, days = 7) {
+    // ==================== GOOGLE CALENDAR API ====================
+    async getGoogleCalendarEvents(days = 7) {
         const userId = getUserId();
         if (!userId) return { error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/google-calendar/events`);
         url.searchParams.append('userId', userId);
         url.searchParams.append('days', days);
-        if (teamId) url.searchParams.append('teamId', teamId);
 
         try {
             const res = await fetch(url.toString());
@@ -679,14 +434,13 @@ export const api = {
         }
     },
 
-    async getGoogleCalendarAnalytics(teamId = null, days = 30) {
+    async getGoogleCalendarAnalytics(days = 30) {
         const userId = getUserId();
         if (!userId) return { error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/google-calendar/analytics`);
         url.searchParams.append('userId', userId);
         url.searchParams.append('days', days);
-        if (teamId) url.searchParams.append('teamId', teamId);
 
         try {
             const res = await fetch(url.toString());
@@ -700,14 +454,13 @@ export const api = {
         }
     },
 
-    async getGoogleCalendarActionItems(teamId = null, days = 7) {
+    async getGoogleCalendarActionItems(days = 7) {
         const userId = getUserId();
         if (!userId) return { error: 'Not authenticated' };
 
         const url = new URL(`${API_BASE_URL}/api/google-calendar/action-items`);
         url.searchParams.append('userId', userId);
         url.searchParams.append('days', days);
-        if (teamId) url.searchParams.append('teamId', teamId);
 
         try {
             const res = await fetch(url.toString());
@@ -721,7 +474,28 @@ export const api = {
         }
     },
 
-    async getGithubPulls(teamId = null, options = {}) {
+    async assignGoogleTaskToAgent(task) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/google-calendar/tasks/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, task })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to assign task');
+            return data;
+        } catch (error) {
+            console.error('Task assignment error:', error);
+            throw error;
+        }
+    },
+
+    // ==================== GITHUB API ====================
+    async getGithubPulls(options = {}) {
         const userId = getUserId();
         if (!userId) return { pulls: [], error: 'Not authenticated' };
 
@@ -729,7 +503,7 @@ export const api = {
 
         const url = new URL(`${API_BASE_URL}/api/github/pulls`);
         url.searchParams.append('userId', userId);
-        if (teamId) url.searchParams.append('teamId', teamId);
+
         if (repo) url.searchParams.append('repo', repo);
         if (Number.isFinite(limit) && limit > 0) {
             url.searchParams.append('limit', String(Math.floor(limit)));
@@ -750,6 +524,136 @@ export const api = {
         }
     },
 
+    // ==================== AGENT API ====================
+    async listAgentConversations() {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/conversations?userId=${encodeURIComponent(userId)}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+            throw new Error(data.error || 'Failed to load agent conversations');
+        }
+
+        return data;
+    },
+
+    async createAgentConversation(payload = {}) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/conversations`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, ...payload })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create chat');
+        return data;
+    },
+
+    async getAgentConversation(conversationId) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+        if (!conversationId) throw new Error('conversationId required');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/conversations/${conversationId}?userId=${encodeURIComponent(userId)}`);
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || 'Failed to load chat');
+        return data;
+    },
+
+    async renameAgentConversation(conversationId, title) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+        if (!conversationId) throw new Error('conversationId required');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/conversations/${conversationId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, title })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to rename chat');
+        return data;
+    },
+
+    async shareAgentConversation(conversationId) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+        if (!conversationId) throw new Error('conversationId required');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/conversations/${conversationId}/share`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to share chat');
+        return data;
+    },
+
+    async deleteAgentConversation(conversationId) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+        if (!conversationId) throw new Error('conversationId required');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/conversations/${conversationId}?userId=${encodeURIComponent(userId)}`, {
+            method: 'DELETE'
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete chat');
+        return data;
+    },
+
+    async approveAgentAction(conversationId, approvalId) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+        if (!conversationId || !approvalId) throw new Error('conversationId and approvalId are required');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/approvals/${encodeURIComponent(approvalId)}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, conversationId })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to approve action');
+        return data;
+    },
+
+    async rejectAgentAction(conversationId, approvalId) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+        if (!conversationId || !approvalId) throw new Error('conversationId and approvalId are required');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/approvals/${encodeURIComponent(approvalId)}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, conversationId })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to reject action');
+        return data;
+    },
+
+    async getSharedAgentConversation(shareToken) {
+        if (!shareToken) throw new Error('shareToken required');
+
+        const res = await fetch(`${API_BASE_URL}/api/agent/shared/${encodeURIComponent(shareToken)}`);
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || 'Failed to load shared chat');
+        return data;
+    },
+
     async deleteSummary(summaryId) {
         const userId = getUserId();
         if (!userId) throw new Error('Not authenticated');
@@ -764,5 +668,40 @@ export const api = {
         }
 
         return await res.json();
+    },
+
+    async listDismissedBlockers() {
+        const userId = getUserId();
+        if (!userId) return [];
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/blockers/dismissed?userId=${userId}`);
+            if (!res.ok) return [];
+            return await res.json();
+        } catch (error) {
+            console.error('Fetch dismissed blockers failed:', error);
+            return [];
+        }
+    },
+
+    async dismissBlocker(blockerId) {
+        const userId = getUserId();
+        if (!userId) throw new Error('Not authenticated');
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/blockers/dismiss`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, blockerId })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to dismiss blocker');
+            return data;
+        } catch (error) {
+            console.error('Dismiss blocker failed:', error);
+            throw error;
+        }
     }
 };
+
+export default api;

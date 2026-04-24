@@ -7,7 +7,8 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import WorkInsights from './pages/WorkInsights';
-import Summaries from './pages/Summaries';
+import AgentChat from './pages/AgentChat';
+import SharedConversation from './pages/SharedConversation';
 import Blockers from './pages/Blockers';
 import Meetings from './pages/Meetings';
 import Profile from './pages/Profile';
@@ -16,13 +17,6 @@ import Code from './pages/Code';
 import Repositories from './pages/Repositories';
 import Analytics from './pages/Analytics';
 import Projects from './pages/Projects';
-import Team from './pages/Team';
-import TeamSetup from './pages/onboarding/TeamSetup';
-import ConnectTools from './pages/onboarding/ConnectTools';
-import InviteTeam from './pages/onboarding/InviteTeam';
-import OnboardingComplete from './pages/onboarding/OnboardingComplete';
-import WelcomeMember from './pages/onboarding/WelcomeMember';
-import JoinTeam from './pages/auth/JoinTeam';
 import AuthCallback from './pages/auth/AuthCallback';
 import About from './pages/company/About';
 import Contact from './pages/company/Contact';
@@ -34,7 +28,9 @@ import DemoWorkspace from './pages/DemoWorkspace';
 import Waitlist from './pages/Waitlist';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import UpdatePassword from './pages/auth/UpdatePassword';
-import Inbox from './pages/Inbox';
+import Onboarding from './pages/Onboarding';
+import OnboardingIntegrations from './pages/onboarding/OnboardingIntegrations';
+
 
 const Spinner = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -47,39 +43,6 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
   return user ? children : <Navigate to="/login" replace />;
-}
-
-// Requires login + team — offline-aware
-function TeamProtectedRoute({ children }) {
-  const { user, loading, profile, isOffline } = useAuth();
-  if (loading) return <Spinner />;
-  if (!user) return <Navigate to="/login" replace />;
-
-  // Profile fetch may still be in-flight after auth resolves.
-  // Wait for it rather than prematurely redirecting to onboarding.
-  if (!profile) return <Spinner />;
-
-  const hasTeam = !!(profile?.current_team_id || profile?.teams?.length > 0);
-
-
-  if (!hasTeam) {
-    // When offline, check the cached profile before redirecting.
-    // The user may have a valid team but the fresh fetch failed.
-    if (isOffline) {
-      try {
-        const raw = localStorage.getItem('teamaai_cached_profile');
-        if (raw) {
-          const cached = JSON.parse(raw);
-          if (cached?.current_team_id || cached?.teams?.length > 0) {
-            return children; // trust the cache
-          }
-        }
-      } catch { /* ignore */ }
-    }
-    return <Navigate to="/onboarding/team-setup?plan=free" replace />;
-  }
-
-  return children;
 }
 
 function LandingRoute() {
@@ -128,29 +91,32 @@ function App() {
           <Route path="/refund-policy" element={<RefundPolicy />} />
           <Route path="/demo" element={<DemoWorkspace />} />
           <Route path="/waitlist" element={<Waitlist />} />
-          <Route path="/join" element={<JoinTeam />} />
+          <Route path="/shared/chat/:shareToken" element={<SharedConversation />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/auth/update-password" element={<UpdatePassword />} />
-          <Route path="/onboarding" element={<Navigate to="/onboarding/team-setup" replace />} />
-          <Route path="/onboarding/team-setup" element={<ProtectedRoute><TeamSetup /></ProtectedRoute>} />
-          <Route path="/onboarding/connect-tools" element={<ProtectedRoute><ConnectTools /></ProtectedRoute>} />
-          <Route path="/onboarding/invite-team" element={<ProtectedRoute><InviteTeam /></ProtectedRoute>} />
-          <Route path="/onboarding/complete" element={<ProtectedRoute><OnboardingComplete /></ProtectedRoute>} />
-          <Route path="/onboarding/welcome-member" element={<ProtectedRoute><WelcomeMember /></ProtectedRoute>} />
 
-            <Route path="/app" element={
-            <TeamProtectedRoute>
+          <Route path="/onboarding" element={
+            <ProtectedRoute>
+              <Onboarding />
+            </ProtectedRoute>
+          }>
+            <Route index element={<Navigate to="welcome" replace />} />
+            <Route path="welcome" element={<OnboardingIntegrations />} />
+          </Route>
+
+
+          <Route path="/app" element={
+            <ProtectedRoute>
               <AppShell />
-            </TeamProtectedRoute>
+            </ProtectedRoute>
           }>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="insights" element={<WorkInsights />} />
-            <Route path="inbox" element={<Inbox />} />
-            <Route path="summaries" element={<Summaries />} />
+            <Route path="chat" element={<AgentChat />} />
             <Route path="blockers" element={<Blockers />} />
             <Route path="meetings" element={<Meetings />} />
             <Route path="integrations" element={<Integrations />} />
@@ -158,7 +124,6 @@ function App() {
             <Route path="analytics" element={<Analytics />} />
             <Route path="projects" element={<Projects />} />
             <Route path="code" element={<Code />} />
-            <Route path="team" element={<Team />} />
             <Route path="code/repos" element={<Repositories />} />
           </Route>
         </Routes>

@@ -1,11 +1,12 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import {
     Zap, ArrowRight, CheckCircle2, Target,
-    MessageSquare, BarChart3, Shield, Users, Menu, X, Clock, Search, Globe, Code2, TrendingUp, BarChart
+    MessageSquare, BarChart3, Shield, Users, Menu, X, Clock, Search, Globe, Code2, TrendingUp, BarChart, Sparkles, Activity, Calendar
 } from 'lucide-react';
 import Button from '../components/Button';
 import SEO from '../components/common/SEO';
+import Footer from '../components/Footer';
 
 export default function Landing() {
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -19,601 +20,159 @@ export default function Landing() {
     };
 
     return (
-        <div className="min-h-screen bg-white">
+        <>
+        <div className="min-h-screen bg-black text-white selection:bg-gray-800 font-sans">
             <SEO 
-                title="Supercharge Remote Productivity" 
-                description="Teama AI helps remote teams stay aligned, detect blockers, and summarize meetings with the power of artificial intelligence."
+                title="Teama AI - Simpler Team Productivity" 
+                description="Teama AI helps your team stay aligned by summarizing Slack messages and meetings automatically."
             />
-            {/* Navigation */}
-            <header className="fixed w-full bg-white/80 backdrop-blur-md z-50 border-b border-gray-100">
-                <nav className="container mx-auto px-4 md:px-6 py-3 md:py-4" aria-label="Main Navigation">
-                    <div className="flex justify-between items-center">
-                        <Link to="/" className="flex items-center gap-2">
-                            <img src="/logo.png" alt="Teama AI - AI Productivity Platform Logo" className="w-9 h-9 md:w-10 md:h-10 object-contain" />
-                            <span className="text-lg md:text-xl font-bold text-gray-900">Teama AI</span>
+
+            {/* Simple Navigation */}
+            <nav className="fixed w-full z-50 bg-black/80 backdrop-blur-md border-b border-white/5">
+                <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+                    <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+                        <img src="/logo.png" alt="Logo" className="w-8 h-8" />
+                        <span className="text-lg font-bold tracking-tight">Teama AI</span>
+                    </div>
+                    
+                    <div className="hidden md:flex items-center gap-10">
+                        <a href="#features" onClick={(e) => handleSmoothScroll(e, 'features')} className="text-[10px] font-bold text-gray-400 hover:text-white transition-all uppercase tracking-widest">Features</a>
+                        <Link to="/login" className="text-[10px] font-bold text-gray-400 hover:text-white transition-all uppercase tracking-widest">Login</Link>
+                        <Link to="/signup" className="bg-white text-black px-5 py-2 rounded-lg text-[10px] font-bold hover:bg-gray-200 transition-all uppercase tracking-widest">
+                            Sign Up
                         </Link>
-                        <div className="hidden md:flex items-center gap-8">
-                            <a href="#features" onClick={(event) => handleSmoothScroll(event, 'features')} className="text-gray-600 hover:text-gray-900 transition font-medium">Features</a>
-                            <a href="#how-it-works" onClick={(event) => handleSmoothScroll(event, 'how-it-works')} className="text-gray-600 hover:text-gray-900 transition font-medium">How it Works</a>
-                            <a href="#pricing" onClick={(event) => handleSmoothScroll(event, 'pricing')} className="text-gray-600 hover:text-gray-900 transition font-medium">Pricing</a>
-                        </div>
-                        <div className="flex items-center gap-2 md:gap-4">
-                            <Link to="/login" className="hidden sm:inline text-gray-600 hover:text-gray-900 transition text-sm md:text-base font-medium">
-                                Sign In
-                            </Link>
-                            <Link
-                                to="/signup?plan=free"
-                                className="px-4 md:px-6 py-2 md:py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm md:text-base rounded-lg hover:shadow-lg hover:scale-105 transition-all font-semibold"
-                            >
-                                Get Started Free
-                            </Link>
-                            <button
-                                onClick={() => setMobileNavOpen(!mobileNavOpen)}
-                                className="md:hidden p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                                aria-label="Toggle navigation menu"
-                                aria-expanded={mobileNavOpen}
-                            >
-                                {mobileNavOpen ? <X size={22} /> : <Menu size={22} />}
-                            </button>
-                        </div>
                     </div>
 
-                    {/* Mobile Nav Menu */}
-                    {mobileNavOpen && (
-                        <div className="md:hidden mt-3 pt-3 border-t border-gray-100 pb-2">
-                            <div className="flex flex-col gap-1">
-                                <a href="#features" onClick={(event) => handleSmoothScroll(event, 'features')} className="px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition font-medium">Features</a>
-                                <a href="#how-it-works" onClick={(event) => handleSmoothScroll(event, 'how-it-works')} className="px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition font-medium">How it Works</a>
-                                <a href="#pricing" onClick={(event) => handleSmoothScroll(event, 'pricing')} className="px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition font-medium">Pricing</a>
-                                <Link to="/login" className="sm:hidden px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-lg transition font-medium">Sign In</Link>
-                            </div>
-                        </div>
-                    )}
-                </nav>
-            </header>
+                    <button className="md:hidden text-gray-400" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
+                        {mobileNavOpen ? <X size={24} /> : <Menu size={24} />}
+                    </button>
+                </div>
+            </nav>
+
+            {/* Mobile Menu */}
+            {mobileNavOpen && (
+                <div className="fixed inset-0 z-40 bg-black pt-24 px-6 md:hidden">
+                    <div className="flex flex-col gap-8 items-center justify-center h-full">
+                        <a href="#features" onClick={(e) => handleSmoothScroll(e, 'features')} className="text-lg font-bold uppercase tracking-widest">Features</a>
+                        <Link to="/login" className="text-lg font-bold uppercase tracking-widest">Login</Link>
+                        <Link to="/signup" className="text-lg font-bold text-white uppercase tracking-widest">Sign Up</Link>
+                    </div>
+                </div>
+            )}
 
             <main>
                 {/* Hero Section */}
-                <section className="pt-28 md:pt-32 pb-12 md:pb-20 px-4 md:px-6">
-                    <div className="container mx-auto max-w-6xl">
-                        <div className="text-center">
-                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium mb-6">
-                                <img src="/logo.png" alt="" className="w-4 h-4 object-contain" aria-hidden="true" />
-                                Now in early access — be among the first teams
-                            </div>
-                            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 mb-6 leading-tight">
-                                AI-Powered Team
-                                <br />
-                                <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                                    Teama AI Productivity
-                                </span>
-                            </h1>
-                            <p className="text-lg md:text-xl text-gray-600 mb-8 max-w-2xl mx-auto leading-relaxed">
-                                Automatically summarize Slack conversations, detect blockers, and get actionable insights
-                                for your remote team. No manual work required.
-                            </p>
-                            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
-                                <Link
-                                    to="/signup?plan=free"
-                                    className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-lg rounded-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2 font-semibold"
-                                >
-                                    Get Started
-                                    <ArrowRight size={20} />
-                                </Link>
-                                <a
-                                    href="/demo"
-                                    className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-900 text-lg rounded-lg hover:border-gray-300 hover:shadow-lg transition-all font-medium"
-                                >
-                                    Try Interactive Demo
-                                </a>
-                            </div>
-                            <div className="flex items-center justify-center gap-8 text-sm text-gray-600 flex-wrap">
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle2 size={16} className="text-green-500" />
-                                    <span>Free plan available</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle2 size={16} className="text-green-500" />
-                                    <span>Upgrade anytime</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle2 size={16} className="text-green-500" />
-                                    <span>Cancel anytime</span>
-                                </div>
-                            </div>
+                <section className="pt-40 pb-32 px-6">
+                    <div className="max-w-4xl mx-auto text-center">
+                        <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-1.5 rounded-full text-gray-400 mb-8 text-[10px] font-bold uppercase tracking-widest">
+                            Your AI Co-Worker
                         </div>
-
-                        <div className="mt-20">
-                            <div className="relative">
-                                <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl blur-3xl opacity-20"></div>
-                                <img
-                                    src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1200&h=600&fit=crop"
-                                    alt="Teama AI Dashboard Preview showing team productivity analytics"
-                                    className="relative rounded-2xl shadow-2xl border border-gray-200 w-full h-auto"
-                                    loading="lazy"
-                                />
-                            </div>
+                        <h1 className="text-4xl md:text-6xl font-bold mb-8 leading-tight tracking-tight uppercase">
+                            Surfaces what matters. Acts after you approve.
+                        </h1>
+                        <p className="text-sm md:text-base text-gray-400 mb-6 max-w-2xl mx-auto font-bold uppercase tracking-widest leading-relaxed">
+                            Teama finds what needs to be done across all your connected tools. It surfaces blockers, meeting prep, AI insights, and actionable suggestions—so you spend more time doing instead of reading or searching.
+                        </p>
+                        <p className="text-xs text-gray-500 mb-12 max-w-2xl mx-auto font-bold uppercase tracking-widest leading-relaxed">
+                            Slack channel summaries • Next meeting prep • Blockers from Jira & Asana • AI task insights • Smart suggestions
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                            <Link to="/signup" className="bg-white text-black px-10 py-4 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-gray-200 transition-all text-center">
+                                Get Started
+                            </Link>
+                            <Link to="/demo" className="bg-white/5 border border-white/10 text-white px-10 py-4 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-white/10 transition-all text-center">
+                                See Demo
+                            </Link>
                         </div>
                     </div>
                 </section>
 
                 {/* Features Section */}
-                <section id="features" className="py-16 md:py-24 px-4 md:px-6 scroll-mt-24">
-                    <div className="container mx-auto max-w-6xl">
-                        <header className="text-center mb-10 md:mb-16">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
-                                Everything you need to boost productivity
-                            </h2>
-                            <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
-                                Powerful features designed for modern remote teams
-                            </p>
-                        </header>
-
-                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 md:gap-8">
-                            <FeatureCard
-                                icon={<MessageSquare className="text-blue-600" size={32} aria-hidden="true" />}
-                                title="AI Summaries"
-                                description="Get instant, intelligent summaries of Slack channels and threads. Save hours of reading."
-                                features={['Real-time analysis', 'Context-aware', 'Multi-channel support']}
+                <section id="features" className="py-32 px-6 border-t border-white/5 bg-black">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="text-center mb-20">
+                            <h2 className="text-3xl md:text-5xl font-bold mb-6 uppercase tracking-tight">What Teama Does</h2>
+                            <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Makes your work simpler by surfacing what matters from your connected tools.</p>
+                        </div>
+                        
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                            <SimpleCard 
+                                icon={<MessageSquare size={24} />}
+                                title="Slack Summaries"
+                                desc="Daily summaries of important channel discussions so you stay informed without reading every message."
                             />
-                            <FeatureCard
-                                icon={<Target className="text-purple-600" size={32} aria-hidden="true" />}
-                                title="Blocker Detection"
-                                description="Automatically identify team blockers, risks, and dependencies before they become problems."
-                                features={['Smart alerts', 'Priority ranking', 'Resolution tracking']}
+                            <SimpleCard 
+                                icon={<Calendar size={24} />}
+                                title="Meeting Prep"
+                                desc="Automatic standup prep and next meeting preview with context from your calendar and tools."
                             />
-                            <FeatureCard
-                                icon={<BarChart3 className="text-green-600" size={32} aria-hidden="true" />}
-                                title="Analytics Dashboard"
-                                description="Beautiful visualizations of team productivity, sentiment, and communication patterns."
-                                features={['Custom reports', 'Trend analysis', 'Export data']}
+                            <SimpleCard 
+                                icon={<Target size={24} />}
+                                title="Blocked Tasks"
+                                desc="Identify blockers from Jira and Asana instantly. See what's stuck and who needs help."
                             />
-                            <FeatureCard
-                                icon={<Shield className="text-red-600" size={32} aria-hidden="true" />}
-                                title="Enterprise Security"
-                                description="Bank-level encryption and compliance. Your data never leaves your control."
-                                features={['SOC 2 compliant', 'GDPR ready', 'SSO support']}
+                            <SimpleCard 
+                                icon={<Sparkles size={24} />}
+                                title="AI Insights"
+                                desc="Smart analysis of tasks, projects, and team velocity. Actionable insights on what matters most."
                             />
-                            <FeatureCard
-                                icon={<Users className="text-yellow-600" size={32} aria-hidden="true" />}
-                                title="Team Insights"
-                                description="Understand collaboration patterns, identify knowledge silos, and improve team dynamics."
-                                features={['Sentiment analysis', 'Engagement metrics', 'Burnout detection']}
+                            <SimpleCard 
+                                icon={<Zap size={24} />}
+                                title="Smart Suggestions"
+                                desc="AI suggests what should be done next based on priorities, deadlines, and blocker patterns."
                             />
-                            <FeatureCard
-                                icon={<Zap className="text-indigo-600" size={32} aria-hidden="true" />}
-                                title="Instant Integration"
-                                description="Connect Slack, one project platform (Jira/Asana/Trello), and your tools in seconds. No technical setup required."
-                                features={['One-click setup', 'All major tools', 'API access']}
+                            <SimpleCard 
+                                icon={<CheckCircle2 size={24} />}
+                                title="Approval & Action"
+                                desc="Review suggestions and approve actions. Teama executes on your behalf across all tools."
                             />
                         </div>
                     </div>
                 </section>
 
-                {/* How It Works */}
-                <section id="how-it-works" className="py-16 md:py-24 px-4 md:px-6 bg-gradient-to-br from-blue-50 to-purple-50 scroll-mt-24">
-                    <div className="container mx-auto max-w-6xl">
-                        <header className="text-center mb-10 md:mb-16">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
-                                How it works
-                            </h2>
-                            <p className="text-lg md:text-xl text-gray-600">
-                                Get started in minutes, not hours
-                            </p>
-                        </header>
-
-                        <div className="grid sm:grid-cols-3 gap-8 md:gap-12">
-                            <Step
-                                number="1"
-                                title="Connect Your Tools"
-                                description="Link your Slack workspace and other tools with one click. We'll guide you through everything."
-                            />
-                            <Step
-                                number="2"
-                                title="AI Starts Learning"
-                                description="Our AI analyzes your team's communication patterns and automatically surfaces key insights."
-                            />
-                            <Step
-                                number="3"
-                                title="Get Insights Daily"
-                                description="Receive smart summaries, blocker alerts, and actionable recommendations every day."
-                            />
-                        </div>
-                    </div>
-                </section>
-
-                {/* Data Transparency Section */}
-                <section className="py-16 md:py-24 px-4 md:px-6 bg-white">
-                    <div className="container mx-auto max-w-6xl">
-                        <header className="text-center mb-10 md:mb-16">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
-                                Your data. Your control. Always.
-                            </h2>
-                            <p className="text-lg md:text-xl text-gray-600">
-                                We're transparent about how we use your data
-                            </p>
-                        </header>
-
-                        <div className="grid md:grid-cols-2 gap-8 md:gap-12 mb-12">
-                            <article className="bg-blue-50 p-6 md:p-8 rounded-2xl border border-blue-100">
-                                <h3 className="text-2xl font-bold text-gray-900 mb-4">Why We Request Calendar Access</h3>
-                                <p className="text-gray-700 mb-4 font-medium">
-                                    Teama AI integrates with your Google Calendar to:
-                                </p>
-                                <ul className="space-y-3">
-                                    <li className="flex items-start gap-3">
-                                        <CheckCircle2 size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                                        <span className="text-gray-700"><strong>Summarize meetings</strong> — Provide AI-generated summaries of video calls and scheduled events</span>
-                                    </li>
-                                    <li className="flex items-start gap-3">
-                                        <CheckCircle2 size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                                        <span className="text-gray-700"><strong>Identify blockers</strong> — Detect scheduling conflicts and resource constraints impacting team productivity</span>
-                                    </li>
-                                    <li className="flex items-start gap-3">
-                                        <CheckCircle2 size={20} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                                        <span className="text-gray-700"><strong>Boost productivity</strong> — Provide insights on team availability and workload distribution</span>
-                                    </li>
-                                </ul>
-                            </article>
-
-                            <article className="bg-purple-50 p-6 md:p-8 rounded-2xl border border-purple-100">
-                                <h3 className="text-2xl font-bold text-gray-900 mb-4">Integrations & Data Usage</h3>
-                                <p className="text-gray-700 mb-4 font-medium">
-                                    We securely connect to your workspace tools:
-                                </p>
-                                <ul className="space-y-3">
-                                    <li className="flex items-start gap-3">
-                                        <CheckCircle2 size={20} className="text-purple-600 flex-shrink-0 mt-0.5" />
-                                        <span className="text-gray-700"><strong>Slack</strong> — Summarize channels and identify team discussions</span>
-                                    </li>
-                                    <li className="flex items-start gap-3">
-                                        <CheckCircle2 size={20} className="text-purple-600 flex-shrink-0 mt-0.5" />
-                                        <span className="text-gray-700"><strong>Google Calendar</strong> — Analyze schedules and meeting patterns</span>
-                                    </li>
-                                    <li className="flex items-start gap-3">
-                                        <CheckCircle2 size={20} className="text-purple-600 flex-shrink-0 mt-0.5" />
-                                        <span className="text-gray-700"><strong>Jira, Asana, Trello, GitHub & more</strong> — Track projects and code activity</span>
-                                    </li>
-                                </ul>
-                            </article>
-                        </div>
-
-                        <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 md:p-8 rounded-2xl border border-green-200">
-                            <article className="flex items-start gap-4">
-                                <Shield className="text-green-600 flex-shrink-0 mt-1" size={28} aria-hidden="true" />
-                                <div>
-                                    <h3 className="text-xl font-bold text-gray-900 mb-3">Privacy & Security Commitment</h3>
-                                    <p className="text-gray-700 mb-4 leading-relaxed">
-                                        Your workspace data is never shared, sold, or used to train AI models. We use bank-level encryption, maintain SOC 2 compliance, and comply with GDPR. You control exactly what data we access and can revoke permissions at any time.
-                                    </p>
-                                    <Link to="/privacy" className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-4">
-                                        Read our full Privacy Policy →
-                                    </Link>
-                                </div>
-                            </article>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Success Stories Section */}
-                <section id="success-stories" className="py-16 md:py-24 px-4 md:px-6 bg-slate-900 text-white overflow-hidden relative">
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 to-purple-600/20 opacity-30"></div>
-                    <div className="container mx-auto max-w-6xl relative z-10">
-                        <header className="text-center mb-12 md:mb-20">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4">
-                                Real results for real teams
-                            </h2>
-                            <p className="text-lg md:text-xl text-blue-100 max-w-2xl mx-auto">
-                                See how Teama AI transforms operations and boosts output within days.
-                            </p>
-                        </header>
-
-                        <div className="grid md:grid-cols-3 gap-8 md:gap-12">
-                            <SuccessCard 
-                                industry="Fintech (Series B)"
-                                size="50+ Engineers"
-                                problem="Drowning in Slack & outdated Jira tickets."
-                                timeline="14 Days to Impact"
-                                metrics={[
-                                    { label: 'Status meeting time', value: '-40%', icon: <Clock size={16} /> },
-                                    { label: 'Blocker detection', value: '85%', icon: <Target size={16} /> }
-                                ]}
-                                quote="Teama AI gave us back hours of deep work time. The blocker detection is eerily accurate."
-                                author="Sarah K., Engineering Manager"
-                            />
-                            <SuccessCard 
-                                industry="Product Agency"
-                                size="12+ Global Projects"
-                                problem="Losing context across multiple client workspaces."
-                                timeline="7 Days to Clarity"
-                                metrics={[
-                                    { label: 'Saved per PM/week', value: '3.5h', icon: <TrendingUp size={16} /> },
-                                    { label: 'Jira data accuracy', value: '100%', icon: <CheckCircle2 size={16} /> }
-                                ]}
-                                quote="Finally, one layer of truth across all our tools. Our sprint planning is now data-driven."
-                                author="Marcus T., Head of Product"
-                            />
-                            <SuccessCard 
-                                industry="Remote Enterprise"
-                                size="200+ Employees"
-                                problem="Communication silos across time zones."
-                                timeline="30 Days to Alignment"
-                                metrics={[
-                                    { label: 'Cross-team alignment', value: '+60%', icon: <Users size={16} /> },
-                                    { label: 'Missed blockers', value: 'Zero', icon: <Shield size={16} /> }
-                                ]}
-                                quote="The ROI was obvious within the first month. It's now a core part of our stack."
-                                author="David L., VP Engineering"
-                            />
-                        </div>
-                    </div>
-                </section>
-
-                {/* Pricing */}
-                <section id="pricing" className="py-16 md:py-24 px-4 md:px-6 bg-gray-50 scroll-mt-24">
-                    <div className="container mx-auto max-w-6xl">
-                        <header className="text-center mb-10 md:mb-16">
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
-                                Simple, flat-rate pricing
-                            </h2>
-                            <p className="text-lg md:text-xl text-gray-600">
-                                Flat monthly pricing with clear team and usage limits.
-                            </p>
-                        </header>
-
-                        <div className="grid md:grid-cols-3 gap-6 md:gap-8">
-                            <PricingCard
-                                name="Free"
-                                plan="free"
-                                price="$0"
-                                description="Try the full platform, no card needed"
-                                features={[
-                                    'Up to 5 team members',
-                                    '50 AI summaries per month',
-                                    'All integrations (Slack, one project platform, Calendar, GitHub)',
-                                    'Blocker detection',
-                                    '7-day history',
-                                    'Basic analytics',
-                                    'Community support'
-                                ]}
-                                cta="Get Started Free"
-                                highlighted={false}
-                            />
-                            <PricingCard
-                                name="Starter"
-                                plan="starter"
-                                price="$19"
-                                description="For teams that rely on it daily"
-                                features={[
-                                    'Up to 20 team members',
-                                    '1,000 AI summaries per month',
-                                    'All integrations',
-                                    'Advanced blocker detection',
-                                    'Daily digest emails',
-                                    '90-day history',
-                                    'Full analytics & reports',
-                                    'Email support'
-                                ]}
-                                cta="Get Started"
-                                highlighted={true}
-                            />
-                            <PricingCard
-                                name="Growth"
-                                plan="growth"
-                                price="$49"
-                                description="For scaling teams that need more"
-                                features={[
-                                    'Up to 75 team members',
-                                    'Unlimited AI summaries',
-                                    'Everything in Starter',
-                                    'Workload insights',
-                                    'Export reports',
-                                    '1-year history',
-                                    'Priority support',
-                                    'Custom onboarding'
-                                ]}
-                                cta="Get Started"
-                                highlighted={false}
-                            />
-                        </div>
-
-                        <p className="text-center text-gray-600 mt-8 md:mt-10">
-                            <span className="font-semibold text-gray-900">All paid plans include a 14-day money-back guarantee.</span>{' '}
-                            <a href="/refund-policy" className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-4 transition">
-                                View refund policy
-                            </a>
+                {/* Security Section */}
+                <section className="py-32 px-6 border-t border-white/5">
+                    <div className="max-w-4xl mx-auto text-center">
+                        <Shield size={48} className="mx-auto mb-8 text-white" />
+                        <h2 className="text-3xl md:text-5xl font-bold mb-8 uppercase tracking-tight">Secure and Private</h2>
+                        <p className="text-sm text-gray-400 font-bold uppercase tracking-widest mb-12">
+                            Your data is never shared or used for training. Everything is processed securely and kept private to your team.
                         </p>
-
-                        <p className="text-center text-gray-600 mt-4">
-                            <span className="font-semibold text-gray-900">Larger team?</span>{' '}
-                            <a href="mailto:team@mail.teamaai.xyz" className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-4 transition">
-                                Contact us
-                            </a>{' '}
-                            — we'll build a plan that fits.
-                        </p>
+                        <div className="flex flex-wrap justify-center gap-8 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                            <span>SOC 2 Ready</span>
+                            <span>GDPR Compliant</span>
+                            <span>AES-256 Encryption</span>
+                        </div>
                     </div>
                 </section>
 
-                {/* CTA Section */}
-                <section className="py-16 md:py-24 px-4 md:px-6 bg-gradient-to-r from-blue-600 to-purple-600">
-                    <div className="container mx-auto max-w-4xl text-center">
-                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6">
-                            Ready to transform your team's productivity?
-                        </h2>
-                        <p className="text-lg md:text-xl text-blue-100 mb-8">
-                            Start with the free plan and upgrade when your team grows.
-                        </p>
-                        <Link
-                            to="/signup?plan=free"
-                            className="inline-flex items-center gap-2 px-8 py-4 bg-white text-blue-600 text-lg font-bold rounded-lg hover:shadow-2xl hover:scale-105 transition-all"
-                        >
+                {/* Final CTA */}
+                <section className="py-40 px-6 bg-white/[0.01] border-t border-white/5">
+                    <div className="max-w-3xl mx-auto text-center">
+                        <h2 className="text-4xl md:text-6xl font-bold mb-10 tracking-tight uppercase">Start doing more, reading less</h2>
+                        <Link to="/signup" className="inline-block bg-white text-black px-12 py-5 rounded-2xl font-bold text-[10px] uppercase tracking-widest hover:bg-gray-200 transition-all">
                             Get Started
-                            <ArrowRight size={20} />
                         </Link>
-                        <p className="text-blue-100 mt-4 text-sm font-medium">
-                            Free plan available • No long-term contracts
-                        </p>
+                        <p className="mt-8 text-gray-400 text-[9px] font-bold uppercase tracking-widest">No credit card required. Cancel anytime.</p>
                     </div>
                 </section>
             </main>
 
-            {/* Footer */}
-            <footer className="bg-gray-900 text-gray-400 py-10 md:py-16 px-4 md:px-6">
-                <div className="container mx-auto max-w-6xl">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12 mb-12">
-                        <div>
-                            <Link to="/" className="flex items-center gap-2 mb-6">
-                                <img src="/logo.png" alt="Teama AI Logo" className="w-8 h-8 object-contain" />
-                                <span className="text-white font-bold text-lg">Teama AI</span>
-                            </Link>
-                            <p className="text-sm leading-relaxed">
-                                AI-powered productivity intelligence for modern remote teams. Stay aligned, stay productive.
-                            </p>
-                        </div>
-                        <div>
-                            <h4 className="text-white font-bold mb-6">Product</h4>
-                            <ul className="space-y-4 text-sm">
-                                <li><a href="#features" className="hover:text-white transition-colors">Features</a></li>
-                                <li><a href="#pricing" className="hover:text-white transition-colors">Pricing</a></li>
-                                <li><a href="/waitlist" className="hover:text-white transition-colors">Waitlist</a></li>
-                            </ul>
-                        </div>
-                        <div>
-                            <h4 className="text-white font-bold mb-6">Company</h4>
-                            <ul className="space-y-4 text-sm">
-                                <li><a href="/about" className="hover:text-white transition-colors">About</a></li>
-                                <li><a href="/contact" className="hover:text-white transition-colors">Contact</a></li>
-                                 <li><a href="mailto:team@mail.teamaai.xyz" className="hover:text-white transition-colors">Support</a></li>
-                            </ul>
-                        </div>
-                        <div>
-                            <h4 className="text-white font-bold mb-6">Legal</h4>
-                            <ul className="space-y-4 text-sm">
-                                <li><a href="/privacy" className="hover:text-white transition-colors">Privacy Policy</a></li>
-                                <li><a href="/terms" className="hover:text-white transition-colors">Terms of Service</a></li>
-                                <li><a href="/refund-policy" className="hover:text-white transition-colors">Refund Policy</a></li>
-                                <li><a href="/security" className="hover:text-white transition-colors">Security</a></li>
-                            </ul>
-                        </div>
-                    </div>
-                    <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs">
-                        <p>&copy; 2026 Teama AI. All rights reserved.</p>
-                        <div className="flex gap-6">
-                            <a href="#" className="hover:text-white transition-colors">Twitter</a>
-                            <a href="#" className="hover:text-white transition-colors">LinkedIn</a>
-                        </div>
-                    </div>
-                </div>
-            </footer>
+        </div>
+
+        <Footer />
+        </>
+    );
+}
+
+function SimpleCard({ icon, title, desc }) {
+    return (
+        <div className="p-10 rounded-3xl bg-white/[0.01] border border-white/5 hover:border-white/10 transition-all group cursor-pointer">
+            <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center mb-8 text-white group-hover:bg-white/10 transition-all">
+                {icon}
+            </div>
+            <h3 className="text-base font-bold mb-4 uppercase tracking-widest text-white">{title}</h3>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-relaxed">{desc}</p>
         </div>
     );
 }
-
-function FeatureCard({ icon, title, description, features }) {
-    return (
-        <div className="bg-white p-5 md:p-8 rounded-2xl shadow-sm border border-gray-100 hover:shadow-xl hover:scale-[1.02] md:hover:scale-105 transition-all">
-            <div className="mb-4">{icon}</div>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">{title}</h3>
-            <p className="text-gray-600 mb-4">{description}</p>
-            <ul className="space-y-2">
-                {features.map((feature, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm text-gray-600">
-                        <CheckCircle2 size={16} className="text-green-500" />
-                        {feature}
-                    </li>
-                ))}
-            </ul>
-        </div>
-    );
-}
-
-function Step({ number, title, description }) {
-    return (
-        <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 text-white rounded-full flex items-center justify-center text-2xl font-bold mx-auto mb-4">
-                {number}
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">{title}</h3>
-            <p className="text-gray-600">{description}</p>
-        </div>
-    );
-}
-
-function PricingCard({ name, plan = 'free', price, description, features, cta, highlighted }) {
-    return (
-        <div className={`bg-white p-5 md:p-8 rounded-2xl border-2 ${highlighted
-            ? 'border-blue-600 shadow-2xl md:scale-105'
-            : 'border-gray-100 shadow-sm'
-            }`}>
-            {highlighted && (
-                <span className="inline-block px-3 py-1 bg-blue-600 text-white text-sm font-semibold rounded-full mb-4">
-                    Most Popular
-                </span>
-            )}
-            <h3 className="text-2xl font-bold text-gray-900 mb-2">{name}</h3>
-            <div className="mb-2">
-                <span className="text-4xl md:text-5xl font-bold text-gray-900">{price}</span>
-                {price !== 'Custom' && <span className="text-gray-600">/month</span>}
-            </div>
-            <p className="text-gray-600 mb-6">{description}</p>
-            <ul className="space-y-3 mb-8">
-                {features.map((feature, i) => (
-                    <li key={i} className="flex items-center gap-2 text-gray-700">
-                        <CheckCircle2 size={20} className="text-green-500 flex-shrink-0" />
-                        {feature}
-                    </li>
-                ))}
-            </ul>
-            <Link
-                to={`/signup?plan=${encodeURIComponent(plan)}`}
-                className={`block w-full py-3 text-center rounded-lg font-semibold transition-all ${highlighted
-                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-xl hover:scale-105'
-                    : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                    }`}
-            >
-                {cta}
-            </Link>
-        </div>
-    );
-}
-
-function SuccessCard({ industry, size, problem, timeline, metrics, quote, author }) {
-    return (
-        <article className="bg-white/5 backdrop-blur-md rounded-2xl p-6 md:p-8 border border-white/10 hover:border-white/20 transition-all flex flex-col h-full text-left">
-            <div className="mb-6">
-                <span className="text-xs font-bold uppercase tracking-widest text-blue-400 mb-2 block">{industry}</span>
-                <h3 className="text-xl font-bold mb-2 text-white">{size}</h3>
-                <p className="text-blue-100/70 text-sm italic">"{problem}"</p>
-            </div>
-            
-            <div className="bg-white/10 rounded-xl p-4 mb-6 border border-white/5">
-                <div className="text-xs text-blue-200 mb-3 flex items-center gap-1.5 font-bold uppercase text-left">
-                    <Clock size={14} className="text-blue-400" />
-                    {timeline}
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                    {metrics.map((metric, i) => (
-                        <div key={i} className="text-left">
-                            <div className="text-2xl font-bold text-white mb-0.5">{metric.value}</div>
-                            <div className="text-[10px] text-blue-200 uppercase tracking-wider font-semibold flex items-center gap-1">
-                                {metric.icon}
-                                {metric.label}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            <div className="mt-auto text-left">
-                <p className="text-gray-300 text-sm leading-relaxed mb-4 italic">"{quote}"</p>
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white">
-                        {author.split(' ')[0][0]}{author.split(' ')[1][0]}
-                    </div>
-                    <span className="text-xs font-medium text-blue-100">{author}</span>
-                </div>
-            </div>
-        </article>
-    );
-}
-

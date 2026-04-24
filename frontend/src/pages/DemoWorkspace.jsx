@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
     AlertTriangle,
     BarChart3,
@@ -8,7 +8,14 @@ import {
     MessageSquare,
     Sparkles,
     TrendingUp,
-    Users
+    Users,
+    ArrowLeft,
+    Activity,
+    Terminal,
+    ChevronRight,
+    Zap,
+    Globe,
+    Cpu
 } from 'lucide-react';
 import {
     Area,
@@ -25,15 +32,15 @@ import {
     YAxis
 } from 'recharts';
 
-const CHART_COLORS = ['#2563EB', '#06B6D4', '#0EA5E9', '#6366F1', '#14B8A6'];
+const CHART_COLORS = ['#ffffff', '#a1a1aa', '#71717a', '#52525b', '#3f3f46'];
 
 const DEMO_SUMMARIES = [
     {
         id: 'sum-1',
         channel_name: 'engineering',
         message_count: 128,
-        summary: 'Team finalized caching improvements for API endpoints and cut latency by 18% in staging.',
-        blockers: ['Pending approval for load test budget'],
+        summary: 'Team fixed bugs in the API and improved speed by 18%.',
+        blockers: ['Waiting for budget approval'],
         blocker_status: [{ status: 'active' }],
         created_at: '2026-02-18T09:00:00.000Z'
     },
@@ -41,7 +48,7 @@ const DEMO_SUMMARIES = [
         id: 'sum-2',
         channel_name: 'product',
         message_count: 76,
-        summary: 'Product reviewed Q2 roadmap and aligned on onboarding experiment success metrics.',
+        summary: 'Reviewed the roadmap for the next few months and agreed on success metrics for new features.',
         blockers: [],
         blocker_status: [],
         created_at: '2026-02-17T15:00:00.000Z'
@@ -50,8 +57,8 @@ const DEMO_SUMMARIES = [
         id: 'sum-3',
         channel_name: 'support',
         message_count: 91,
-        summary: 'Support identified recurring billing confusion and documented top 5 friction points.',
-        blockers: ['Need billing copy updates from legal'],
+        summary: 'Identified where customers are getting confused with billing and made notes for improvements.',
+        blockers: ['Need copy updates from legal'],
         blocker_status: [{ status: 'resolved', resolved_at: '2026-02-17T20:00:00.000Z' }],
         created_at: '2026-02-17T11:00:00.000Z'
     },
@@ -59,21 +66,21 @@ const DEMO_SUMMARIES = [
         id: 'sum-4',
         channel_name: 'growth',
         message_count: 63,
-        summary: 'Growth team launched a referral landing test and prepared tracking dashboards.',
-        blockers: ['Missing LinkedIn conversion event mapping'],
+        summary: 'Launched a new referral page and started tracking the results.',
+        blockers: ['Missing tracking setup for LinkedIn'],
         blocker_status: [{ status: 'active' }],
         created_at: '2026-02-16T14:00:00.000Z'
     }
 ];
 
 const DEMO_ACTIVITY = [
-    { day: 'Feb 12', summaries: 2 },
-    { day: 'Feb 13', summaries: 3 },
-    { day: 'Feb 14', summaries: 2 },
-    { day: 'Feb 15', summaries: 4 },
-    { day: 'Feb 16', summaries: 3 },
-    { day: 'Feb 17', summaries: 5 },
-    { day: 'Feb 18', summaries: 4 }
+    { day: 'Mon', summaries: 2 },
+    { day: 'Tue', summaries: 3 },
+    { day: 'Wed', summaries: 2 },
+    { day: 'Thu', summaries: 4 },
+    { day: 'Fri', summaries: 3 },
+    { day: 'Sat', summaries: 5 },
+    { day: 'Sun', summaries: 4 }
 ];
 
 const DEMO_CHANNELS = [
@@ -85,12 +92,13 @@ const DEMO_CHANNELS = [
 ];
 
 const DEMO_BLOCKERS = [
-    { name: 'Pending approval for load test budget', count: 3 },
-    { name: 'Missing LinkedIn conversion event mapping', count: 2 },
-    { name: 'Need billing copy updates from legal', count: 1 }
+    { name: 'Budget', count: 3 },
+    { name: 'Tracking', count: 2 },
+    { name: 'Legal', count: 1 }
 ];
 
 export default function DemoWorkspace() {
+    const navigate = useNavigate();
     const [view, setView] = useState('dashboard');
 
     const stats = useMemo(() => {
@@ -118,48 +126,64 @@ export default function DemoWorkspace() {
     }, []);
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-            <div className="max-w-7xl mx-auto p-8">
-                <div className="mb-6 flex items-center justify-between">
+        <div className="min-h-screen bg-black text-white selection:bg-gray-800 font-sans">
+            <div className="mx-auto max-w-7xl px-4 py-12 md:px-8">
+                {/* Header */}
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-8 mb-16">
                     <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 mb-2">Interactive Demo</p>
-                        <h1 className="text-4xl font-bold text-slate-900">Teama AI Demo Workspace</h1>
-                        <p className="text-slate-600 mt-2">Sample data from a realistic product and engineering team.</p>
+                        <div className="flex items-center gap-4 mb-8">
+                            <button onClick={() => navigate('/')} className="p-2 text-gray-700 hover:text-white transition-all">
+                                <ArrowLeft size={20} />
+                            </button>
+                            <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-white text-[10px] font-bold uppercase tracking-widest">
+                                Demo
+                            </span>
+                        </div>
+                        <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight uppercase">Acme Corp</h1>
+                        <p className="mt-3 text-gray-700 text-sm font-bold uppercase tracking-widest">A preview of how Teama AI summarizes your team's work.</p>
                     </div>
-                    <Link
-                        to="/signup"
-                        className="px-5 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition"
-                    >
-                        Get Started
-                    </Link>
+                    
+                    <div className="flex">
+                        <Link
+                            to="/signup"
+                            className="px-8 py-3 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-gray-200 transition-all active:scale-95"
+                        >
+                            Sign Up
+                        </Link>
+                    </div>
                 </div>
 
-                <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-100 text-blue-800 text-sm">
-                    Demo Mode: data is simulated for exploration and resets automatically.
+                <div className="mb-12 p-5 rounded-2xl bg-white/[0.01] border border-white/5 text-gray-800 text-[10px] font-bold uppercase tracking-widest flex items-center gap-4">
+                    <Terminal size={18} />
+                    Example data. No accounts connected.
                 </div>
 
-                <div className="mb-8 flex gap-2">
+                {/* Tabs */}
+                <div className="mb-10 flex flex-wrap gap-2">
                     {[
-                        { id: 'dashboard', label: 'Dashboard' },
-                        { id: 'analytics', label: 'Analytics' },
-                        { id: 'blockers', label: 'Blockers' }
+                        { id: 'dashboard', label: 'Summaries', icon: <Sparkles size={16} /> },
+                        { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={16} /> },
+                        { id: 'blockers', label: 'Blockers', icon: <AlertTriangle size={16} /> }
                     ].map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setView(tab.id)}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === tab.id
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-white border border-slate-200 text-slate-700 hover:border-blue-300'
+                            className={`px-6 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2 border ${view === tab.id
+                                ? 'bg-white text-black border-white'
+                                : 'bg-transparent border-white/10 text-gray-800 hover:text-white hover:border-white/20'
                                 }`}
                         >
+                            {tab.icon}
                             {tab.label}
                         </button>
                     ))}
                 </div>
 
-                {view === 'dashboard' && <DashboardView stats={stats} />}
-                {view === 'analytics' && <AnalyticsView stats={stats} />}
-                {view === 'blockers' && <BlockersView stats={stats} />}
+                <div className="fade-in">
+                    {view === 'dashboard' && <DashboardView stats={stats} />}
+                    {view === 'analytics' && <AnalyticsView stats={stats} />}
+                    {view === 'blockers' && <BlockersView stats={stats} />}
+                </div>
             </div>
         </div>
     );
@@ -167,24 +191,27 @@ export default function DemoWorkspace() {
 
 function DashboardView({ stats }) {
     return (
-        <div className="space-y-8">
-            <div className="grid md:grid-cols-5 gap-4">
-                <StatCard title="Channels" value={stats.channels} icon={<Users className="text-blue-600" size={20} />} />
-                <StatCard title="Summaries" value={stats.summaries} icon={<Sparkles className="text-purple-600" size={20} />} />
-                <StatCard title="Active Blockers" value={stats.activeBlockers} icon={<AlertTriangle className="text-red-600" size={20} />} />
-                <StatCard title="Resolved" value={stats.resolvedBlockers} icon={<CheckCircle className="text-green-600" size={20} />} />
-                <StatCard title="Messages" value={stats.messages} icon={<MessageSquare className="text-cyan-600" size={20} />} />
+        <div className="space-y-12">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                <SmallMetric label="Channels" value={stats.channels} icon={<Users size={18} />} />
+                <SmallMetric label="Summaries" value={stats.summaries} icon={<Sparkles size={18} />} />
+                <SmallMetric label="Active Blockers" value={stats.activeBlockers} icon={<AlertTriangle size={18} />} />
+                <SmallMetric label="Resolved" value={stats.resolvedBlockers} icon={<CheckCircle size={18} />} />
+                <SmallMetric label="Messages" value={stats.messages} icon={<MessageSquare size={18} />} />
             </div>
-            <div className="bg-white rounded-2xl border border-slate-100 p-6">
-                <h2 className="text-xl font-bold text-slate-900 mb-4">Recent Summaries</h2>
-                <div className="space-y-3">
+            
+            <div className="bg-white/[0.01] rounded-3xl border border-white/5 p-10">
+                <h2 className="text-xl font-bold text-white mb-10 uppercase tracking-widest">
+                    Summaries
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {DEMO_SUMMARIES.map((summary) => (
-                        <div key={summary.id} className="border border-slate-100 rounded-xl p-4">
-                            <div className="flex items-center justify-between mb-2">
-                                <p className="font-semibold text-slate-900">#{summary.channel_name}</p>
-                                <p className="text-xs text-slate-500">{summary.message_count} messages</p>
+                        <div key={summary.id} className="bg-white/[0.02] border border-white/5 rounded-2xl p-8 hover:border-white/10 transition-all">
+                            <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/5">
+                                <p className="text-[10px] font-bold text-white uppercase tracking-widest">#{summary.channel_name}</p>
+                                <p className="text-[10px] font-bold text-gray-800 uppercase tracking-widest">{summary.message_count} Messages</p>
                             </div>
-                            <p className="text-slate-600 text-sm">{summary.summary}</p>
+                            <p className="text-white text-base font-bold leading-relaxed uppercase">{summary.summary}</p>
                         </div>
                     ))}
                 </div>
@@ -197,42 +224,54 @@ function AnalyticsView({ stats }) {
     const pieData = DEMO_CHANNELS.map((row) => ({ ...row, share: Math.round((row.count / 27) * 100) }));
 
     return (
-        <div className="space-y-8">
-            <div className="grid md:grid-cols-4 gap-4">
-                <StatCard title="Total Summaries" value={stats.summaries} icon={<BarChart3 className="text-blue-600" size={20} />} />
-                <StatCard title="Total Messages" value={stats.messages} icon={<MessageSquare className="text-indigo-600" size={20} />} />
-                <StatCard title="Open Blockers" value={stats.activeBlockers} icon={<AlertTriangle className="text-red-600" size={20} />} />
-                <StatCard title="Resolution Rate" value={`${Math.round((stats.resolvedBlockers / (stats.resolvedBlockers + stats.activeBlockers)) * 100)}%`} icon={<TrendingUp className="text-green-600" size={20} />} />
-            </div>
-
-            <div className="grid lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 p-6">
-                    <h2 className="text-lg font-bold text-slate-900 mb-4">Activity Over Time</h2>
-                    <div className="h-72">
+        <div className="space-y-12">
+            <div className="grid lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 bg-white/[0.01] rounded-3xl border border-white/5 p-10">
+                    <h2 className="text-xl font-bold text-white mb-10 uppercase tracking-widest">History</h2>
+                    <div className="h-80">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={DEMO_ACTIVITY}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                <XAxis dataKey="day" />
-                                <YAxis allowDecimals={false} />
-                                <Tooltip />
-                                <Area type="monotone" dataKey="summaries" stroke="#2563EB" fill="#BFDBFE" />
+                                <defs>
+                                    <linearGradient id="colorSum" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#ffffff" stopOpacity={0.1}/>
+                                        <stop offset="95%" stopColor="#ffffff" stopOpacity={0}/>
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff0a" vertical={false} />
+                                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#4b5563', fontSize: 11}} dy={10} />
+                                <YAxis axisLine={false} tickLine={false} tick={{fill: '#4b5563', fontSize: 11}} />
+                                <Tooltip 
+                                    contentStyle={{ backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px', fontSize: '12px' }}
+                                    itemStyle={{ color: '#fff' }}
+                                />
+                                <Area type="monotone" dataKey="summaries" stroke="#fff" strokeWidth={2} fillOpacity={1} fill="url(#colorSum)" />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
-                <div className="bg-white rounded-2xl border border-slate-100 p-6">
-                    <h2 className="text-lg font-bold text-slate-900 mb-4">Top Channels</h2>
-                    <div className="h-48">
+                <div className="bg-white/[0.01] rounded-3xl border border-white/5 p-10 text-center">
+                    <h2 className="text-xl font-bold text-white mb-10 uppercase tracking-widest">Channels</h2>
+                    <div className="h-60 mb-6">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
-                                <Pie data={pieData} dataKey="count" nameKey="name" outerRadius={70}>
+                                <Pie data={pieData} dataKey="count" nameKey="name" outerRadius={80} stroke="none">
                                     {pieData.map((entry, index) => (
                                         <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip />
+                                <Tooltip 
+                                    contentStyle={{ backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px' }}
+                                />
                             </PieChart>
                         </ResponsiveContainer>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        {pieData.slice(0, 4).map((row, i) => (
+                            <div key={i} className="flex flex-col items-center">
+                                <div className="text-lg font-bold text-white">{row.share}%</div>
+                                <div className="text-[9px] text-gray-800 font-bold uppercase tracking-widest">{row.name}</div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
@@ -242,38 +281,42 @@ function AnalyticsView({ stats }) {
 
 function BlockersView({ stats }) {
     return (
-        <div className="space-y-8">
-            <div className="grid md:grid-cols-3 gap-4">
-                <StatCard title="Active Blockers" value={stats.activeBlockers} icon={<AlertTriangle className="text-red-600" size={20} />} />
-                <StatCard title="Resolved Blockers" value={stats.resolvedBlockers} icon={<CheckCircle className="text-green-600" size={20} />} />
-                <StatCard title="Avg Resolution Time" value="6.2h" icon={<Clock className="text-blue-600" size={20} />} />
-            </div>
-            <div className="bg-white rounded-2xl border border-slate-100 p-6">
-                <h2 className="text-lg font-bold text-slate-900 mb-4">Most Frequent Blockers</h2>
-                <div className="h-72">
+        <div className="space-y-12">
+            <div className="bg-white/[0.01] rounded-3xl border border-white/5 p-10 md:p-14">
+                <h2 className="text-xl font-bold text-white mb-12 uppercase tracking-widest">
+                    Blockers
+                </h2>
+                <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={DEMO_BLOCKERS} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                            <XAxis type="number" allowDecimals={false} />
-                            <YAxis dataKey="name" type="category" width={230} />
-                            <Tooltip />
-                            <Bar dataKey="count" fill="#DC2626" radius={[0, 6, 6, 0]} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff0a" horizontal={false} />
+                            <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: '#4b5563', fontSize: 12}} />
+                            <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{fill: '#4b5563', fontSize: 12}} />
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#111', border: '1px solid #333', borderRadius: '8px' }}
+                            />
+                            <Bar dataKey="count" fill="#fff" opacity={0.8} radius={[0, 4, 4, 0]} barSize={32} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
+                <p className="mt-12 text-center text-gray-500 text-sm">
+                    Blockers are automatically detected from your team's conversations.
+                </p>
             </div>
         </div>
     );
 }
 
-function StatCard({ title, value, icon }) {
+function SmallMetric({ label, value, icon }) {
     return (
-        <div className="bg-white rounded-2xl border border-slate-100 p-5">
-            <div className="flex items-center justify-between mb-3">
-                <div className="p-2 rounded-lg bg-slate-50">{icon}</div>
+        <div className="bg-white/[0.01] p-8 rounded-3xl border border-white/5 transition-all hover:border-white/10 group">
+            <div className="flex items-center justify-between mb-8">
+                <div className="p-3 rounded-xl bg-white/5 text-white">
+                    {icon}
+                </div>
             </div>
-            <p className="text-sm text-slate-500">{title}</p>
-            <p className="text-2xl font-bold text-slate-900">{value}</p>
+            <p className="text-[10px] font-bold text-gray-800 uppercase tracking-widest mb-1">{label}</p>
+            <p className="text-4xl font-bold text-white tracking-tight">{value}</p>
         </div>
     );
 }

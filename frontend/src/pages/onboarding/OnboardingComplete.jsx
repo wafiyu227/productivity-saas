@@ -12,49 +12,43 @@ export default function OnboardingComplete() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
-            <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
-                <div className="flex flex-col items-center mb-8">
-                    <img src="/logo.png" alt="Teama AI Logo" className="w-12 h-12 object-contain mb-4" />
-                    <h1 className="text-3xl font-bold text-gray-900 mb-4">
-                        🎉 You're All Set!
-                    </h1>
+        <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto">
+            <div className="flex flex-col items-center mb-10">
+                <div className="w-16 h-16 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center mb-6">
+                    <CheckCircle size={32} className="text-white" />
                 </div>
-
-                <p className="text-gray-600 mb-8">
-                    Your team workspace is ready. Your team members will receive email invitations to join.
+                <h1 className="text-4xl font-bold text-white tracking-tight mb-4">
+                    You're all set
+                </h1>
+                <p className="text-gray-500 text-lg leading-relaxed">
+                    Your workspace is ready. You can now start summarizing your team's work.
                 </p>
-
-                <div className="bg-gray-50 rounded-lg p-6 mb-8 text-left">
-                    <h3 className="font-semibold text-gray-900 mb-3">What's next?</h3>
-                    <ul className="space-y-2 text-sm text-gray-700">
-                        <li className="flex items-start gap-2">
-                            <span className="text-purple-600 mt-0.5">•</span>
-                            Team members can join with one click
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <span className="text-purple-600 mt-0.5">•</span>
-                            Everyone will have access to team integrations
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <span className="text-purple-600 mt-0.5">•</span>
-                            Generate your first Slack summary
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <span className="text-purple-600 mt-0.5">•</span>
-                            View team projects and workload
-                        </li>
-                    </ul>
-                </div>
-
-                <button
-                    onClick={handleGoToDashboard}
-                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition flex items-center justify-center gap-2"
-                >
-                    Go to Dashboard
-                    <ArrowRight size={20} />
-                </button>
             </div>
+
+            <div className="w-full bg-white/[0.02] border border-white/5 rounded-3xl p-8 mb-10 text-left">
+                <h3 className="text-xs font-bold text-gray-700 uppercase tracking-widest mb-6">What's next?</h3>
+                <ul className="space-y-4">
+                    {[
+                        "Invite your team members",
+                        "Connect your favorite tools",
+                        "Generate your first summary",
+                        "Identify blockers automatically"
+                    ].map((item, i) => (
+                        <li key={i} className="flex items-center gap-3 text-sm text-gray-400 font-medium">
+                            <div className="w-1.5 h-1.5 bg-white/20 rounded-full"></div>
+                            {item}
+                        </li>
+                    ))}
+                </ul>
+            </div>
+
+            <button
+                onClick={handleGoToDashboard}
+                className="w-full bg-white text-black py-4 rounded-xl font-bold hover:bg-gray-200 transition flex items-center justify-center gap-2 active:scale-95"
+            >
+                Go to Dashboard
+                <ArrowRight size={20} />
+            </button>
         </div>
     );
 }

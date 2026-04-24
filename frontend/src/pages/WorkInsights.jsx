@@ -9,20 +9,25 @@ import {
     MessageSquare,
     PencilLine,
     RefreshCw,
-    Sparkles
+    Sparkles,
+    Zap,
+    Target,
+    Activity,
+    ChevronRight,
+    X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../api/client';
 
-function getStorageKey(userId, teamId) {
-    return `teamaai_work_insights_hidden_${userId || 'anon'}_${teamId || 'personal'}`;
+function getStorageKey(userId) {
+    return `teamaai_work_insights_hidden_${userId || 'anon'}_personal`;
 }
 
-function readHiddenInsightIds(userId, teamId) {
+function readHiddenInsightIds(userId) {
     if (!userId) return [];
 
     try {
-        const raw = localStorage.getItem(getStorageKey(userId, teamId));
+        const raw = localStorage.getItem(getStorageKey(userId));
         const parsed = JSON.parse(raw || '[]');
         return Array.isArray(parsed) ? parsed : [];
     } catch {
@@ -30,14 +35,13 @@ function readHiddenInsightIds(userId, teamId) {
     }
 }
 
-function saveHiddenInsightIds(userId, teamId, insightIds) {
+function saveHiddenInsightIds(userId, insightIds) {
     if (!userId) return;
-    localStorage.setItem(getStorageKey(userId, teamId), JSON.stringify(Array.from(new Set(insightIds))));
+    localStorage.setItem(getStorageKey(userId), JSON.stringify(Array.from(new Set(insightIds))));
 }
 
 export default function WorkInsights() {
-    const { user, profile } = useAuth();
-    const teamId = profile?.current_team_id;
+    const { user } = useAuth();
     const [insights, setInsights] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -48,7 +52,6 @@ export default function WorkInsights() {
         slackConnected: false,
         jiraConnected: false,
         asanaConnected: false,
-        trelloConnected: false,
         connectedPlatformCount: 0
     });
     const [hiddenInsightIds, setHiddenInsightIds] = useState([]);
@@ -59,14 +62,14 @@ export default function WorkInsights() {
     const [notice, setNotice] = useState('');
 
     useEffect(() => {
-        setHiddenInsightIds(readHiddenInsightIds(user?.id, teamId));
-    }, [user?.id, teamId]);
+        setHiddenInsightIds(readHiddenInsightIds(user?.id));
+    }, [user?.id]);
 
     useEffect(() => {
         if (user?.id) {
             loadInsights();
         }
-    }, [user?.id, teamId]);
+    }, [user?.id]);
 
     const visibleInsights = useMemo(
         () => insights.filter((insight) => !hiddenInsightIds.includes(insight.id)),
@@ -85,14 +88,13 @@ export default function WorkInsights() {
         setError('');
 
         try {
-            const response = await api.getWorkInsights(teamId, { limit: 25 });
+            const response = await api.getWorkInsights({ limit: 25 });
             setInsights(Array.isArray(response?.insights) ? response.insights : []);
             setSkippedDetections(Array.isArray(response?.skippedDetections) ? response.skippedDetections : []);
             setPrerequisites(response?.prerequisites || {
                 slackConnected: false,
                 jiraConnected: false,
                 asanaConnected: false,
-                trelloConnected: false,
                 connectedPlatformCount: 0
             });
             setMessage(response?.message || '');
@@ -107,7 +109,7 @@ export default function WorkInsights() {
     function hideInsight(insightId, nextNotice = '') {
         const nextHidden = [...hiddenInsightIds, insightId];
         setHiddenInsightIds(nextHidden);
-        saveHiddenInsightIds(user?.id, teamId, nextHidden);
+        saveHiddenInsightIds(user?.id, nextHidden);
         if (nextNotice) {
             setNotice(nextNotice);
         }
@@ -121,7 +123,7 @@ export default function WorkInsights() {
         setNotice('');
 
         try {
-            const result = await api.applyWorkInsight(teamId, {
+            const result = await api.applyWorkInsight({
                 platform: insight.platform,
                 itemId: insight.itemId,
                 desiredStatus,
@@ -129,13 +131,13 @@ export default function WorkInsights() {
             });
 
             const nextNotice = result.warning
-                ? `${insight.ticketKey} updated with a comment. ${result.warning}`
-                : `${insight.ticketKey} moved toward ${result.appliedStatus || desiredStatus}.`;
+                ? `${insight.ticketKey} updated with comment. ${result.warning}`
+                : `${insight.ticketKey} status changed to ${result.appliedStatus || desiredStatus}.`;
 
             hideInsight(insight.id, nextNotice);
             setEditingInsight(null);
         } catch (applyError) {
-            setNotice(applyError.message || 'Failed to apply work insight.');
+            setNotice(applyError.message || 'Failed to apply update.');
         } finally {
             setApplyingInsightId('');
         }
@@ -155,71 +157,73 @@ export default function WorkInsights() {
 
     if (loading) {
         return (
-            <div className="flex min-h-[60vh] items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            <div className="flex min-h-[60vh] items-center justify-center bg-black">
+                <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
-            <div className="mx-auto max-w-7xl p-4 md:p-8">
-                <div className="mb-6 flex flex-col gap-4 md:mb-8 md:flex-row md:items-start md:justify-between">
+        <div className="min-h-screen bg-black text-gray-100 selection:bg-blue-500/30">
+
+            <div className="relative mx-auto max-w-7xl p-4 md:p-8">
+                <div className="mb-10 flex flex-col gap-6 md:mb-12 md:flex-row md:items-start md:justify-between animate-in fade-in slide-in-from-bottom-4 duration-700">
                     <div>
-                        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
-                            <Sparkles size={14} />
-                            Slack to Work Tool Suggestions
+                        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                            Suggestions
                         </div>
-                        <h1 className="text-2xl font-bold text-slate-900 md:text-4xl">Work Insights</h1>
-                        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600 md:text-base">
-                            Teama reviews recent raw Slack messages, maps them to connected Jira, Asana, or Trello work items, and suggests the next update for a human to approve.
+                        <h1 className="text-4xl font-bold text-white tracking-tight md:text-5xl">Approvals</h1>
+                        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-gray-500 font-medium">
+                            We've analyzed your team's conversations and projects to find ways you can save time. Approve these suggestions to update your project management tools.
                         </p>
                     </div>
                     <button
                         onClick={() => loadInsights(true)}
                         disabled={refreshing}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+                        className="inline-flex items-center gap-3 rounded-2xl bg-white px-6 py-4 text-xs font-bold uppercase tracking-widest text-black hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-60"
                     >
-                        <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+                        <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
                         Refresh
                     </button>
                 </div>
 
-                <div className="mb-6 grid gap-4 md:mb-8 md:grid-cols-4">
+                <div className="mb-10 grid gap-6 md:mb-12 md:grid-cols-4 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100">
                     <StatCard
-                        label="Visible Insights"
+                        label="Suggestions"
                         value={visibleInsights.length}
-                        tone="blue"
-                        description="Suggestions ready for review"
+                        accent="gray"
+                        icon={Target}
                     />
                     <StatCard
-                        label="Detected Signals"
+                        label="Matches"
                         value={visibleInsights.reduce((total, insight) => total + (insight.signals?.length || 0), 0)}
-                        tone="amber"
-                        description="Slack activity cues matched to work items"
+                        accent="gray"
+                        icon={Activity}
                     />
                     <StatCard
                         label="Slack"
-                        value={prerequisites.slackConnected ? 'Connected' : 'Missing'}
-                        tone={prerequisites.slackConnected ? 'green' : 'slate'}
-                        description="Needed to read team work context"
+                        value={prerequisites.slackConnected ? 'Connected' : 'Disconnected'}
+                        accent="gray"
+                        icon={Zap}
                     />
                     <StatCard
-                        label="Work Tools"
-                        value={`${prerequisites.connectedPlatformCount || 0}/3`}
-                        tone={(prerequisites.connectedPlatformCount || 0) > 0 ? 'green' : 'slate'}
-                        description="Connected project systems Teama can update"
+                        label="Projects"
+                        value={`${prerequisites.connectedPlatformCount || 0}/2`}
+                        accent="gray"
+                        icon={RefreshCw}
                     />
                 </div>
 
                 {notice && (
-                    <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-900">
+                    <div className="mb-10 rounded-2xl border border-white/10 bg-white/5 px-8 py-6 text-xs font-bold uppercase tracking-widest text-white animate-in fade-in slide-in-from-top-4 duration-500 flex items-center gap-4">
+                        <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
                         {notice}
                     </div>
                 )}
 
                 {error && (
-                    <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800">
+                    <div className="mb-10 rounded-[2rem] border border-rose-500/20 bg-rose-500/10 px-8 py-6 text-xs font-black uppercase tracking-widest text-rose-400 animate-in fade-in slide-in-from-top-4 duration-500 flex items-center gap-4">
+                        <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></div>
                         {error}
                     </div>
                 )}
@@ -227,30 +231,32 @@ export default function WorkInsights() {
                 {!prerequisites.slackConnected || !prerequisites.connectedPlatformCount ? (
                     <PrerequisiteState prerequisites={prerequisites} />
                 ) : visibleInsights.length === 0 ? (
-                    <EmptyState message={message} skippedDetections={skippedDetections} />
+                    <EmptyState message={message} skippedDetections={skippedDetections} navigate={loadInsights} />
                 ) : (
-                    <div className="grid gap-5 xl:grid-cols-2">
+                    <div className="grid gap-6 xl:grid-cols-2 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-200">
                         {visibleInsights.map((insight) => (
                             <article
                                 key={insight.id}
-                                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
+                                className="rounded-[2.5rem] border border-white/5 bg-[#09090b] p-8 shadow-2xl transition-all hover:border-white/10 group"
                             >
-                                <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                        <div className="mb-2 flex items-center gap-2">
-                                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+                                <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="mb-4 flex items-center gap-3">
+                                            <span className="rounded-lg bg-white/5 border border-white/5 px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-500">
                                                 {insight.platformLabel}
                                             </span>
-                                            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+                                            <span className="rounded-lg bg-white text-black px-3 py-1 text-[9px] font-bold uppercase tracking-widest">
                                                 {insight.ticketKey}
                                             </span>
-                                            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                                                Confidence {Math.round((insight.confidence || 0) * 100)}%
-                                            </span>
+                                            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-white/5 border border-white/10">
+                                                <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">
+                                                    Confidence {Math.round((insight.confidence || 0) * 100)}%
+                                                </span>
+                                            </div>
                                         </div>
-                                        <h2 className="text-xl font-semibold text-slate-900">{insight.ticketName}</h2>
-                                        <p className="mt-1 text-sm text-slate-500">
-                                            {insight.projectName} - {formatDateTime(insight.sourceCreatedAt)}
+                                        <h2 className="text-2xl font-bold text-white tracking-tight group-hover:text-gray-300 transition-colors uppercase">{insight.ticketName}</h2>
+                                        <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-700">
+                                            {insight.projectName} • {formatDateTime(insight.sourceCreatedAt)}
                                         </p>
                                     </div>
 
@@ -259,35 +265,36 @@ export default function WorkInsights() {
                                             href={insight.externalUrl}
                                             target="_blank"
                                             rel="noreferrer"
-                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                                            className="p-4 rounded-2xl bg-white/5 border border-white/5 text-gray-500 hover:text-white hover:bg-white/10 transition-all"
                                         >
-                                            Open item
-                                            <ExternalLink size={14} />
+                                            <ExternalLink size={20} />
                                         </a>
                                     )}
                                 </div>
 
-                                <div className="mb-5 rounded-2xl bg-slate-50 p-4">
-                                    <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-700">
-                                        <span className="rounded-full bg-white px-3 py-1 text-slate-600">
-                                            Current: {insight.currentStatus}
-                                        </span>
-                                        <ArrowRight size={14} className="text-slate-400" />
-                                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">
-                                            Suggested: {insight.suggestedStatus}
-                                        </span>
+                                <div className="mb-8 rounded-2xl bg-white/[0.01] border border-white/5 p-6 transition-colors">
+                                    <div className="flex flex-wrap items-center gap-6">
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-700">From</span>
+                                            <span className="text-xs font-bold text-white uppercase tracking-widest">{insight.currentStatus}</span>
+                                        </div>
+                                        <ArrowRight size={18} className="text-gray-800" />
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[9px] font-bold uppercase tracking-widest text-white">To</span>
+                                            <span className="text-xs font-bold text-white uppercase tracking-widest">{insight.suggestedStatus}</span>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <section className="mb-5">
-                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Detected Signals
+                                <section className="mb-8">
+                                    <p className="mb-4 text-[10px] font-bold uppercase tracking-widest text-gray-800">
+                                        Evidence
                                     </p>
                                     <div className="flex flex-wrap gap-2">
                                         {insight.signals?.map((signal) => (
                                             <span
                                                 key={`${insight.id}-${signal}`}
-                                                className="rounded-full bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800"
+                                                className="rounded-lg bg-white/[0.02] border border-white/5 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-gray-500"
                                             >
                                                 {signal}
                                             </span>
@@ -295,47 +302,45 @@ export default function WorkInsights() {
                                     </div>
                                 </section>
 
-                                <section className="mb-6">
-                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Slack Evidence
+                                <section className="mb-10">
+                                    <p className="mb-4 text-[10px] font-bold uppercase tracking-widest text-gray-800">
+                                        Context
                                     </p>
                                     <div className="space-y-3">
                                         {insight.evidence?.map((evidence, index) => (
-                                            <div key={`${insight.id}-evidence-${index}`} className="rounded-2xl border border-slate-200 p-4">
-                                                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                                    <MessageSquare size={12} />
-                                                    {evidence.source}
+                                            <div key={`${insight.id}-evidence-${index}`} className="rounded-2xl bg-white/[0.01] border border-white/5 p-5">
+                                                <div className="mb-3 flex items-center gap-2 text-[9px] font-bold uppercase tracking-widest text-gray-700">
+                                                    Source: {evidence.source}
                                                 </div>
-                                                <p className="text-sm leading-6 text-slate-700">{evidence.text}</p>
+                                                <p className="text-[13px] leading-relaxed text-gray-500 font-medium font-serif italic">"{evidence.text}"</p>
                                             </div>
                                         ))}
                                     </div>
                                 </section>
 
-                                <div className="flex flex-wrap gap-3">
+                                <div className="flex flex-wrap gap-4 pt-4 border-t border-white/5">
                                     <button
                                         onClick={() => handleAccept(insight)}
                                         disabled={applyingInsightId === insight.id}
-                                        className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                                        className="inline-flex items-center gap-3 rounded-2xl bg-white px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-black hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-60"
                                     >
-                                        {applyingInsightId === insight.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                                        Accept
+                                        {applyingInsightId === insight.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                                        Approve
                                     </button>
                                     <button
                                         onClick={() => openEditModal(insight)}
                                         disabled={applyingInsightId === insight.id}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+                                        className="inline-flex items-center gap-3 rounded-2xl bg-white/[0.05] border border-white/5 px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-white hover:bg-white/10 transition-all active:scale-95 disabled:opacity-60"
                                     >
-                                        <PencilLine size={16} />
+                                        <PencilLine size={18} />
                                         Edit
                                     </button>
                                     <button
-                                        onClick={() => hideInsight(insight.id, `${insight.ticketKey} hidden on this device.`)}
+                                        onClick={() => hideInsight(insight.id, `${insight.ticketKey} dismissed.`)}
                                         disabled={applyingInsightId === insight.id}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+                                        className="inline-flex items-center gap-3 rounded-2xl bg-white/[0.05] border border-white/5 px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-gray-700 hover:text-white hover:bg-white/10 transition-all ml-auto"
                                     >
-                                        <CircleSlash size={16} />
-                                        Ignore
+                                        Dismiss
                                     </button>
                                 </div>
                             </article>
@@ -345,60 +350,58 @@ export default function WorkInsights() {
             </div>
 
             {editingInsight && (
-                <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4">
-                    <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
-                        <div className="mb-6 flex items-start justify-between gap-4">
-                            <div>
-                                <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
-                                    Edit Suggestion
-                                </p>
-                                <h2 className="mt-1 text-2xl font-bold text-slate-900">
-                                    {editingInsight.ticketKey} - {editingInsight.ticketName}
-                                </h2>
-                            </div>
-                            <button
-                                onClick={handleDismissEdit}
-                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-                            >
-                                Close
-                            </button>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in duration-300">
+                    <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-black p-10 shadow-2xl relative">
+                        <button 
+                            onClick={handleDismissEdit}
+                            className="absolute top-8 right-8 p-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl text-gray-700 hover:text-white transition-all"
+                        >
+                            <X size={24} />
+                        </button>
+
+                        <div className="mb-10">
+                            <h2 className="text-3xl font-bold text-white tracking-tight leading-none uppercase mb-2">
+                                {editingInsight.ticketKey}
+                            </h2>
+                            <p className="text-sm text-gray-700 font-bold uppercase tracking-widest">{editingInsight.ticketName}</p>
                         </div>
 
-                        <div className="space-y-5">
-                            <label className="block">
-                                <span className="mb-2 block text-sm font-semibold text-slate-700">Desired Status</span>
+                        <div className="space-y-8">
+                            <div className="space-y-3">
+                                <label className="block text-[10px] font-bold text-gray-800 uppercase tracking-widest ml-1">New status</label>
                                 <input
                                     value={draftStatus}
                                     onChange={(event) => setDraftStatus(event.target.value)}
-                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-                                    placeholder="Ready for QA"
+                                    className="w-full rounded-2xl border border-white/5 bg-white/5 px-6 py-4 text-sm font-bold text-white uppercase tracking-widest outline-none transition focus:border-white/20"
+                                    placeholder="STATUS"
                                 />
-                            </label>
+                            </div>
 
-                            <label className="block">
-                                <span className="mb-2 block text-sm font-semibold text-slate-700">Comment to Apply</span>
+                            <div className="space-y-3">
+                                <label className="block text-[10px] font-bold text-gray-800 uppercase tracking-widest ml-1">Comment</label>
                                 <textarea
                                     value={draftComment}
                                     onChange={(event) => setDraftComment(event.target.value)}
-                                    rows={10}
-                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+                                    rows={8}
+                                    className="w-full rounded-3xl border border-white/5 bg-white/5 px-6 py-6 text-sm font-medium leading-relaxed text-gray-400 outline-none transition focus:border-white/20 placeholder-gray-800"
+                                    placeholder="Add a comment..."
                                 />
-                            </label>
+                            </div>
                         </div>
 
-                        <div className="mt-6 flex flex-wrap gap-3">
+                        <div className="mt-10 flex flex-wrap gap-4">
                             <button
                                 onClick={() => handleAccept(editingInsight, { desiredStatus: draftStatus, comment: draftComment })}
                                 disabled={applyingInsightId === editingInsight.id}
-                                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                                className="inline-flex items-center gap-4 rounded-2xl bg-white px-10 py-5 text-xs font-bold uppercase tracking-widest text-black hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-60"
                             >
-                                {applyingInsightId === editingInsight.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                                Apply Edited Suggestion
+                                {applyingInsightId === editingInsight.id ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                                Approve
                             </button>
                             <button
                                 onClick={handleDismissEdit}
                                 disabled={applyingInsightId === editingInsight.id}
-                                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+                                className="px-10 py-5 rounded-2xl bg-white/5 border border-white/10 text-xs font-bold uppercase tracking-widest text-gray-700 hover:text-white transition-all ml-auto"
                             >
                                 Cancel
                             </button>
@@ -410,43 +413,32 @@ export default function WorkInsights() {
     );
 }
 
-function StatCard({ label, value, tone, description }) {
-    const tones = {
-        blue: 'bg-blue-50 text-blue-800 border-blue-200',
-        amber: 'bg-amber-50 text-amber-800 border-amber-200',
-        green: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-        slate: 'bg-slate-50 text-slate-700 border-slate-200'
-    };
-
+function StatCard({ label, value, icon: Icon }) {
     return (
-        <div className={`rounded-3xl border p-5 ${tones[tone] || tones.slate}`}>
-            <p className="text-xs font-semibold uppercase tracking-wide">{label}</p>
-            <p className="mt-3 text-3xl font-bold">{value}</p>
-            <p className="mt-2 text-sm opacity-80">{description}</p>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-8 transition-all hover:bg-white/[0.04]">
+            <div className="flex items-center justify-between mb-6">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-700 leading-none">{label}</p>
+                <Icon size={16} className="text-gray-800" />
+            </div>
+            <p className="text-4xl font-bold text-white tracking-tight leading-none">{value}</p>
         </div>
     );
 }
 
-function EmptyState({ message, skippedDetections = [] }) {
+function EmptyState({ message, skippedDetections = [], navigate }) {
     return (
-        <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
-                <Sparkles className="text-slate-500" size={28} />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-900">No work insights ready right now</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-slate-600 md:text-base">
-                {message || 'Teama did not find recent raw Slack messages with actionable Jira, Asana, or Trello work references and strong enough signals to suggest an update.'}
+        <div className="rounded-[3rem] border border-dashed border-white/10 p-20 text-center">
+            <h2 className="text-3xl font-bold text-white uppercase tracking-tight leading-none mb-4">No suggestions yet</h2>
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-gray-700 font-medium">
+                {message || 'We are looking for ways to improve your workflow. Check back later.'}
             </p>
-            {skippedDetections.length > 0 && (
-                <div className="mx-auto mt-6 max-w-3xl rounded-2xl border border-amber-200 bg-amber-50 p-5 text-left">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        Detected But No Approval Needed
-                    </p>
-                    <p className="mt-2 text-sm leading-7 text-amber-900">
-                        {skippedDetections[0].reason}
-                    </p>
-                </div>
-            )}
+            
+            <button
+                onClick={() => navigate(true)}
+                className="mt-12 px-10 py-5 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-2xl hover:bg-gray-200 transition-all"
+            >
+                Refresh
+            </button>
         </div>
     );
 }
@@ -454,45 +446,41 @@ function EmptyState({ message, skippedDetections = [] }) {
 function PrerequisiteState({ prerequisites }) {
     const cards = [
         {
-            label: 'Slack',
+            label: 'SLACK',
             connected: prerequisites.slackConnected,
-            description: 'Needed so Teama can read recent Slack messages and spot work updates.'
+            description: 'Connect Slack to receive team updates and summaries.',
+            icon: MessageSquare
         },
         {
-            label: 'Jira',
+            label: 'JIRA',
             connected: prerequisites.jiraConnected,
-            description: 'Lets Teama map Slack ticket keys to Jira issues and suggest status transitions.'
+            description: 'Connect Jira to track and update your technical tasks.',
+            icon: Target
         },
         {
-            label: 'Asana',
+            label: 'ASANA',
             connected: prerequisites.asanaConnected,
-            description: 'Lets Teama match Slack links, IDs, or exact task names to Asana tasks.'
+            description: 'Connect Asana to manage your team projects and goals.',
+            icon: Activity
         },
-        {
-            label: 'Trello',
-            connected: prerequisites.trelloConnected,
-            description: 'Lets Teama match Slack links, IDs, or exact card names to Trello cards.'
-        }
     ];
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {cards.map((card) => (
-                <div key={card.label} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="mb-3 flex items-center gap-3">
+                <div key={card.label} className="rounded-3xl border border-white/5 bg-white/[0.02] p-8 group">
+                    <div className="mb-8 flex items-center justify-between">
+                        <div className={`p-4 rounded-xl bg-white/5 border border-white/5 ${card.connected ? 'text-white' : 'text-gray-800'}`}>
+                            <card.icon size={24} />
+                        </div>
                         {card.connected ? (
-                            <CheckCircle2 className="text-emerald-600" size={22} />
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-white px-3 py-1 bg-white/5 border border-white/10 rounded-lg">Connected</span>
                         ) : (
-                            <AlertTriangle className="text-amber-600" size={22} />
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-800 px-3 py-1 bg-white/[0.02] border border-white/5 rounded-lg">Required</span>
                         )}
-                        <h2 className="text-xl font-semibold text-slate-900">{card.label}</h2>
                     </div>
-                    <p className="mb-4 text-sm leading-7 text-slate-600">{card.description}</p>
-                    <p className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                        card.connected ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
-                    }`}>
-                        {card.connected ? 'Connected' : 'Needs setup'}
-                    </p>
+                    <h2 className="text-xl font-bold text-white uppercase tracking-widest mb-4">{card.label}</h2>
+                    <p className="mb-8 text-sm leading-relaxed text-gray-500 font-medium">{card.description}</p>
                 </div>
             ))}
         </div>
@@ -500,15 +488,15 @@ function PrerequisiteState({ prerequisites }) {
 }
 
 function formatDateTime(value) {
-    if (!value) return 'Unknown';
+    if (!value) return 'UNKNOWN TIME';
 
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return 'Unknown';
+    if (Number.isNaN(date.getTime())) return 'UNKNOWN TIME';
 
     return date.toLocaleString([], {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit'
-    });
+    }).toUpperCase();
 }

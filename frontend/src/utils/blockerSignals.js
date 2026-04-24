@@ -68,16 +68,13 @@ export function extractAsanaBlockers(deadlines) {
     return extractProjectPlatformBlockers(deadlines, 'asana');
 }
 
-export function extractTrelloBlockers(deadlines) {
-    return extractProjectPlatformBlockers(deadlines, 'trello');
-}
+
 
 export function extractProjectPlatformBlockers(deadlines, platform = 'asana') {
     const platformKey = String(platform || '').toLowerCase();
-    const normalizedPlatform = ['asana', 'trello', 'jira'].includes(platformKey) ? platformKey : 'asana';
+    const normalizedPlatform = ['asana', 'jira'].includes(platformKey) ? platformKey : 'asana';
     const platformLabelMap = {
         asana: 'Asana',
-        trello: 'Trello',
         jira: 'Jira'
     };
     const platformLabel = platformLabelMap[normalizedPlatform];

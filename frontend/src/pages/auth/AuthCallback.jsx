@@ -5,8 +5,6 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { authCallbackState } from '../../lib/authCallbackState';
 
-const VALID_PLANS = new Set(['free', 'starter', 'growth']);
-
 const STEPS = [
     { key: 'session', label: 'Verifying your session' },
     { key: 'profile', label: 'Loading your profile' },
@@ -48,11 +46,6 @@ export default function AuthCallback() {
 
             // 2. Destination hints
             const nextPath = search.get('next') || hash.get('next') || '/app';
-            let plan = search.get('plan') || hash.get('plan') || sessionStorage.getItem('oauth_pending_plan') || 'free';
-            // Clean up the stored plan
-            if (sessionStorage.getItem('oauth_pending_plan')) {
-                sessionStorage.removeItem('oauth_pending_plan');
-            }
 
             // 3. Exchange code (PKCE)
             setCurrentStep(0);
@@ -80,29 +73,35 @@ export default function AuthCallback() {
             if (!session?.user) throw new Error('No session established after OAuth callback.');
             const sessionUser = session.user;
 
-            // 6. Check profile / team status
+            // 6. Check profile / ensure user exists
             setCurrentStep(1);
-            let hasTeam = false;
             let userIsNew = false;
 
             try {
-                const apiUrl = import.meta.env.VITE_API_URL;
-                const profileRes = await fetch(`${apiUrl}/api/user/me?userId=${sessionUser.id}`);
+                const fullName =
+                    sessionUser.user_metadata?.full_name ||
+                    sessionUser.user_metadata?.name ||
+                    sessionUser.email?.split('@')?.[0] ||
+                    'User';
 
-                if (profileRes.ok) {
-                    const profileData = await profileRes.json();
-                    hasTeam = !!(
-                        profileData.current_team_id ||
-                        (profileData.teams && profileData.teams.length > 0)
-                    );
-                    userIsNew = !hasTeam;
-                } else if (profileRes.status === 404) {
+                // Create or update profile
+                const { data: existingProfile, error: fetchError } = await supabase
+                    .from('profiles')
+                    .select('id')
+                    .eq('id', sessionUser.id)
+                    .single();
+
+                if (fetchError && fetchError.code === 'PGRST116') {
+                    // Profile doesn't exist - this is a new user
                     userIsNew = true;
-                    const fullName =
-                        sessionUser.user_metadata?.full_name ||
-                        sessionUser.user_metadata?.name ||
-                        sessionUser.email?.split('@')?.[0] ||
-                        'User';
+                    await supabase.from('profiles').insert({
+                        id: sessionUser.id,
+                        email: sessionUser.email,
+                        full_name: fullName,
+                        updated_at: new Date().toISOString(),
+                    });
+                } else if (!existingProfile) {
+                    userIsNew = true;
                     await supabase.from('profiles').upsert(
                         {
                             id: sessionUser.id,
@@ -113,24 +112,25 @@ export default function AuthCallback() {
                         { onConflict: 'id' }
                     );
                 }
-            } catch (fetchErr) {
-                console.error('Profile fetch error (non-fatal):', fetchErr);
+            } catch (profileErr) {
+                console.error('Profile creation error:', profileErr);
                 userIsNew = true;
             }
 
             // 7. Determine destination
             setCurrentStep(2);
             let destination;
-            if (hasTeam) {
-                destination = nextPath.startsWith('/onboarding') ? '/app/dashboard' : nextPath;
-            } else {
-                const validPlan = VALID_PLANS.has(plan.toLowerCase()) ? plan.toLowerCase() : 'free';
-                destination = `/onboarding/team-setup?plan=${validPlan}`;
-            }
-
+            
             if (nextPath === '/auth/update-password' || hash.get('type') === 'recovery') {
                 destination = '/auth/update-password';
+            } else if (userIsNew) {
+                // New users go to onboarding first
+                destination = '/onboarding';
+            } else {
+                // Return users go to dashboard
+                destination = '/app/dashboard';
             }
+
 
             // 8. Store and show success — do NOT navigate yet
             destinationRef.current = destination;
@@ -220,9 +220,10 @@ export default function AuthCallback() {
                             {isUpdatePassword 
                                 ? 'Set a new password to secure your account.'
                                 : isNewUser
-                                    ? "Set up your team workspace — it only takes a few minutes!"
+                                    ? "Connect your existing tools to get AI-powered insights—it only takes a minute!"
                                     : 'Head back to your dashboard and pick up where you left off.'}
                         </p>
+
                     </div>
 
                     <button
@@ -237,8 +238,9 @@ export default function AuthCallback() {
                             </>
                         ) : (
                             <>
-                                <span>{isUpdatePassword ? 'Update Password' : isNewUser ? 'Set Up My Team' : 'Go to Dashboard'}</span>
+                                <span>{isUpdatePassword ? 'Update Password' : isNewUser ? 'Personalize Teama' : 'Go to Dashboard'}</span>
                                 <span>→</span>
+
                             </>
                         )}
                     </button>

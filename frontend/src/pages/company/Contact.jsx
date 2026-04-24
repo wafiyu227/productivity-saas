@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Mail, MessageSquare, MapPin, Send, CheckCircle2, AlertCircle, Phone, Globe, Github, Users } from 'lucide-react';
+import { Mail, MessageSquare, MapPin, Send, CheckCircle2, AlertCircle, Phone, Globe, Github, Users, ArrowLeft, Terminal, Sparkles, Loader2, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import SEO from '../../components/common/SEO';
+import { useNavigate } from 'react-router-dom';
 
 const Contact = () => {
+    const navigate = useNavigate();
     const [formData, setFormData] = useState({
         name: '',
         email: '',
@@ -33,131 +35,105 @@ const Contact = () => {
                 body: JSON.stringify(formData),
             });
 
-            if (!response.ok) {
-                throw new Error('Failed to send message');
-            }
+            if (!response.ok) throw new Error('Failed to send');
 
             setSubmitted(true);
-            setFormData({
-                name: '',
-                email: '',
-                company: '',
-                message: ''
-            });
+            setFormData({ name: '', email: '', company: '', message: '' });
         } catch (error) {
-            console.error('Error sending message:', error);
-            alert('Sorry, something went wrong. Please try again later or email us directly at team@mail.teamaai.xyz');
+            console.error('Error:', error);
+            alert('Something went wrong. Please email us at team@mail.teamaai.xyz');
         } finally {
             setSending(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+        <div className="min-h-screen bg-black text-white selection:bg-gray-800 font-sans">
             <SEO
-                title="Contact Us"
-                description="Get in touch with the Teama AI team for support, partnerships, or any questions you may have."
+                title="Contact Teama AI"
+                description="Get in touch with us for support or partnerships."
             />
-            <div className="bg-gradient-to-br from-purple-600 via-blue-600 to-purple-700 text-white">
-                <div className="max-w-5xl mx-auto px-8 py-20">
-                    <h1 className="text-5xl font-bold mb-4">Contact Us</h1>
-                    <p className="text-xl text-purple-100">
-                        Send us a message and we will get back to you by email.
-                    </p>
-                </div>
-            </div>
+            
+            {/* Header */}
+            <header className="relative pt-24 pb-20 border-b border-white/5">
+                <div className="max-w-7xl mx-auto px-8">
+                    <button
+                        onClick={() => navigate('/')}
+                        className="group mb-12 inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-white transition-all"
+                    >
+                        <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+                        Back to Home
+                    </button>
 
-            <div className="max-w-5xl mx-auto px-8 py-16">
-                <div className="grid lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-1">
-                        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
-                            <h2 className="text-lg font-bold text-slate-900 mb-4">Email</h2>
-                            <a
-                                href="mailto:team@mail.teamaai.xyz"
-                                className="flex items-center gap-3 text-purple-600 hover:text-purple-700 font-medium break-all"
-                            >
-                                <Mail size={18} />
+                    <div className="max-w-4xl">
+                        <h1 className="text-5xl md:text-7xl font-bold text-white mb-8 tracking-tight">
+                            Get in touch <br /> <span className="text-gray-500">with us.</span>
+                        </h1>
+                        <p className="text-xl text-gray-400 max-w-2xl leading-relaxed">
+                            Have a question or want to partner with us? Send us a message and we'll get back to you soon.
+                        </p>
+                    </div>
+                </div>
+            </header>
+
+            <main className="max-w-7xl mx-auto px-8 py-20 pb-32">
+                <div className="grid lg:grid-cols-3 gap-16 items-start">
+                    {/* Info Sidebar */}
+                    <div className="lg:col-span-1 space-y-8">
+                        <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-10">
+                            <div className="w-12 h-12 bg-white/5 border border-white/5 rounded-xl flex items-center justify-center text-gray-400 mb-8">
+                                <Mail size={22} />
+                            </div>
+                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-2">Email</h3>
+                            <a href="mailto:team@mail.teamaai.xyz" className="text-xl font-bold text-white hover:text-gray-400 transition-colors break-all">
                                 team@mail.teamaai.xyz
                             </a>
-                            <p className="text-sm text-slate-600 mt-4">
-                                Typical response time: within 24 hours on business days.
-                            </p>
+                        </div>
+                        
+                        <div className="p-8 border-l-2 border-white/10 bg-white/[0.01] rounded-r-2xl">
+                             <p className="text-sm text-gray-500 leading-relaxed">
+                                We typically respond within 24 hours. For support, please include your account email.
+                             </p>
                         </div>
                     </div>
 
+                    {/* Form Area */}
                     <div className="lg:col-span-2">
-                        <div className="bg-white rounded-2xl border border-slate-100 p-8 shadow-sm">
-                            <h2 className="text-2xl font-bold text-slate-900 mb-2">Send a Message</h2>
-                            <p className="text-slate-600 mb-8">
-                                Fill the form below and we will reply by email.
-                            </p>
-
+                        <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-10 md:p-14">
                             {submitted ? (
-                                <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center">
-                                    <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                        <CheckCircle2 className="w-7 h-7 text-green-600" />
+                                <div className="py-20 text-center">
+                                    <div className="w-20 h-20 bg-white/10 border border-white/10 rounded-full flex items-center justify-center mx-auto mb-8">
+                                        <CheckCircle2 size={40} className="text-white" />
                                     </div>
-                                    <h3 className="text-lg font-bold text-green-900 mb-2">Message Sent</h3>
-                                    <p className="text-green-700">Thanks. We will reply soon.</p>
+                                    <h3 className="text-3xl font-bold text-white mb-4">Message Sent</h3>
+                                    <p className="text-gray-500 mb-8">
+                                        We've received your message and will get back to you shortly.
+                                    </p>
+                                    <button 
+                                        onClick={() => setSubmitted(false)}
+                                        className="text-sm font-bold text-gray-400 hover:text-white transition-colors"
+                                    >
+                                        Send another message
+                                    </button>
                                 </div>
                             ) : (
-                                <form onSubmit={handleSubmit} className="space-y-6">
-                                    <div className="grid md:grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-2">
-                                                Full Name *
-                                            </label>
-                                            <input
-                                                type="text"
-                                                name="name"
-                                                value={formData.name}
-                                                onChange={handleChange}
-                                                required
-                                                className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
-                                                placeholder="John Doe"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-2">
-                                                Work Email *
-                                            </label>
-                                            <input
-                                                type="email"
-                                                name="email"
-                                                value={formData.email}
-                                                onChange={handleChange}
-                                                required
-                                                className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
-                                                placeholder="john@company.com"
-                                            />
-                                        </div>
+                                <form onSubmit={handleSubmit} className="space-y-8">
+                                    <div className="grid md:grid-cols-2 gap-8">
+                                        <SimpleInput label="Full Name" name="name" value={formData.name} onChange={handleChange} required placeholder="John Doe" />
+                                        <SimpleInput label="Email Address" name="email" type="email" value={formData.email} onChange={handleChange} required placeholder="john@example.com" />
                                     </div>
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                                            Company
-                                        </label>
-                                        <input
-                                            type="text"
-                                            name="company"
-                                            value={formData.company}
-                                            onChange={handleChange}
-                                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
-                                            placeholder="Acme Inc"
-                                        />
-                                    </div>
+                                    <SimpleInput label="Company (Optional)" name="company" value={formData.company} onChange={handleChange} placeholder="Acme Inc" />
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                                            Message *
-                                        </label>
+                                    <div className="flex flex-col gap-3">
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">Message</label>
                                         <textarea
                                             name="message"
                                             value={formData.message}
                                             onChange={handleChange}
                                             required
                                             rows={6}
-                                            className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none"
+                                            className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-xl text-gray-300 outline-none focus:border-white/20 transition-all resize-none placeholder:text-gray-700"
                                             placeholder="How can we help?"
                                         />
                                     </div>
@@ -165,23 +141,35 @@ const Contact = () => {
                                     <button
                                         type="submit"
                                         disabled={sending}
-                                        className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                                        className="w-full bg-white text-black py-4 rounded-xl font-bold hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
                                     >
-                                        {sending ? 'Sending...' : (
-                                            <>
-                                                <Send size={18} />
-                                                Send Message
-                                            </>
-                                        )}
+                                        {sending ? <>Sending...</> : <>Send Message <Send size={18} /></>}
                                     </button>
                                 </form>
                             )}
                         </div>
                     </div>
                 </div>
-            </div>
+            </main>
+
+            <footer className="py-20 border-t border-white/5">
+                <div className="max-w-7xl mx-auto px-8 text-center text-[10px] uppercase tracking-widest text-gray-800">
+                    &copy; 2026 Teama AI. All rights reserved.
+                </div>
+            </footer>
         </div>
     );
 };
+
+const SimpleInput = ({ label, ...props }) => (
+    <div className="flex flex-col gap-3">
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">{label}</label>
+        <input
+            {...props}
+            className="w-full px-6 py-4 bg-white/5 border border-white/10 rounded-xl text-gray-300 outline-none focus:border-white/20 transition-all placeholder:text-gray-700"
+        />
+    </div>
+);
+
 
 export default Contact;

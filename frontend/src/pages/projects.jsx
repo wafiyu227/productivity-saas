@@ -15,40 +15,42 @@ import {
     Bell,
     Filter,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    LayoutGrid,
+    List,
+    ArrowLeft,
+    Zap,
+    ChevronRight,
+    ShieldAlert,
+    BarChart3
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana', 'trello'];
+const PROJECT_PLATFORM_PRIORITY = ['jira', 'asana'];
 const PROJECT_PLATFORM_LABELS = {
     jira: 'Jira',
-    asana: 'Asana',
-    trello: 'Trello'
+    asana: 'Asana'
 };
 const PROJECT_PLATFORM_EXTRACTORS = {
     jira: {
-        fetchProjects: (apiClient, teamId) => apiClient.getJiraProjects(teamId),
-        fetchWorkload: (apiClient, teamId) => apiClient.getJiraWorkload(teamId),
-        fetchDeadlines: (apiClient, teamId) => apiClient.getJiraDeadlines(teamId),
-        fetchProjectHealth: (apiClient, projectId, teamId) => apiClient.getJiraProjectHealth(projectId, teamId)
+        fetchProjects: (apiClient) => apiClient.getJiraProjects(),
+        fetchWorkload: (apiClient) => apiClient.getJiraWorkload(),
+        fetchDeadlines: (apiClient) => apiClient.getJiraDeadlines(),
+        fetchProjectHealth: (apiClient, projectId) => apiClient.getJiraProjectHealth(projectId)
     },
     asana: {
-        fetchProjects: (apiClient, teamId) => apiClient.getAsanaProjects(teamId),
-        fetchWorkload: (apiClient, teamId) => apiClient.getAsanaWorkload(teamId),
-        fetchDeadlines: (apiClient, teamId) => apiClient.getAsanaDeadlines(teamId),
-        fetchProjectHealth: (apiClient, projectId, teamId) => apiClient.getAsanaProjectHealth(projectId, teamId)
-    },
-    trello: {
-        fetchProjects: (apiClient, teamId) => apiClient.getTrelloProjects(teamId),
-        fetchWorkload: (apiClient, teamId) => apiClient.getTrelloWorkload(teamId),
-        fetchDeadlines: (apiClient, teamId) => apiClient.getTrelloDeadlines(teamId),
-        fetchProjectHealth: (apiClient, projectId, teamId) => apiClient.getTrelloProjectHealth(projectId, teamId)
+        fetchProjects: (apiClient) => apiClient.getAsanaProjects(),
+        fetchWorkload: (apiClient) => apiClient.getAsanaWorkload(),
+        fetchDeadlines: (apiClient) => apiClient.getAsanaDeadlines(),
+        fetchProjectHealth: (apiClient, projectId) => apiClient.getAsanaProjectHealth(projectId)
     }
 };
 
 const Projects = () => {
-    const { user, profile } = useAuth();
+    const { user } = useAuth();
+    const navigate = useNavigate();
     const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState(null);
     const [projectHealth, setProjectHealth] = useState(null);
@@ -66,18 +68,17 @@ const Projects = () => {
     const [loadingProjectInsightsId, setLoadingProjectInsightsId] = useState(null);
 
     useEffect(() => {
-        if (user && profile) {
+        if (user) {
             fetchAllData();
         }
-    }, [user, profile?.current_team_id]);
+    }, [user]);
 
     const getPlatformLabel = (platform) => PROJECT_PLATFORM_LABELS[platform] || platform;
 
     const fetchProjectPlatformStatus = async () => {
-        const teamId = profile?.current_team_id;
         const statuses = await Promise.all(
             PROJECT_PLATFORM_PRIORITY.map(async (platform) => {
-                const status = await api.getIntegrationStatus(platform, teamId);
+                const status = await api.getIntegrationStatus(platform);
                 return {
                     platform,
                     connected: !!status?.connected
@@ -114,28 +115,78 @@ const Projects = () => {
                 return;
             }
 
-            if (connectedPlatforms.length > 1) {
-                setActiveProjectPlatform(null);
-                resetProjectData();
-                setError(`Only one project platform can be active at once. Connected now: ${connectedPlatforms.map(getPlatformLabel).join(', ')}. Disconnect extras from Integrations.`);
-                return;
-            }
+            // Using 'mixed' as active platform to show we support both
+            setActiveProjectPlatform('mixed');
 
-            const activePlatform = connectedPlatforms[0];
-            setActiveProjectPlatform(activePlatform);
+            let mergedProjects = [];
+            let mergedWorkload = [];
+            let mergedDeadlines = { overdue: { count: 0, tasks: [] }, dueToday: { count: 0, tasks: [] }, dueTomorrow: { count: 0, tasks: [] }, dueThisWeek: { count: 0, tasks: [] }, totalAtRisk: 0 };
 
-            const extractor = PROJECT_PLATFORM_EXTRACTORS[activePlatform];
-            if (!extractor) {
-                resetProjectData();
-                setError(`${getPlatformLabel(activePlatform)} is connected, but its project extractor is not wired yet. Add ${getPlatformLabel(activePlatform)} extractor handlers to enable full support.`);
-                return;
-            }
+            await Promise.all(connectedPlatforms.map(async (platform) => {
+                const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
+                if (!extractor) return;
 
-            await Promise.all([
-                fetchProjects(activePlatform),
-                fetchWorkload(activePlatform),
-                fetchDeadlines(activePlatform)
-            ]);
+                const [pData, wData, dData] = await Promise.all([
+                    extractor.fetchProjects(api).catch(() => ({ projects: [] })),
+                    extractor.fetchWorkload(api).catch(() => ({ workload: [], summary: null })),
+                    extractor.fetchDeadlines(api).catch(() => (null))
+                ]);
+
+                // Tag projects
+                const platformProjects = (pData.projects || []).map(p => ({ ...p, _platform: platform }));
+                mergedProjects = [...mergedProjects, ...platformProjects];
+
+                // Merge Workload
+                const platformWorkload = wData.workload || [];
+                platformWorkload.forEach(member => {
+                    const existing = mergedWorkload.find(m => m.name === member.name);
+                    if (existing) {
+                        existing.totalTasks += member.totalTasks;
+                        existing.isOverloaded = existing.isOverloaded || member.isOverloaded;
+                    } else {
+                        mergedWorkload.push({ ...member });
+                    }
+                });
+
+                // Merge Deadlines
+                if (dData) {
+                    const tagTasks = (tasks) => (tasks || []).map(t => ({ ...t, _platform: platform }));
+                    
+                    mergedDeadlines.overdue.tasks = [...mergedDeadlines.overdue.tasks, ...tagTasks(dData.overdue?.tasks)];
+                    mergedDeadlines.overdue.count += dData.overdue?.count || 0;
+                    
+                    mergedDeadlines.dueToday.tasks = [...mergedDeadlines.dueToday.tasks, ...tagTasks(dData.dueToday?.tasks)];
+                    mergedDeadlines.dueToday.count += dData.dueToday?.count || 0;
+
+                    mergedDeadlines.dueTomorrow.tasks = [...mergedDeadlines.dueTomorrow.tasks, ...tagTasks(dData.dueTomorrow?.tasks)];
+                    mergedDeadlines.dueTomorrow.count += dData.dueTomorrow?.count || 0;
+
+                    mergedDeadlines.dueThisWeek.tasks = [...mergedDeadlines.dueThisWeek.tasks, ...tagTasks(dData.dueThisWeek?.tasks)];
+                    mergedDeadlines.dueThisWeek.count += dData.dueThisWeek?.count || 0;
+
+                    mergedDeadlines.totalAtRisk += dData.totalAtRisk || 0;
+                }
+            }));
+
+            // Calc summarized workload
+            const totalTasksAllMembers = mergedWorkload.reduce((sum, m) => sum + m.totalTasks, 0);
+            const overallSummary = mergedWorkload.length > 0 ? {
+                avgTasksPerMember: Math.round(totalTasksAllMembers / mergedWorkload.length),
+                overloadedMembers: mergedWorkload.filter(m => m.isOverloaded).length
+            } : null;
+
+            // Sort deadline tasks
+            const sortByDue = (a, b) => new Date(a.due_on || a.due_date || 0) - new Date(b.due_on || b.due_date || 0);
+            mergedDeadlines.overdue.tasks.sort(sortByDue);
+            mergedDeadlines.dueToday.tasks.sort(sortByDue);
+            mergedDeadlines.dueTomorrow.tasks.sort(sortByDue);
+            mergedDeadlines.dueThisWeek.tasks.sort(sortByDue);
+
+            setProjects(mergedProjects);
+            setWorkload(mergedWorkload);
+            setWorkloadSummary(overallSummary);
+            setDeadlines(mergedDeadlines);
+
             setError(null);
         } catch (err) {
             setError(err.message);
@@ -150,57 +201,22 @@ const Projects = () => {
         setRefreshing(false);
     };
 
-    const fetchProjects = async (platform = activeProjectPlatform) => {
-        const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
-        if (!extractor) throw new Error('Project extractor not configured');
-        try {
-            const data = await extractor.fetchProjects(api, profile?.current_team_id);
-            if (data.error) throw new Error(data.error);
-            setProjects(data.projects || []);
-        } catch (err) {
-            console.error('Error fetching projects:', err);
-            throw err;
-        }
-    };
 
-    const fetchWorkload = async (platform = activeProjectPlatform) => {
-        const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
-        if (!extractor) return;
-        try {
-            const data = await extractor.fetchWorkload(api, profile?.current_team_id);
-            if (data.error) {
-                console.error('Error fetching workload:', data.error);
-                setWorkload([]);
-                return;
-            }
-            setWorkload(data.workload || []);
-            setWorkloadSummary(data.summary || null);
-        } catch (err) {
-            console.error('Error fetching workload:', err);
-            setWorkload([]);
-        }
-    };
-
-    const fetchDeadlines = async (platform = activeProjectPlatform) => {
-        const extractor = PROJECT_PLATFORM_EXTRACTORS[platform];
-        if (!extractor) return;
-        try {
-            const data = await extractor.fetchDeadlines(api, profile?.current_team_id);
-            if (data.error) {
-                console.error('Error fetching deadlines:', data.error);
-                setDeadlines(null);
-                return;
-            }
-            setDeadlines(data);
-        } catch (err) {
-            console.error('Error fetching deadlines:', err);
-            setDeadlines(null);
-        }
-    };
 
     const fetchProjectHealth = async (projectOrId) => {
-        const extractor = PROJECT_PLATFORM_EXTRACTORS[activeProjectPlatform];
+        const platformHint = typeof projectOrId === 'object' ? projectOrId?._platform : null;
+        let platformToUse = platformHint;
+        
+        // If no hint, and projects are loaded, we can find the project
+        if (!platformToUse) {
+            const idStr = typeof projectOrId === 'object' ? String(projectOrId?.gid || projectOrId?.id) : String(projectOrId);
+            const loadedPrj = projects.find(p => String(p.gid || p.id) === idStr);
+            platformToUse = loadedPrj?._platform || activeProjectPlatform;
+        }
+
+        const extractor = PROJECT_PLATFORM_EXTRACTORS[platformToUse];
         if (!extractor) return;
+        
         const projectId = typeof projectOrId === 'object'
             ? (projectOrId?.gid || projectOrId?.id)
             : projectOrId;
@@ -209,7 +225,7 @@ const Projects = () => {
 
         try {
             setLoadingProjectInsightsId(normalizedProjectId);
-            const data = await extractor.fetchProjectHealth(api, projectId, profile?.current_team_id);
+            const data = await extractor.fetchProjectHealth(api, projectId);
             setProjectHealth(data);
             if (typeof projectOrId === 'object' && projectOrId) {
                 setSelectedProject(projectOrId);
@@ -219,8 +235,8 @@ const Projects = () => {
                 );
             }
         } catch (err) {
-            console.error('Error fetching project health:', err);
-            alert('Failed to fetch project details: ' + err.message);
+            console.error('Health cycle failure:', err);
+            alert('Calibration Error: ' + err.message);
         } finally {
             setLoadingProjectInsightsId(null);
         }
@@ -237,10 +253,10 @@ const Projects = () => {
 
     const getHealthIcon = (status) => {
         switch (status) {
-            case 'healthy': return <CheckCircle2 className="w-5 h-5" />;
-            case 'at-risk': return <AlertCircle className="w-5 h-5" />;
-            case 'critical': return <AlertCircle className="w-5 h-5" />;
-            default: return <Activity className="w-5 h-5" />;
+            case 'healthy': return <CheckCircle2 size={16} />;
+            case 'at-risk': return <AlertTriangle size={16} />;
+            case 'critical': return <ShieldAlert size={16} />;
+            default: return <Activity size={16} />;
         }
     };
 
@@ -249,10 +265,10 @@ const Projects = () => {
         const now = new Date();
         const diffDays = Math.ceil((date - now) / (1000 * 60 * 60 * 24));
 
-        if (diffDays < 0) return `${Math.abs(diffDays)} days overdue`;
-        if (diffDays === 0) return 'Due today';
-        if (diffDays === 1) return 'Due tomorrow';
-        return `Due in ${diffDays} days`;
+        if (diffDays < 0) return `${Math.abs(diffDays)}D_OVERDUE`;
+        if (diffDays === 0) return 'DUE_TODAY';
+        if (diffDays === 1) return 'DUE_TOMORROW';
+        return `IN_${diffDays}D`;
     };
 
     const getDaysOverdue = (dateStr) => {
@@ -294,307 +310,189 @@ const Projects = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center">
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="text-center"
-                >
-                    <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-gray-600 font-mono">Loading projects...</p>
-                </motion.div>
+            <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-8">
+                <div className="w-10 h-10 border-4 border-white/5 border-t-white rounded-full animate-spin"></div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Loading projects...</p>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center p-4">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center"
-                >
-                    <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-gray-900 mb-2">Connection Error</h2>
-                    <p className="text-gray-600 mb-4">{error}</p>
+            <div className="min-h-screen bg-black flex items-center justify-center p-4">
+                <div className="bg-black border border-white/10 rounded-3xl p-12 max-w-lg text-center shadow-2xl">
+                    <h2 className="text-3xl font-bold text-white uppercase tracking-tight mb-4">Error</h2>
+                    <p className="text-gray-400 font-bold uppercase tracking-widest text-xs mb-10 leading-relaxed">{error}</p>
                     <button
                         onClick={fetchAllData}
-                        className="px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
+                        className="w-full py-4 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-2xl hover:bg-gray-200 transition-all active:scale-95"
                     >
-                        Try Again
+                        Retry
                     </button>
-                </motion.div>
+                </div>
             </div>
         );
     }
 
     if (!activeProjectPlatform) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center p-4">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white border border-gray-100 rounded-2xl p-8 max-w-2xl w-full shadow-sm"
-                >
-                    <h2 className="text-2xl font-bold text-gray-900 mb-3">Connect A Project Platform</h2>
-                    <p className="text-gray-600 mb-6">
-                        Projects supports one active platform at a time to keep analytics consistent.
+            <div className="min-h-screen bg-black flex items-center justify-center p-4">
+                <div className="bg-black border border-white/10 rounded-3xl p-16 max-w-3xl w-full text-center">
+                    <h2 className="text-4xl font-bold text-white uppercase tracking-tight mb-4">Connect a project tool</h2>
+                    <p className="text-gray-400 font-bold uppercase tracking-widest text-xs mb-12 max-w-md mx-auto leading-relaxed">
+                        To view your projects, you need to connect Jira or Asana in your settings.
                     </p>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
-                        {PROJECT_PLATFORM_PRIORITY.map((platform) => {
-                            const connected = connectedProjectPlatforms.includes(platform);
-                            return (
-                                <div key={platform} className={`rounded-xl border p-4 ${connected ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
-                                    <p className="font-semibold text-gray-900">{getPlatformLabel(platform)}</p>
-                                    <p className="text-sm text-gray-500 mt-1">{connected ? 'Connected' : 'Not connected'}</p>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    <a
-                        href="/app/integrations"
-                        className="inline-flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    <button
+                        onClick={() => navigate('/app/integrations')}
+                        className="px-12 py-5 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-2xl hover:bg-gray-200 transition-all active:scale-95"
                     >
-                        Go To Integrations
-                    </a>
-                </motion.div>
+                        Go to Settings
+                    </button>
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 text-gray-900">
+        <div className="min-h-screen bg-black text-white selection:bg-blue-500/30">
+            {/* Background elements */}
+
             {/* Header */}
-            <motion.header
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="border-b border-gray-200 backdrop-blur-xl bg-white/80 sticky top-0 z-40"
-            >
-                <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
-                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4 md:mb-6">
+            <header className="relative border-b border-white/5 bg-black/50 backdrop-blur-2xl sticky top-0 z-40">
+                <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
+                    <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8">
                         <div>
-                            <h1 className="text-2xl md:text-4xl font-bold text-gray-900 mb-1 md:mb-2">
-                                Projects Overview
-                            </h1>
-                            <p className="text-gray-600 font-mono text-sm">
-                                {getPlatformLabel(activeProjectPlatform)} source • AI-powered insights for {projects.length} active projects
-                            </p>
+                            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                                Team
+                            </div>
+                            <h1 className="text-4xl font-bold text-white uppercase tracking-tight md:text-5xl lg:text-6xl">Projects</h1>
+                            <div className="mt-4 flex flex-wrap items-center gap-6">
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                                    MIXED POOL • {projects.length} ACTIVE
+                                </p>
+                            </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
-                            <button
+                        <div className="flex items-center gap-2 bg-[#09090b] p-2 rounded-[1.5rem] border border-white/5 shadow-2xl">
+                             <button
                                 onClick={handleRefresh}
                                 disabled={refreshing}
-                                className="p-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-all disabled:opacity-50"
-                                title="Refresh data"
+                                className="p-3 bg-white/[0.03] border border-white/5 hover:bg-white/[0.06] rounded-xl transition-all disabled:opacity-50 text-gray-400 hover:text-white"
+                                title="Execute Refresh"
                             >
-                                <RefreshCw className={`w-5 h-5 text-gray-400 ${refreshing ? 'animate-spin' : ''}`} />
+                                <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
                             </button>
+                            <div className="w-[1px] h-8 bg-white/5 mx-1"></div>
                             <button
                                 onClick={() => setActiveView('grid')}
-                                className={`px-4 py-2 rounded-lg transition-all ${activeView === 'grid'
-                                    ? 'bg-blue-600 text-white font-semibold'
-                                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                                className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeView === 'grid'
+                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+                                    : 'text-gray-600 hover:text-white hover:bg-white/5'
                                     }`}
                             >
-                                Grid
+                                <LayoutGrid size={18} />
                             </button>
                             <button
                                 onClick={() => setActiveView('list')}
-                                className={`px-4 py-2 rounded-lg transition-all ${activeView === 'list'
-                                    ? 'bg-blue-600 text-white font-semibold'
-                                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                                className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeView === 'list'
+                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+                                    : 'text-gray-600 hover:text-white hover:bg-white/5'
                                     }`}
                             >
-                                List
+                                <List size={18} />
                             </button>
                         </div>
                     </div>
-
-                    {/* Stats Bar */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.1 }}
-                            className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm"
-                        >
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-gray-500 text-sm font-mono mb-1">Active Projects</p>
-                                    <p className="text-3xl font-bold text-gray-900">{projects.length}</p>
-                                </div>
-                                <Target className="w-8 h-8 text-blue-600" />
-                            </div>
-                        </motion.div>
-
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.2 }}
-                            className="bg-gradient-to-br from-blue-500/10 to-transparent border border-blue-500/20 rounded-xl p-4"
-                        >
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-gray-500 text-sm font-mono mb-1">Team Members</p>
-                                    <p className="text-3xl font-bold text-gray-900">{workload.length}</p>
-                                </div>
-                                <Users className="w-8 h-8 text-blue-400" />
-                            </div>
-                        </motion.div>
-
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.3 }}
-                            className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm"
-                        >
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-gray-500 text-sm font-mono mb-1">At Risk Tasks</p>
-                                    <p className={`text-3xl font-bold ${deadlines?.totalAtRisk > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                                        {deadlines?.totalAtRisk || 0}
-                                    </p>
-                                </div>
-                                <AlertTriangle className={`w-8 h-8 ${deadlines?.totalAtRisk > 0 ? 'text-red-400' : 'text-orange-400'}`} />
-                            </div>
-                        </motion.div>
-
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.4 }}
-                            className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm"
-                        >
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-gray-500 text-sm font-mono mb-1">Due This Week</p>
-                                    <p className="text-3xl font-bold text-gray-900">
-                                        {(deadlines?.dueToday?.count || 0) + (deadlines?.dueTomorrow?.count || 0) + (deadlines?.dueThisWeek?.count || 0)}
-                                    </p>
-                                </div>
-                                <Calendar className="w-8 h-8 text-purple-400" />
-                            </div>
-                        </motion.div>
-                    </div>
                 </div>
-            </motion.header>
+            </header>
 
-            <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">
-                {/* Deadline Alerts Section */}
+            <main className="relative max-w-7xl mx-auto px-4 md:px-8 py-12">
+                {/* Metric Summary Area */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-16 animate-in fade-in duration-700">
+                    <MetricStat 
+                        label="Projects" 
+                        value={projects.length} 
+                        icon={<Target className="text-white" size={24} />} 
+                    />
+                    <MetricStat 
+                        label="Members" 
+                        value={workload.length} 
+                        icon={<Users className="text-white" size={24} />} 
+                    />
+                    <MetricStat 
+                        label="Alerts" 
+                        value={deadlines?.totalAtRisk || 0} 
+                        icon={<AlertTriangle className="text-white" size={24} />} 
+                    />
+                    <MetricStat 
+                        label="Due Soon" 
+                        value={(deadlines?.dueToday?.count || 0) + (deadlines?.dueThisWeek?.count || 0)} 
+                        icon={<Calendar className="text-white" size={24} />} 
+                    />
+                </div>
+
+                {/* Critical Intervention Section */}
                 {deadlines && (deadlines.overdue?.count > 0 || deadlines.dueToday?.count > 0) && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="mb-8"
-                    >
+                    <div className="mb-16 animate-in fade-in">
                         <button
                             onClick={() => setShowDeadlines(!showDeadlines)}
-                            className="w-full flex items-center justify-between p-4 bg-white border border-red-100 rounded-xl hover:shadow-md transition-all shadow-sm"
+                            className="w-full flex items-center justify-between p-8 bg-white/[0.02] border border-white/10 rounded-3xl hover:bg-white/[0.04] transition-all"
                         >
-                            <div className="flex items-center gap-3">
-                                <Bell className="w-6 h-6 text-red-500" />
-                                <span className="text-lg font-bold text-gray-900">
-                                    Deadline Alerts
-                                </span>
-                                <span className="px-3 py-1 bg-red-500/20 text-red-400 text-sm font-mono rounded-full">
-                                    {deadlines.overdue?.count || 0} overdue
-                                </span>
-                                {deadlines.dueToday?.count > 0 && (
-                                    <span className="px-3 py-1 bg-orange-500/20 text-orange-400 text-sm font-mono rounded-full">
-                                        {deadlines.dueToday.count} due today
+                            <div className="flex flex-wrap items-center gap-6">
+                                <div className="text-left">
+                                    <h3 className="text-2xl font-bold text-white uppercase tracking-tight">Issues</h3>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">These items need attention.</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <span className="px-4 py-2 bg-white/5 border border-white/10 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl">
+                                        {deadlines.overdue?.count || 0} Overdue
                                     </span>
-                                )}
+                                    {deadlines.dueToday?.count > 0 && (
+                                        <span className="px-4 py-2 bg-white/5 border border-white/10 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl">
+                                            {deadlines.dueToday.count} Due Today
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            {showDeadlines ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                            <div className={`p-2 rounded-full transition-transform duration-500 ${showDeadlines ? '' : 'rotate-180'}`}>
+                                <ChevronUp size={24} className="text-gray-400" />
+                            </div>
                         </button>
 
                         <AnimatePresence>
                             {showDeadlines && (
                                 <motion.div
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: 'auto' }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    className="mt-4 space-y-4"
+                                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                                    animate={{ opacity: 1, height: 'auto', marginTop: 24 }}
+                                    exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                                    className="overflow-hidden space-y-4"
                                 >
-                                    {/* Overdue Tasks */}
+                                    {/* Overdue Matrix */}
                                     {deadlines.overdue?.tasks?.length > 0 && (
-                                        <div className="bg-red-50 border border-red-100 rounded-xl p-4 shadow-sm">
-                                            <h3 className="text-red-400 font-bold mb-3 flex items-center gap-2">
-                                                <AlertCircle className="w-5 h-5" />
-                                                Overdue Tasks ({deadlines.overdue.count})
+                                        <div className="bg-rose-500/[0.02] border border-rose-500/10 rounded-[2rem] p-8">
+                                            <h3 className="text-rose-500 text-[11px] font-black uppercase tracking-[0.3em] mb-6 flex items-center gap-3">
+                                                <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></div>
+                                                IDENTIFIED OVERDUE COMPONENTS
                                             </h3>
-                                            <div className="space-y-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 {deadlines.overdue.tasks.map((task) => (
-                                                    <div key={task.gid} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                                                            <div>
-                                                                <p className="text-gray-900 font-medium">{task.name}</p>
-                                                                <p className="text-sm text-gray-500">
-                                                                    {task.project?.name} • {task.assignee?.name || 'Unassigned'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <span className="text-red-400 text-sm font-mono">
-                                                            {getDaysOverdue(task.due_on)} days overdue
-                                                        </span>
-                                                    </div>
+                                                    <InterventionCard key={task.gid} task={task} type="overdue" func={getDaysOverdue} />
                                                 ))}
                                             </div>
                                         </div>
                                     )}
 
-                                    {/* Due Today */}
+                                    {/* Today Matrix */}
                                     {deadlines.dueToday?.tasks?.length > 0 && (
-                                        <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 shadow-sm">
-                                            <h3 className="text-orange-400 font-bold mb-3 flex items-center gap-2">
-                                                <Clock className="w-5 h-5" />
-                                                Due Today ({deadlines.dueToday.count})
+                                        <div className="bg-amber-500/[0.02] border border-amber-500/10 rounded-[2rem] p-8">
+                                            <h3 className="text-amber-500 text-[11px] font-black uppercase tracking-[0.3em] mb-6 flex items-center gap-3">
+                                                <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></div>
+                                                IMMEDIATE PRIORITY UNITS
                                             </h3>
-                                            <div className="space-y-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 {deadlines.dueToday.tasks.map((task) => (
-                                                    <div key={task.gid} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                                                            <div>
-                                                                <p className="text-gray-900 font-medium">{task.name}</p>
-                                                                <p className="text-sm text-gray-500">
-                                                                    {task.project?.name} • {task.assignee?.name || 'Unassigned'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <span className="text-orange-400 text-sm font-mono">Due today</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Due Tomorrow */}
-                                    {deadlines.dueTomorrow?.tasks?.length > 0 && (
-                                        <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4 shadow-sm">
-                                            <h3 className="text-yellow-400 font-bold mb-3 flex items-center gap-2">
-                                                <Calendar className="w-5 h-5" />
-                                                Due Tomorrow ({deadlines.dueTomorrow.count})
-                                            </h3>
-                                            <div className="space-y-2">
-                                                {deadlines.dueTomorrow.tasks.map((task) => (
-                                                    <div key={task.gid} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
-                                                            <div>
-                                                                <p className="text-gray-900 font-medium">{task.name}</p>
-                                                                <p className="text-sm text-gray-500">
-                                                                    {task.project?.name} • {task.assignee?.name || 'Unassigned'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <span className="text-yellow-400 text-sm font-mono">Due tomorrow</span>
-                                                    </div>
+                                                    <InterventionCard key={task.gid} task={task} type="today" />
                                                 ))}
                                             </div>
                                         </div>
@@ -602,417 +500,277 @@ const Projects = () => {
                                 </motion.div>
                             )}
                         </AnimatePresence>
-                    </motion.div>
-                )}
-
-                {/* Projects Grid/List */}
-                {activeView === 'grid' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {projects.map((project, index) => (
-                            <motion.div
-                                key={project.gid || project.id}
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.05 }}
-                                className="group relative bg-white border border-gray-100 rounded-2xl p-6 hover:border-blue-500/50 transition-all hover:scale-[1.02] hover:shadow-xl hover:shadow-blue-500/10"
-                            >
-                                {/* Project Header */}
-                                <div className="flex items-start justify-between mb-4">
-                                    <div className="flex-1">
-                                        <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
-                                            {project.name}
-                                        </h3>
-                                        {project.due_date && (
-                                            <div className="flex items-center gap-2 text-sm text-gray-400">
-                                                <Calendar className="w-4 h-4" />
-                                                <span>{new Date(project.due_date).toLocaleDateString()}</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                </div>
-
-                                {/* Project Info */}
-                                {project.notes && (
-                                    <p className="text-gray-400 text-sm mb-4 line-clamp-2">
-                                        {project.notes}
-                                    </p>
-                                )}
-
-                                {/* Owner */}
-                                {project.owner?.name && (
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
-                                            {project.owner.name.charAt(0)}
-                                        </div>
-                                        <span className="text-sm text-gray-600">{project.owner.name}</span>
-                                    </div>
-                                )}
-
-                                {/* Status Badge */}
-                                <div className="flex items-center justify-between gap-2">
-                                    {project.completed ? (
-                                        <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-mono rounded-full border border-green-200">
-                                            Completed
-                                        </span>
-                                    ) : (
-                                        <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-mono rounded-full border border-blue-200">
-                                            In Progress
-                                        </span>
-                                    )}
-                                    <button
-                                        onClick={() => fetchProjectHealth(project)}
-                                        disabled={loadingProjectInsightsId === String(project.gid || project.id)}
-                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                    >
-                                        {loadingProjectInsightsId === String(project.gid || project.id) ? (
-                                            <>
-                                                <RefreshCw className="w-3 h-3 animate-spin" />
-                                                Loading...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Sparkles className="w-3 h-3" />
-                                                View AI Insights
-                                            </>
-                                        )}
-                                    </button>
-                                </div>
-
-                                {/* Hover Effect */}
-                                <div className="absolute inset-0 bg-gradient-to-br from-blue-600/0 to-transparent group-hover:from-blue-600/5 rounded-2xl transition-all pointer-events-none"></div>
-                            </motion.div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        {projects.map((project, index) => (
-                            <motion.div
-                                key={project.gid || project.id}
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: index * 0.03 }}
-                                className="bg-white border border-gray-100 rounded-xl p-4 hover:border-blue-500/50 transition-all group shadow-sm"
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4 flex-1">
-                                        {project.owner?.name && (
-                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold shrink-0">
-                                                {project.owner.name.charAt(0)}
-                                            </div>
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                            <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
-                                                {project.name}
-                                            </h3>
-                                            <div className="flex items-center gap-4 mt-1">
-                                                {project.owner?.name && (
-                                                    <span className="text-sm text-gray-400">{project.owner.name}</span>
-                                                )}
-                                                {project.due_date && (
-                                                    <span className="text-sm text-gray-500 flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {new Date(project.due_date).toLocaleDateString()}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-3">
-                                        <button
-                                            onClick={() => fetchProjectHealth(project)}
-                                            disabled={loadingProjectInsightsId === String(project.gid || project.id)}
-                                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                        >
-                                            {loadingProjectInsightsId === String(project.gid || project.id) ? (
-                                                <>
-                                                    <RefreshCw className="w-3 h-3 animate-spin" />
-                                                    Loading...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Sparkles className="w-3 h-3" />
-                                                    View AI Insights
-                                                </>
-                                            )}
-                                        </button>
-                                        {project.completed ? (
-                                            <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-mono rounded-full border border-green-200">
-                                                Completed
-                                            </span>
-                                        ) : (
-                                            <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-mono rounded-full border border-blue-200">
-                                                Active
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            </motion.div>
-                        ))}
                     </div>
                 )}
 
-                {/* Team Workload Section */}
-                {workload.length > 0 && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 }}
-                        className="mt-12"
-                    >
-                        <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-2xl font-bold flex items-center gap-3">
-                                <Users className="w-6 h-6 text-blue-600" />
-                                Team Workload Distribution
-                            </h2>
-                            {workloadSummary && (
-                                <div className="flex items-center gap-4">
-                                    <span className="text-sm text-gray-500">
-                                        Avg: <span className="text-gray-900 font-mono">{workloadSummary.avgTasksPerMember}</span> tasks/member
-                                    </span>
-                                    {workloadSummary.overloadedMembers > 0 && (
-                                        <span className="px-3 py-1 bg-red-500/20 text-red-400 text-sm rounded-full">
-                                            {workloadSummary.overloadedMembers} overloaded
-                                        </span>
-                                    )}
-                                </div>
-                            )}
+                {/* Projects Registry */}
+                <div className="mb-20 animate-in fade-in duration-700 delay-200">
+                    <div className="flex items-center gap-4 mb-10">
+                        <div>
+                            <h2 className="text-2xl font-bold text-white uppercase tracking-tight">Projects</h2>
                         </div>
+                    </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {workload.map((member, index) => (
-                                <motion.div
-                                    key={member.name}
-                                    initial={{ opacity: 0, scale: 0.9 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    transition={{ delay: 0.6 + index * 0.05 }}
-                                    className={`bg-white border ${member.isOverloaded ? 'border-red-500/50' : 'border-gray-100'} rounded-xl p-5 shadow-sm`}
-                                >
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${member.isOverloaded ? 'from-red-500 to-orange-500' : 'from-blue-600 to-purple-600'} flex items-center justify-center text-white font-bold text-lg`}>
-                                            {member.name.charAt(0)}
-                                        </div>
-                                        <div>
-                                            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                                                {member.name}
-                                                {member.isOverloaded && (
-                                                    <AlertTriangle className="w-4 h-4 text-red-400" />
-                                                )}
-                                            </h3>
-                                            <p className="text-sm text-gray-500">{member.totalTasks} tasks</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-gray-500">Completed</span>
-                                            <span className="text-green-600 font-mono">{member.completedTasks}</span>
-                                        </div>
-                                        <div className="w-full bg-gray-100 rounded-full h-2">
-                                            <div
-                                                className="bg-gradient-to-r from-green-500 to-emerald-400 h-2 rounded-full transition-all"
-                                                style={{
-                                                    width: `${member.totalTasks > 0 ? (member.completedTasks / member.totalTasks) * 100 : 0}%`
-                                                }}
-                                            ></div>
-                                        </div>
-
-                                        {member.overdueTasks > 0 && (
-                                            <>
-                                                <div className="flex justify-between text-sm mt-3">
-                                                    <span className="text-gray-500">Overdue</span>
-                                                    <span className="text-red-500 font-mono">{member.overdueTasks}</span>
-                                                </div>
-                                                <div className="w-full bg-gray-100 rounded-full h-2">
-                                                    <div
-                                                        className="bg-gradient-to-r from-red-500 to-orange-400 h-2 rounded-full transition-all"
-                                                        style={{
-                                                            width: `${member.totalTasks > 0 ? (member.overdueTasks / member.totalTasks) * 100 : 0}%`
-                                                        }}
-                                                    ></div>
-                                                </div>
-                                            </>
-                                        )}
-
-                                        {member.upcomingTasks > 0 && (
-                                            <div className="flex justify-between text-sm mt-2">
-                                                <span className="text-gray-500">Upcoming</span>
-                                                <span className="text-blue-600 font-mono">{member.upcomingTasks}</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </motion.div>
+                    {activeView === 'grid' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                             {projects.map((project, index) => (
+                                <ProjectGridCard 
+                                    key={project.gid || project.id} 
+                                    project={project} 
+                                    index={index} 
+                                    onSelect={fetchProjectHealth}
+                                    loadingId={loadingProjectInsightsId}
+                                />
+                             ))}
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {projects.map((project, index) => (
+                                <ProjectListRow 
+                                    key={project.gid || project.id} 
+                                    project={project} 
+                                    index={index}
+                                    onSelect={fetchProjectHealth}
+                                    loadingId={loadingProjectInsightsId}
+                                />
                             ))}
                         </div>
-                    </motion.div>
-                )}
-            </div>
+                    )}
+                </div>
 
-            {/* Project Detail Modal */}
-            <AnimatePresence>
-                {selectedProject && projectHealth && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                        onClick={() => {
-                            setSelectedProject(null);
-                            setProjectHealth(null);
-                        }}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-white border border-gray-200 rounded-2xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Modal Header */}
-                            <div className="flex items-start justify-between mb-6">
-                                <div className="flex-1">
-                                    <h2 className="text-3xl font-bold text-gray-900 mb-2">
-                                        {selectedProject.name}
-                                    </h2>
-                                    {selectedProject.notes && (
-                                        <p className="text-gray-600">{selectedProject.notes}</p>
-                                    )}
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        setSelectedProject(null);
-                                        setProjectHealth(null);
-                                    }}
-                                    className="text-gray-400 hover:text-gray-600 transition-colors"
-                                >
-                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-
-                            {/* Health Status */}
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
-                                    <div className="flex items-center gap-2 mb-2" style={{ color: getHealthColor(projectHealth.health.healthStatus) }}>
-                                        {getHealthIcon(projectHealth.health.healthStatus)}
-                                        <span className="font-mono text-sm uppercase">{projectHealth.health.healthStatus}</span>
-                                    </div>
-                                    <p className="text-2xl font-bold text-white">{projectHealth.health.completionRate}%</p>
-                                    <p className="text-xs text-gray-400">Completion Rate</p>
-                                </div>
-
-                                <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                                    <p className="text-gray-500 text-sm mb-2">Total Tasks</p>
-                                    <p className="text-2xl font-bold text-gray-900">{projectHealth.health.total}</p>
-                                </div>
-
-                                <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                                    <p className="text-gray-500 text-sm mb-2">Completed</p>
-                                    <p className="text-2xl font-bold text-green-600">{projectHealth.health.completed}</p>
-                                </div>
-
-                                <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                                    <p className="text-gray-500 text-sm mb-2">Overdue</p>
-                                    <p className="text-2xl font-bold text-red-600">{projectHealth.health.overdue}</p>
+                {/* Distribution Matrix */}
+                {workload.length > 0 && (
+                    <div className="animate-in fade-in duration-700 delay-300">
+                        <div className="flex flex-col lg:flex-row items-start lg:items-end justify-between gap-8 mb-10">
+                            <div className="flex items-center gap-6">
+                                <div className="text-left">
+                                    <h3 className="text-3xl font-bold text-white uppercase tracking-tight">Team Load</h3>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">How tasks are spread across the team.</p>
                                 </div>
                             </div>
-
-                            {/* AI Analysis */}
-                            {projectInsights && (
-                                <div className="bg-purple-50 border border-purple-100 rounded-xl p-6 mb-8">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <Sparkles className="w-5 h-5 text-purple-600" />
-                                        <h3 className="text-lg font-bold text-gray-900">AI Insights</h3>
+                            {workloadSummary && (
+                                <div className="flex items-center gap-8 bg-white/[0.01] px-10 py-6 rounded-3xl border border-white/5">
+                                    <div className="text-center">
+                                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Throughput</span>
+                                        <span className="text-3xl font-bold text-white">{workloadSummary.avgTasksPerMember}</span>
                                     </div>
-                                    <div className="prose max-w-none">
-                                        <p className="text-gray-700 whitespace-pre-line">
-                                            {projectInsights.summary || 'Insights generated from fetched project tasks.'}
-                                        </p>
-                                        {projectInsights.evidence && (
-                                            <p className="text-sm text-gray-500 mt-2">
-                                                Based on {projectInsights.evidence.taskCount || 0} fetched tasks
-                                                ({projectInsights.evidence.overdueCount || 0} overdue,
-                                                {' '}{projectInsights.evidence.dueSoonCount || 0} due soon,
-                                                {' '}{projectInsights.evidence.unassignedCount || 0} unassigned).
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {projectInsights.blockers.length > 0 && (
-                                        <div className="mt-4">
-                                            <h4 className="text-sm font-semibold text-gray-800 mb-2">Risk Signals</h4>
-                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-                                                {projectInsights.blockers.map((blocker, index) => (
-                                                    <li key={`insight-blocker-${index}`}>{blocker}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
-
-                                    {projectInsights.recommendations.length > 0 && (
-                                        <div className="mt-4">
-                                            <h4 className="text-sm font-semibold text-gray-800 mb-2">Recommendations</h4>
-                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-                                                {projectInsights.recommendations.map((recommendation, index) => (
-                                                    <li key={`insight-recommendation-${index}`}>{recommendation}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Recent Tasks */}
-                            {projectHealth.tasks && projectHealth.tasks.length > 0 && (
-                                <div>
-                                    <h3 className="text-lg font-bold text-gray-900 mb-4">Recent Tasks</h3>
-                                    <div className="space-y-2">
-                                        {projectHealth.tasks.map((task, index) => (
-                                            <motion.div
-                                                key={task.gid || task.id || index}
-                                                initial={{ opacity: 0, x: -20 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                transition={{ delay: index * 0.05 }}
-                                                className="bg-gray-50 rounded-lg p-4 border border-gray-100"
-                                            >
-                                                <div className="flex items-start justify-between gap-4">
-                                                    <div className="flex-1">
-                                                        <h4 className={`font-medium mb-1 ${task.completed ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                                                            {task.name}
-                                                        </h4>
-                                                        {task.assignee && (
-                                                            <p className="text-sm text-gray-400">
-                                                                Assigned to: {task.assignee.name}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {task.due_on && (
-                                                            <span className="text-xs text-gray-500 flex items-center gap-1">
-                                                                <Clock className="w-3 h-3" />
-                                                                {new Date(task.due_on).toLocaleDateString()}
-                                                            </span>
-                                                        )}
-                                                        {task.completed ? (
-                                                            <CheckCircle2 className="w-5 h-5 text-green-500" />
-                                                        ) : (
-                                                            <div className="w-5 h-5 rounded-full border-2 border-gray-300"></div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </motion.div>
-                                        ))}
+                                    <div className="w-[1px] h-12 bg-white/5"></div>
+                                    <div className="text-center">
+                                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Busy Nodes</span>
+                                        <span className="text-3xl font-bold text-white">
+                                            {workloadSummary.overloadedMembers}
+                                        </span>
                                     </div>
                                 </div>
                             )}
-                        </motion.div>
-                    </motion.div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {workload.map((member, index) => (
+                                <WorkloadCard key={member.name} member={member} index={index} />
+                            ))}
+                        </div>
+                    </div>
                 )}
-            </AnimatePresence>
+            </main>
         </div>
     );
 };
+
+/* Sub-components for cleaner structure */
+
+const MetricStat = ({ label, value, icon }) => {
+    return (
+        <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-8 transition-all hover:bg-white/[0.03]">
+            <div className="flex items-center justify-between mb-6">
+                <div className="p-4 rounded-xl border border-white/10 bg-white/5">
+                    {icon}
+                </div>
+            </div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">{label}</p>
+            <p className="text-4xl font-bold text-white tracking-tight">{value}</p>
+        </div>
+    );
+};
+
+const InterventionCard = ({ task, type, func }) => (
+    <div className="flex items-center justify-between p-6 bg-black rounded-2xl border border-white/10 hover:bg-white/5 transition-all">
+        <div className="flex items-center gap-4">
+            <div className={`w-1.5 h-1.5 rounded-full ${type === 'overdue' ? 'bg-white' : 'bg-gray-600'}`}></div>
+            <div>
+                <p className="text-white text-sm font-bold uppercase tracking-tight flex items-center gap-2">
+                    {task.name}
+                    {task._platform && (
+                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/10 text-white border border-white/20">
+                            {PROJECT_PLATFORM_LABELS[task._platform]}
+                        </span>
+                    )}
+                </p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1 italic">
+                    {task.project?.name} • {task.assignee?.name || 'Unassigned'}
+                </p>
+            </div>
+        </div>
+        <span className="text-[10px] font-bold text-white">
+            {type === 'overdue' ? (func ? func(task.due_on) + 'D' : 'Overdue') : 'Due today'}
+        </span>
+    </div>
+);
+
+const ProjectGridCard = ({ project, index, onSelect, loadingId }) => {
+    const isNodeLoading = loadingId === String(project.gid || project.id);
+    
+    return (
+        <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-8 transition-all hover:bg-white/[0.04]">
+            <div className="relative">
+                <div className="flex items-center justify-between mb-8">
+                     <div className="px-4 py-1.5 rounded-lg border border-white/10 bg-white/5 text-[9px] font-bold uppercase tracking-widest text-white">
+                        {project.completed ? 'Finalized' : 'Active'}
+                     </div>
+                </div>
+
+                <h3 className="text-2xl font-bold text-white uppercase tracking-tight mb-4 line-clamp-2">
+                    {project.name}
+                    {project._platform && (
+                        <span className="ml-3 inline-block align-middle text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/10 text-white border border-white/20">
+                            {PROJECT_PLATFORM_LABELS[project._platform]}
+                        </span>
+                    )}
+                </h3>
+
+                {project.notes && (
+                    <p className="text-gray-400 text-xs font-bold leading-relaxed mb-8 line-clamp-2 uppercase tracking-wide">
+                        {project.notes}
+                    </p>
+                )}
+
+                <div className="flex flex-col gap-8">
+                    <div className="flex items-center gap-12">
+                         {project.owner?.name && (
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Owner</span>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-white/5 text-white flex items-center justify-center font-bold text-xs border border-white/10">
+                                        {project.owner.name.charAt(0)}
+                                    </div>
+                                    <span className="text-[11px] font-bold text-gray-400">{project.owner.name.toUpperCase()}</span>
+                                </div>
+                            </div>
+                        )}
+                        {project.due_date && (
+                             <div className="flex flex-col gap-1">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Deadline</span>
+                                <div className="flex items-center gap-3 text-gray-400">
+                                    <Calendar size={14} />
+                                    <span className="text-[11px] font-bold">{new Date(project.due_date).toLocaleDateString()}</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={() => onSelect(project)}
+                        disabled={isNodeLoading}
+                        className="w-full flex items-center justify-center gap-3 py-4 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-2xl hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                        {isNodeLoading ? (
+                            <RefreshCw size={16} className="animate-spin" />
+                        ) : (
+                            'Get Summary'
+                        )}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ProjectListRow = ({ project, index, onSelect, loadingId }) => {
+    const isNodeLoading = loadingId === String(project.gid || project.id);
+
+    return (
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 hover:bg-white/[0.04] transition-all">
+            <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
+                <div className="flex items-center gap-6 flex-1 min-w-0">
+                    {project.owner?.name && (
+                        <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white font-bold text-xl shrink-0">
+                            {project.owner.name.charAt(0)}
+                        </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                        <h3 className="text-xl font-bold text-white uppercase tracking-tight truncate">
+                            {project.name}
+                            {project._platform && (
+                                <span className="ml-3 inline-block align-middle text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/10 text-white border border-white/20">
+                                    {PROJECT_PLATFORM_LABELS[project._platform]}
+                                </span>
+                            )}
+                        </h3>
+                        <div className="flex items-center gap-8 mt-2">
+                            {project.owner?.name && (
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">By {project.owner.name.toUpperCase()}</span>
+                            )}
+                            {project.due_date && (
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Clock size={14} />
+                                    {new Date(project.due_date).toLocaleDateString()}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-6 w-full lg:w-auto">
+                    <button
+                        onClick={() => onSelect(project)}
+                        disabled={isNodeLoading}
+                        className="flex-1 lg:flex-none inline-flex items-center justify-center gap-3 px-8 py-4 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-2xl hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                        {isNodeLoading ? <RefreshCw className="w-16 animate-spin" /> : 'Get Summary'}
+                    </button>
+                    <div className="px-6 py-4 rounded-2xl text-[10px] font-bold uppercase tracking-widest border border-white/10 bg-white/5 text-white">
+                        {project.completed ? 'Finalized' : 'Active'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const WorkloadCard = ({ member, index }) => (
+    <div className={`bg-white/[0.01] border ${member.isOverloaded ? 'border-white/20' : 'border-white/5'} rounded-3xl p-8 transition-all hover:bg-white/[0.02]`}>
+        <div className="flex items-center gap-6 mb-10">
+            <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white font-bold text-2xl">
+                {member.name.charAt(0)}
+            </div>
+            <div>
+                <h3 className="text-xl font-bold text-white uppercase tracking-tight flex items-center gap-3">
+                    {member.name}
+                    {member.isOverloaded && (
+                        <AlertTriangle className="text-white" size={20} />
+                    )}
+                </h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest mt-1 text-gray-400">
+                    Tasks: {member.totalTasks}
+                </p>
+            </div>
+        </div>
+
+        <div className="space-y-6">
+            <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-widest">
+                <span className="text-gray-800">Status</span>
+                <span className="text-white">
+                    {member.isOverloaded ? 'Busy' : 'Available'}
+                </span>
+            </div>
+            <div className="h-2 w-full bg-white/[0.03] rounded-full overflow-hidden border border-white/5">
+                <div 
+                    className="h-full bg-white rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.min((member.totalTasks / 15) * 100, 100)}%`, opacity: member.isOverloaded ? 1 : 0.4 }}
+                ></div>
+            </div>
+        </div>
+    </div>
+);
 
 export default Projects;
