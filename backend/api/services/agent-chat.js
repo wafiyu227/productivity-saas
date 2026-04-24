@@ -1,6 +1,5 @@
 import { convertToModelMessages, stepCountIs, streamText, tool } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { createGroq } from '@ai-sdk/groq';
+import { getWorkerModel } from './multi-model-router.js';
 import { z } from 'zod';
 import logger from '../utils/logger.js';
 import { createApprovalRequest } from './agent-approval-actions.js';
@@ -716,21 +715,29 @@ function buildToolset(userId, capabilitySummaries = {}) {
   return tools;
 }
 
-export async function createAgentStream(messages, options = {}) {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error('GROQ_API_KEY is missing. Please configure it in the .env file.');
-  }
+/**
+ * Trim conversation history to the last N turns (user + assistant pairs)
+ * before sending to the LLM. Keeps token costs down per the guide §3.
+ */
+function trimMessageHistory(messages, maxTurns = 5) {
+  if (!Array.isArray(messages) || messages.length <= maxTurns * 2) return messages;
+  // Always keep any leading system messages, then take the tail
+  const systemMessages = messages.filter(m => m.role === 'system');
+  const chatMessages   = messages.filter(m => m.role !== 'system');
+  const trimmed        = chatMessages.slice(-maxTurns * 2);
+  return [...systemMessages, ...trimmed];
+}
 
+export async function createAgentStream(messages, options = {}) {
   if (!options?.userId) {
     throw new Error('createAgentStream requires userId');
   }
 
-  const groq = createGroq({
-    apiKey: process.env.GROQ_API_KEY,
-  });
-
   const capabilityPrompt = buildAgentCapabilityPrompt(options?.capabilitySummaries || {});
   const tools = buildToolset(options.userId, options?.capabilitySummaries || {});
+
+  // Trim history to last 5 turns before sending to the LLM (guide §3)
+  const trimmedMessages = trimMessageHistory(messages, 5);
 
   try {
     const systemSections = [
@@ -756,10 +763,13 @@ Be concise, grounded, and honest about tool limits.`
       systemSections.push(capabilityPrompt);
     }
 
+    // Worker model: Mistral Large → OpenRouter → Groq (fallback chain in router)
+    const workerModel = getWorkerModel();
+
     const result = streamText({
-      model: groq('llama-3.3-70b-versatile'),
+      model: workerModel,
       system: systemSections.join('\n\n'),
-      messages: await convertToModelMessages(messages),
+      messages: await convertToModelMessages(trimmedMessages),
       stopWhen: stepCountIs(8),
       tools
     });
