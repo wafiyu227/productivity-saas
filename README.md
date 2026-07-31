@@ -1,340 +1,370 @@
-# 🚀 Teama AI - AI-Powered Team Assistant
+# Teama AI
 
-A scalable SaaS MVP that integrates with Slack and Asana to provide intelligent summaries, detect blockers, and visualize team productivity—built entirely on free-tier tools.
+An AI-powered work assistant that connects to the tools your team already uses — Slack, Jira, Asana, GitHub, Google Workspace — and surfaces the context that matters: summaries, blockers, work-signal detection, and an agentic chat that can read and act across platforms.
 
-## ✨ Features
+## Why I Built This
 
-- **🤖 AI Summarization**: Claude AI generates concise summaries of Slack conversations
-- **🚧 Blocker Detection**: Automatically identifies team blockers and bottlenecks
-- **📊 Analytics Dashboard**: Visual insights into team productivity
-- **🔔 Real-time Webhooks**: Instant updates from Slack and Asana
-- **🔒 Secure Authentication**: JWT-based auth with Supabase
-- **📈 Scalable Architecture**: From 0 to 10,000+ users on free/low-cost tiers
+Every engineering or product team I've worked with has the same problem: context is scattered across Slack threads, Jira boards, pull requests, docs, and calendar invites. People spend more time hunting for updates than doing actual work.
 
-## 🏗️ Tech Stack
+Teama AI was built to solve that. Instead of checking five different tools for status updates, you open one dashboard and get an AI-generated picture of what happened, what's blocked, and what to do next. The agent chat goes further — it can pull tasks from Jira, read Slack messages, check your calendar, and draft actions (with your approval before anything is sent).
+
+The whole thing runs on free-tier infrastructure. No vendor lock-in on any single AI model — it cascades through multiple providers so it stays alive even when one hits a rate limit.
+
+---
+
+## Architecture
+
+### High-Level Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Frontend (Vercel)                        │
+│          React 19 · Vite · Tailwind CSS · Framer Motion         │
+│                                                                 │
+│  Landing ─── Auth ─── Dashboard ─── Agent Chat ─── Integrations │
+│                         │                │                      │
+│                    Supabase Auth     AI SDK (streaming)          │
+└────────────────────────────┬────────────────┬───────────────────┘
+                             │                │
+                         REST API        SSE Stream
+                             │                │
+┌────────────────────────────┴────────────────┴───────────────────┐
+│                     Backend (Vercel Serverless)                  │
+│              Express · Node 18+ · Helmet · Rate Limiting        │
+│                                                                 │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────────┐  │
+│  │ Auth     │  │ Slack    │  │ Jira     │  │ Agent Chat     │  │
+│  │ Routes   │  │ Routes   │  │ Routes   │  │ (multi-tool)   │  │
+│  └──────────┘  └──────────┘  └──────────┘  └────────────────┘  │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────────┐  │
+│  │ Asana    │  │ GitHub   │  │ Calendar │  │ Work Insights  │  │
+│  │ Routes   │  │ Routes   │  │ Routes   │  │ (signal detect)│  │
+│  └──────────┘  └──────────┘  └──────────┘  └────────────────┘  │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              Multi-Model AI Router                       │    │
+│  │  Cerebras (speed) → Gemini Flash (context) → Mistral    │    │
+│  │  (drafting) → OpenRouter (overflow) → Groq (emergency)  │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                    ┌──────────┴──────────┐
+                    │  Supabase (Postgres) │
+                    │  Auth · RLS · Data   │
+                    └─────────────────────┘
+```
+
+### Frontend
+
+| Technology | Purpose |
+|---|---|
+| **React 19** + **Vite** | SPA framework and build tool |
+| **Tailwind CSS** | Utility-first styling |
+| **Framer Motion** | Page transitions and micro-animations |
+| **Recharts** | Analytics charts (velocity, productivity scores) |
+| **Lucide React** | Icon library |
+| **Vercel AI SDK (`@ai-sdk/react`)** | Client-side streaming for agent chat |
+| **Supabase JS** | Client-side auth (Google OAuth + email/password) |
+| **React Router v7** | SPA routing with protected route guards |
+
+Key pages: Dashboard, Agent Chat, Work Insights, Blockers, Meetings, Analytics, Projects, Code/Repositories, Integrations, Profile. Plus public pages for Landing, Waitlist, About, Contact, and legal (Privacy, Terms, Security, Refund Policy).
 
 ### Backend
-- **Runtime**: Node.js 18+ with Express
-- **Database**: Supabase (PostgreSQL)
-- **AI**: Anthropic Claude Sonnet 4
-- **Deployment**: Vercel Serverless Functions
-- **Integrations**: Slack Web API, Asana API
 
-### Frontend (Coming Soon)
-- **Framework**: React 18 + Vite
-- **Styling**: Tailwind CSS
-- **Charts**: Recharts
-- **State**: React Hooks + Context
+A single Express server exported as a Vercel serverless function (`api/index.js`). All routes are modular files under `api/routes/`, business logic lives in `api/services/`, and shared utilities in `api/utils/`.
 
-## 📁 Project Structure
+**19 route modules** cover: auth, Slack, Asana, Jira, GitHub, Google Calendar, agent chat, work insights, blockers, user management, email, billing (Paddle + Paystack), waitlist, webhooks, and contact forms.
 
-```
-productivity-saas-mvp/
-├── backend/                    # Node.js API
-│   ├── api/
-│   │   ├── index.js           # Express server
-│   │   ├── routes/            # API endpoints
-│   │   ├── services/          # Business logic
-│   │   ├── middleware/        # Auth, validation
-│   │   └── utils/             # Helpers, logger
-│   ├── tests/                 # Jest tests
-│   ├── package.json
-│   └── vercel.json            # Deployment config
-│
-├── database/
-│   └── schema.sql             # Supabase schema
-│
-├── docs/
-│   ├── SETUP.md              # Setup instructions
-│   └── DEPLOYMENT.md         # Deployment guide
-│
-└── README.md                 # This file
-```
+**18 service modules** handle: AI processing, multi-model routing, agent chat orchestration, platform-specific API clients (Slack, Asana, Jira, Google Calendar/Workspace/Gmail), OAuth token management, billing, and the Supabase data layer.
 
-## 🚀 Quick Start
+### AI Layer — Multi-Model Router
+
+Instead of depending on a single AI provider, the backend uses a cascading router (`multi-model-router.js`) that assigns the best model per task type and auto-falls through providers on rate limits or failures:
+
+| Role | Primary | Fallback Chain | Why |
+|---|---|---|---|
+| **Router** (titles, tiny tasks) | Cerebras Llama 3.1 8B | → Groq 8B instant | Fastest inference, ~2600 tok/s |
+| **Long context** (summaries, analysis) | Gemini 2.0 Flash | → Mistral Large → Groq 70B | 1M token context window |
+| **Worker** (agent chat, planning) | Mistral Large | → OpenRouter free → Groq 70B | Best reasoning at free tier |
+| **Fallback** (overflow) | OpenRouter free models | → Groq 70B | Safety net when primaries are exhausted |
+
+### Agent Chat
+
+The agent is built on the Vercel AI SDK's `streamText` with tool calling. Connected integrations are resolved at runtime into a scoped toolset — the agent can only call tools the user has actually authorized via OAuth. All write actions (send a Slack message, transition a Jira issue, create a calendar event) go through an **approval request** pattern: the agent proposes, the user confirms.
+
+Tools are organized by platform: Slack (read channels/messages/users, send messages, create channels), Asana (read projects/tasks, complete/move/comment), Jira (read issues/transitions, transition/comment), GitHub (read repos/PRs/issues, create issues/comments, close/reopen), Google Calendar (read events/action items, create events), Google Workspace (Drive files, Docs, Sheets, Slides), and Gmail (search, read, send).
+
+### Database
+
+Supabase (managed Postgres) with Row-Level Security. Core tables:
+
+- **`profiles`** — user accounts, linked to Supabase Auth
+- **`teams`** — organizations, with team invitations
+- **`integrations`** — OAuth credentials per user per platform (tokens, scopes, workspace metadata)
+- **`slack_summaries`** — AI-generated channel summaries with blockers and key topics
+- **`agent_conversations`** / **`agent_messages`** — persistent chat history
+- **`user_settings`** — notification and appearance preferences
+- **`dismissed_blockers`**, **`messages`**, and billing-related tables
+
+Migrations are tracked as individual `.sql` files in the `backend/` directory.
+
+---
+
+## Running Locally
 
 ### Prerequisites
-- Node.js 18+
-- Supabase account
-- Slack workspace
-- Anthropic API key
 
-### 1. Clone Repository
+- **Node.js 18+**
+- A **Supabase** project (free tier works)
+- At least one AI provider API key (Gemini, Mistral, Groq, Cerebras, or OpenRouter)
+- Optional: Slack, Jira, Asana, GitHub, or Google OAuth credentials for integrations
+
+### 1. Clone and install
+
 ```bash
 git clone https://github.com/yourusername/productivity-saas.git
-cd productivity-saas/backend
-```
+cd productivity-saas
 
-### 2. Install Dependencies
-```bash
+# Install backend
+cd backend
+npm install
+
+# Install frontend
+cd ../frontend
 npm install
 ```
 
-### 3. Configure Environment
-```bash
-cp .env.example .env
-# Edit .env with your credentials
+### 2. Configure environment variables
+
+**Backend** (`backend/.env`):
+
+```env
+# Supabase
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=eyJhbGc...
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
+
+# AI providers (at least one required)
+GEMINI_API_KEY=...
+MISTRAL_API_KEY=...
+GROQ_API_KEY=...
+CEREBRAS_API_KEY=...
+OPENROUTER_API_KEY=...
+
+# Optional: Integrations
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+JIRA_CLIENT_ID=...
+JIRA_CLIENT_SECRET=...
+ASANA_CLIENT_ID=...
+ASANA_CLIENT_SECRET=...
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+
+# Optional: Billing
+PADDLE_API_KEY=...
+PADDLE_WEBHOOK_SECRET=...
+PAYSTACK_SECRET_KEY=...
+
+# Optional: Email
+RESEND_API_KEY=...
 ```
 
-### 4. Setup Database
-1. Create Supabase project
-2. Run `database/schema.sql` in SQL Editor
-3. Copy API keys to `.env`
+**Frontend** (`frontend/.env`):
 
-### 5. Configure Slack
-1. Create Slack App at [api.slack.com/apps](https://api.slack.com/apps)
-2. Add bot scopes: `channels:history`, `channels:read`, `chat:write`
-3. Install to workspace
-4. Copy tokens to `.env`
-
-### 6. Demo Mode (Optional)
-If you're using the free tier of Gemini API and hit quota limits, enable demo mode:
-
-**Local Development:**
-```bash
-# Create .env.local in backend/ directory
-echo "USE_DEMO_MODE=true" >> .env.local
+```env
+VITE_API_URL=http://localhost:3000
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGc...
 ```
 
-**Production (Vercel):**
-1. Go to Project Settings → Environment Variables
-2. Add `USE_DEMO_MODE = true`
-3. Redeploy
+### 3. Set up the database
 
-This enables realistic synthetic summaries without API calls. See [DEMO_MODE.md](docs/DEMO_MODE.md) for more details.
+1. Create a Supabase project
+2. Run `database/schema.sql` in the SQL Editor for core tables
+3. Run `backend/schema.sql` for profiles, teams, and RLS policies
+4. Run migration files in `backend/` as needed (e.g. `migration_v2.sql`, `agent_chat_history_schema.sql`)
 
-### 7. Run Locally
+### 4. Start development servers
+
 ```bash
+# Terminal 1 — Backend
+cd backend
 npm run dev
-# Server starts at http://localhost:3000
+# Starts on http://localhost:3000
+
+# Terminal 2 — Frontend
+cd frontend
+npm run dev
+# Starts on http://localhost:5173 (Vite default)
 ```
 
-### 8. Test API
-```bash
-# Health check
-curl http://localhost:3000/health
+### 5. Demo mode
 
-# List channels
-curl http://localhost:3000/api/slack/channels
-
-# Generate summary
-curl -X POST http://localhost:3000/api/slack/summarize \
-  -H "Content-Type: application/json" \
-  -d '{"channelId": "C1234567890", "hours": 24}'
-```
-
-## 📚 Documentation
-
-- **[Setup Guide](docs/SETUP.md)** - Complete setup instructions
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - Deploy to production + scaling
-- **[Demo Mode Guide](docs/DEMO_MODE.md)** - Using demo mode for testing without API quota
-- **[API Documentation](docs/API.md)** - API endpoints reference
-
-## 🔑 Key API Endpoints
-
-### Slack Integration
+If you don't have AI API keys or want to skip external calls:
 
 ```bash
-# Generate channel summary
-POST /api/slack/summarize
-{
-  "channelId": "C1234567890",
-  "hours": 24,
-  "teamId": "T1234567890"
-}
-
-# List available channels
-GET /api/slack/channels
-
-# Get channel messages
-GET /api/slack/channel/:channelId/messages?hours=24
-
-# Post message to channel
-POST /api/slack/message
-{
-  "channelId": "C1234567890",
-  "text": "Hello team!"
-}
+# In backend/.env
+USE_DEMO_MODE=true
 ```
 
-### Webhooks
+This returns realistic synthetic summaries without making any AI API calls.
+
+---
+
+## Deploying to Production
+
+Both frontend and backend deploy separately to **Vercel**.
+
+### Backend
 
 ```bash
-# Slack events webhook
-POST /api/slack/webhook
-# Automatically configured by Slack
-```
-
-## 🎯 Example Use Cases
-
-### Daily Standup Summary
-```javascript
-// Auto-generate standup summary every morning
-const summary = await fetch('http://localhost:3000/api/slack/summarize', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    channelId: 'C_TEAM_CHANNEL',
-    hours: 24
-  })
-});
-
-// Returns:
-{
-  "summary": "Team discussed Q4 roadmap and API performance issues...",
-  "blockers": ["Database migration pending", "API rate limits"],
-  "keyTopics": ["performance", "deployment", "security"],
-  "actionItems": ["Schedule DB migration", "Review rate limit config"]
-}
-```
-
-### Blocker Detection
-```javascript
-// Monitor for blockers across all channels
-const blockers = await db.getBlockers(teamId, 7); // Last 7 days
-
-// Slack: ["API rate limiting", "Database migration"]
-// Asana: ["Design review pending", "QA environment down"]
-```
-
-### Team Health Report
-```javascript
-// Weekly productivity report
-const report = await aiProcessor.generateProductivityReport({
-  slack: { channelCount: 5, messageCount: 247, discussions: [...] },
-  asana: { totalTasks: 45, completedTasks: 12, overdueTasks: 3 }
-});
-
-// Returns productivity score (1-10) with recommendations
-```
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run with coverage
-npm test -- --coverage
-
-# Watch mode
-npm run test:watch
-```
-
-## 🚢 Deployment
-
-### Deploy to Vercel (1 minute)
-
-```bash
-# Install Vercel CLI
-npm install -g vercel
-
-# Deploy
 cd backend
 vercel --prod
 ```
 
-### Set Environment Variables
+Vercel uses `vercel.json` to route all requests through `api/index.js` as a single serverless function. Set all environment variables in the Vercel dashboard under **Settings → Environment Variables**.
 
-In Vercel Dashboard → Settings → Environment Variables:
-```
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_ANON_KEY=eyJhbGc...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=...
-ANTHROPIC_API_KEY=sk-ant-...
-JWT_SECRET=your-secret-key
-```
-
-### Update Slack Webhook URL
-
-Slack App → Event Subscriptions → Request URL:
-```
-https://your-app.vercel.app/api/slack/webhook
-```
-
-**That's it!** Your API is now live globally. 🌍
-
-## 💰 Cost Breakdown
-
-| Service | Free Tier | Pro Tier | Enterprise |
-|---------|-----------|----------|------------|
-| **Vercel** | 100GB/month | $20/mo | Custom |
-| **Supabase** | 500MB DB | $25/mo | $599/mo |
-| **Anthropic** | $5 credit | Pay-as-you-go | Volume pricing |
-| **Slack** | Free | Free | Free |
-| **Total** | **$0-5** | **$45+** | **$650+** |
-
-### Free Tier Capacity
-- **API Requests**: ~10,000/day
-- **AI Summaries**: ~50/day
-- **Teams**: 10-20 active teams
-- **Users**: 50-100 concurrent users
-
-Perfect for MVP and early growth! 📈
-
-## 🔐 Security
-
-- ✅ Webhook signature verification
-- ✅ JWT authentication
-- ✅ Row-level security (Supabase RLS)
-- ✅ Rate limiting (100 req/15min)
-- ✅ Helmet.js security headers
-- ✅ Environment variables for secrets
-- ✅ HTTPS enforced (Vercel)
-
-## 📊 Monitoring
+### Frontend
 
 ```bash
-# View production logs
-vercel logs --follow
-
-# Health check
-curl https://your-app.vercel.app/health
-
-# Database metrics
-# Supabase Dashboard → Database → Usage
+cd frontend
+vercel --prod
 ```
 
-## 🤝 Contributing
+The frontend `vercel.json` configures SPA fallback routing (all paths rewrite to `/index.html`). Set `VITE_API_URL` to point to your deployed backend URL.
 
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open Pull Request
+### Post-deploy
 
-## 📝 License
-
-MIT License - see [LICENSE](LICENSE) file for details
-
-## 🙋 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/productivity-saas/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/productivity-saas/discussions)
-- **Email**: support@yourapp.com
-
-## 🗺️ Roadmap
-
-- [x] Slack integration with AI summaries
-- [x] Blocker detection
-- [x] Webhook support
-- [ ] Asana integration
-- [ ] Frontend dashboard
-- [ ] User authentication
-- [ ] Email notifications
-- [ ] Scheduled automated summaries
-- [ ] Multi-team support
-- [ ] Analytics & insights
-- [ ] Mobile app
-
-## ⭐ Show Your Support
-
-Give a ⭐️ if this project helped you!
+- Update OAuth redirect URIs for all integration providers to point to your production domain
+- Update Slack webhook URLs to `https://your-backend.vercel.app/webhooks/slack`
+- Configure Paddle/Paystack webhook endpoints if using billing
 
 ---
 
-**Built with ❤️ using Claude AI, Slack, and Supabase**
+## Decisions and Tradeoffs
 
-Ready to boost your team's productivity? Deploy now and start getting AI-powered insights in minutes! 🚀
+### Multi-model AI instead of a single provider
+
+The biggest constraint was cost. A single provider like OpenAI or Anthropic would drain the budget fast once you're generating summaries, running agent conversations, and doing work-signal extraction. The multi-model router lets the system use each provider where it's strongest — Cerebras for ultra-fast tiny tasks, Gemini for long context windows, Mistral for complex reasoning — and cascade through fallbacks on rate limits. The tradeoff is complexity: five provider integrations instead of one, and response quality varies slightly across models.
+
+### Approval-gated writes instead of autonomous actions
+
+The agent chat can read across all platforms freely, but every write action (sending a Slack message, transitioning a Jira ticket, creating a calendar event) goes through an approval request. The agent proposes the action and waits for the user to confirm. This was a deliberate choice — users need to trust the system before giving it autonomy, and an AI posting to Slack without confirmation is a liability in a work context.
+
+### Vercel serverless instead of a long-running server
+
+Vercel's serverless model gives zero-downtime deploys, automatic scaling, and a generous free tier. The tradeoff is the cold-start penalty and the execution time limit (typically 10-30s depending on plan). The agent chat streaming works within these bounds, but long data-gathering operations (scanning 100 Slack channels for work signals) have to be batched carefully.
+
+### Supabase as the entire backend-as-a-service layer
+
+Supabase handles auth (Google OAuth, email/password), the Postgres database, and Row-Level Security. This eliminated the need to build a separate auth system, manage sessions, or run database infrastructure. The tradeoff is coupling to Supabase's auth model and RLS patterns — migrating away would require rewriting the auth layer.
+
+### Scope-based capability system for the agent
+
+Instead of giving the agent a static list of tools, the backend dynamically resolves which tools the agent can use based on the OAuth scopes the user actually granted. If a user connected Slack with read-only permissions, the agent won't have the "send message" tool at all. This makes the system self-describing and prevents the agent from hallucinating capabilities it doesn't have.
+
+### Two billing providers (Paddle + Paystack)
+
+Paddle handles international payments, while Paystack targets African markets where Paddle has limited coverage. Both are integrated as webhook-driven payment flows. Plan limits are currently set to unlimited for testing — the enforcement layer exists but gates are open.
+
+### Express over a framework like NestJS or Fastify
+
+Express was chosen for speed of iteration and because Vercel's Node.js runtime has first-class Express support. There's no DI container, no decorators — just route files, service files, and a few shared utilities. It's simple enough that the entire API fits in one serverless function.
+
+---
+
+## What I'd Improve Next
+
+### Testing
+
+There are no automated tests right now. The project has a `tests/` directory stub and various ad-hoc test scripts (`test-resend.js`, `test-team-creation.js`), but no unit or integration test suite. Adding Jest tests for the AI processor, multi-model router, and work-signal detection would be the highest-leverage improvement — these are complex and easy to break.
+
+### Token refresh resilience
+
+OAuth tokens for Jira, Asana, and Google expire. The refresh logic exists in individual service files, but there's no centralized token manager that handles refresh-before-call transparently. Edge cases (refresh token also expired, provider downtime during refresh) aren't covered gracefully.
+
+### Background jobs
+
+Work-signal detection (scanning Slack for ticket references, correlating with Jira/Asana statuses) is currently triggered per-request. This should run on a schedule — a cron job that scans channels, caches results, and notifies the frontend via Supabase realtime or webhooks. Vercel cron functions would fit here.
+
+### Rate limit visibility
+
+The multi-model router handles rate limits silently. Users never know when the system is falling back to a weaker model. Adding observability — logging which model actually served each request, showing a subtle indicator in the UI — would help with debugging and transparency.
+
+### Database migrations
+
+SQL migration files are loose in the `backend/` directory with no runner or ordering. Moving to something like `pgmigrate`, Prisma, or even a simple numbered-file approach would prevent mistakes on deploy.
+
+### Mobile responsiveness
+
+The frontend is designed for desktop. Tailwind's responsive utilities are used in some places, but the dashboard and agent chat need dedicated mobile layouts to be usable on smaller screens.
+
+### Conversation memory
+
+The agent chat trims history to the last 5 turns before sending to the LLM. This keeps costs down but means the agent "forgets" earlier context in long conversations. Adding a summary-of-previous-turns injection (using the router model to compress history) would maintain context without blowing up token counts.
+
+### Error boundaries
+
+The frontend doesn't have React error boundaries. A component crash (e.g., bad data from the API) takes down the entire page. Wrapping major sections in error boundaries with fallback UI would improve resilience.
+
+---
+
+## Project Structure
+
+```
+productivity-saas/
+├── backend/
+│   ├── api/
+│   │   ├── index.js                    # Express server entry point
+│   │   ├── routes/                     # 19 route modules
+│   │   │   ├── auth.js                 # Signup, login, OAuth callbacks
+│   │   │   ├── slack.js                # Slack integration endpoints
+│   │   │   ├── jira.js                 # Jira integration endpoints
+│   │   │   ├── asana.js                # Asana integration endpoints
+│   │   │   ├── github.js               # GitHub integration endpoints
+│   │   │   ├── google-calendar.js      # Google Calendar endpoints
+│   │   │   ├── agent.js                # Agent chat streaming
+│   │   │   ├── work-insights.js        # Work-signal detection & insights
+│   │   │   ├── blockers.js             # Blocker tracking
+│   │   │   ├── paddle.js               # Paddle billing
+│   │   │   ├── paystack.js             # Paystack billing
+│   │   │   └── ...
+│   │   ├── services/                   # 18 service modules
+│   │   │   ├── multi-model-router.js   # AI provider cascading
+│   │   │   ├── ai-processor.js         # Summarization & analysis
+│   │   │   ├── agent-chat.js           # Agent tool orchestration
+│   │   │   ├── integration-capabilities.js  # Scope-based tool resolution
+│   │   │   ├── supabase-client.js      # Database abstraction layer
+│   │   │   └── ...
+│   │   └── utils/
+│   ├── *.sql                           # Database migrations
+│   ├── package.json
+│   └── vercel.json
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx                     # Route definitions
+│   │   ├── pages/                      # 19 page components + subdirs
+│   │   ├── components/                 # Shared UI components
+│   │   ├── contexts/                   # AuthContext, PaddleContext
+│   │   ├── hooks/                      # useNetworkStatus
+│   │   ├── layouts/                    # AppShell (sidebar + topbar)
+│   │   ├── api/                        # API client + auth helpers
+│   │   └── lib/                        # Supabase client, utilities
+│   ├── package.json
+│   └── vercel.json
+├── database/
+│   └── schema.sql                      # Core table definitions
+└── docs/
+    ├── SETUP.md
+    ├── DEPLOYMENT.md
+    └── DEMO_MODE.md
+```
+
+---
+
+## License
+
+MIT
