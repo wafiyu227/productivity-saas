@@ -16,7 +16,7 @@ import Integrations from './pages/Integrations';
 import Code from './pages/Code';
 import Repositories from './pages/Repositories';
 import Analytics from './pages/Analytics';
-import Projects from './pages/Projects';
+import Projects from './pages/projects';
 import AuthCallback from './pages/auth/AuthCallback';
 import About from './pages/company/About';
 import Contact from './pages/company/Contact';
