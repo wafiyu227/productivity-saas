@@ -5,7 +5,7 @@ import express from 'express';
 import { db } from '../services/supabase-client.js';
 import emailService from '../services/email-service.js';
 import logger from '../utils/logger.js';
-import { validateEmail, getBlockedEmailReason } from '../../utils/email-validator.js';
+import { validateEmail, getBlockedEmailReason } from '../utils/email-validator.js';
 
 const router = express.Router();
 

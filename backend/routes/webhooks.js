@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const logsDir = path.join(__dirname, '../../webhook-logs');
+const logsDir = path.join(__dirname, '../webhook-logs');
 
 // Create logs directory if it doesn't exist
 if (!fs.existsSync(logsDir)) {

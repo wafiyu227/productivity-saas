@@ -6,23 +6,23 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import slackRoutes from './routes/slack.js';
-import authRoutes from './routes/auth.js';
-import contactRoutes from './routes/contact.js';
-import blockersRoutes from './routes/blockers.js';
-import asanaRoutes from './routes/asana.js';
-import jiraRoutes from './routes/jira.js';
+import slackRoutes from '../routes/slack.js';
+import authRoutes from '../routes/auth.js';
+import contactRoutes from '../routes/contact.js';
+import blockersRoutes from '../routes/blockers.js';
+import asanaRoutes from '../routes/asana.js';
+import jiraRoutes from '../routes/jira.js';
 
-import googleCalendarRouter from './routes/google-calendar.js';
-import githubRoutes from './routes/github.js';
-import userRoutes from './routes/user.js';
-import emailRoutes from './routes/email.js';
-import workInsightsRoutes from './routes/work-insights.js';
-import agentRoutes from './routes/agent.js';
-import logger from './utils/logger.js';
-import waitlistRoutes from './routes/waitlist.js';
-import webhooksRoutes from './routes/webhooks.js';
-import { db } from './services/supabase-client.js';
+import googleCalendarRouter from '../routes/google-calendar.js';
+import githubRoutes from '../routes/github.js';
+import userRoutes from '../routes/user.js';
+import emailRoutes from '../routes/email.js';
+import workInsightsRoutes from '../routes/work-insights.js';
+import agentRoutes from '../routes/agent.js';
+import logger from '../utils/logger.js';
+import waitlistRoutes from '../routes/waitlist.js';
+import webhooksRoutes from '../routes/webhooks.js';
+import { db } from '../services/supabase-client.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -37,18 +37,34 @@ app.use(helmet({
 }));
 
 
-// Secondary CORS middleware for extra safety
+// CORS middleware — explicit origin allowlist
+const allowedOrigins = [
+  'https://www.teamaai.xyz',
+  'https://teamaai.xyz',
+  'http://localhost:5173',   // local Vite dev server
+  'http://localhost:3000'    // local fallback
+];
 const corsOptions = {
-  origin: true,  // Allow any origin
-  credentials: false,  // Don't send credentials header with wildcard origin
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+
+    const cleanOrigin = origin.replace(/\/$/, '');
+    if (allowedOrigins.includes(cleanOrigin) || cleanOrigin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cache-Control', 'Pragma'],
   optionsSuccessStatus: 200,
   maxAge: 86400
 };
 app.use(cors(corsOptions));
 
-// Preflight handling
+// Handle preflight requests
 app.options('*', cors(corsOptions));
 
 app.use(compression());
@@ -108,9 +124,9 @@ app.get('/', (req, res) => {
 });
 
 // Import Paddle Routes
-import paddleRoutes from './routes/paddle.js';
+import paddleRoutes from '../routes/paddle.js';
 
-import debugInsertRoutes from './routes/debug-insert.js';
+import debugInsertRoutes from '../routes/debug-insert.js';
 
 // API Routes
 app.use('/api/slack', slackRoutes);
