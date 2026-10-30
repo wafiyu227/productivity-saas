@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.teamaai.xyz';
 
 // Get current user from Supabase auth
 let currentUser = null;

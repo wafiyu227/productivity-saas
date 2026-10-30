@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { setCurrentUser } from '../api/client';
+import { API_BASE_URL, setCurrentUser } from '../api/client';
 import { authCallbackState } from '../lib/authCallbackState';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 
@@ -153,7 +153,7 @@ export function AuthProvider({ children }) {
 
     const fetchProfile = async (userId) => {
         try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user/me?userId=${userId}`);
+            const res = await fetch(`${API_BASE_URL}/api/user/me?userId=${encodeURIComponent(userId)}`);
 
             if (res.ok) {
                 const data = await res.json();
@@ -173,7 +173,7 @@ export function AuthProvider({ children }) {
                 if (session) {
                     try {
                         await ensureProfileFromAuth(userId, session.user);
-                        const retry = await fetch(`${import.meta.env.VITE_API_URL}/api/user/me?userId=${userId}`);
+                        const retry = await fetch(`${API_BASE_URL}/api/user/me?userId=${encodeURIComponent(userId)}`);
                         if (retry.ok) {
                             const retryData = await retry.json();
                             setProfile(retryData || {});

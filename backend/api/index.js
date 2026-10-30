@@ -44,13 +44,30 @@ const allowedOrigins = [
   'http://localhost:5173',   // local Vite dev server
   'http://localhost:3000'    // local fallback
 ];
+const isAllowedOrigin = (origin) => {
+  try {
+    const parsed = new URL(origin);
+    const normalizedOrigin = parsed.origin;
+    if (allowedOrigins.includes(normalizedOrigin)) return true;
+
+    const hostname = parsed.hostname.toLowerCase();
+    const isProductionDomain = parsed.protocol === 'https:' &&
+      (hostname === 'teamaai.xyz' || hostname.endsWith('.teamaai.xyz'));
+    const isVercelPreview = parsed.protocol === 'https:' && hostname.endsWith('.vercel.app');
+    const isLocalDevelopment = ['localhost', '127.0.0.1'].includes(hostname) &&
+      ['http:', 'https:'].includes(parsed.protocol);
+
+    return isProductionDomain || isVercelPreview || isLocalDevelopment;
+  } catch {
+    return false;
+  }
+};
 const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
 
-    const cleanOrigin = origin.replace(/\/$/, '');
-    if (allowedOrigins.includes(cleanOrigin) || cleanOrigin.endsWith('.vercel.app')) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
     } else {
       callback(null, false);

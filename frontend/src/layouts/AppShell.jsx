@@ -36,11 +36,6 @@ export default function AppShell() {
         );
     }
 
-    // Double check constraints before rendering content (skip when offline)
-    if (!isOffline && !profile.id) {
-        return null; // Will wait for profile to load
-    }
-
     const SidebarContent = () => (
         <div className="flex flex-col h-full bg-black border-r border-white/5 selection:bg-gray-800">
             <div className="p-6 pb-6">
