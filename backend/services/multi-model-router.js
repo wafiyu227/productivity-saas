@@ -107,15 +107,15 @@ export function getLongContextModel() {
 }
 
 /**
- * Worker model — Mistral Large for agent chat stream, drafting, planning.
+ * Worker model — Mistral Small for agent chat stream, drafting, planning.
  * Uses the official @ai-sdk/mistral provider for full tool-call + streaming support.
- * Mistral Large → OpenRouter (free) → Groq (fallback chain)
+ * Mistral Small → OpenRouter (free) → Groq (fallback chain)
  */
 export function getWorkerModel() {
   const mistral = getMistral();
   if (mistral) {
-    logger.debug('[router] Using Mistral Large (official SDK)');
-    return mistral('mistral-large-latest');
+    logger.debug('[router] Using Mistral Small (official SDK)');
+    return mistral('mistral-small-latest');
   }
   const openRouter = getOpenRouter();
   if (openRouter) {
@@ -177,7 +177,7 @@ export async function chatComplete({ role = 'worker', messages, temperature = 0.
       { url: GROQ_URL,       key: process.env.GROQ_API_KEY,       model: 'llama-3.3-70b-versatile' },
     ],
     worker: [
-      { url: MISTRAL_URL,    key: process.env.MISTRAL_API_KEY,    model: 'mistral-large-latest' },
+      { url: MISTRAL_URL,    key: process.env.MISTRAL_API_KEY,    model: 'mistral-small-latest' },
       { url: OPENROUTER_URL, key: process.env.OPENROUTER_API_KEY, model: 'meta-llama/llama-3.3-70b-instruct:free' },
       { url: GROQ_URL,       key: process.env.GROQ_API_KEY,       model: 'llama-3.3-70b-versatile' },
     ],
