@@ -107,25 +107,25 @@ export function getLongContextModel() {
 }
 
 /**
- * Worker model — Mistral Small for agent chat stream, drafting, planning.
+ * Worker model — Groq, then OpenRouter, then Mistral Small for agent chat stream.
  * Uses the official @ai-sdk/mistral provider for full tool-call + streaming support.
- * Mistral Small → OpenRouter (free) → Groq (fallback chain)
+ * Prefer alternate providers so a Mistral tier/rate-limit response cannot block chat.
  */
 export function getWorkerModel() {
-  const mistral = getMistral();
-  if (mistral) {
-    logger.debug('[router] Using Mistral Small (official SDK)');
-    return mistral('mistral-small-latest');
+  const groq = getGroq();
+  if (groq) {
+    logger.debug('[router] Using Groq llama-3.3-70b for agent chat');
+    return groq('llama-3.3-70b-versatile');
   }
   const openRouter = getOpenRouter();
   if (openRouter) {
-    logger.warn('[router] Mistral key missing — falling back to OpenRouter');
+    logger.warn('[router] Groq key missing — using OpenRouter for agent chat');
     return openRouter('meta-llama/llama-3.3-70b-instruct:free');
   }
-  const groq = getGroq();
-  if (groq) {
-    logger.warn('[router] Falling back to Groq llama-3.3-70b');
-    return groq('llama-3.3-70b-versatile');
+  const mistral = getMistral();
+  if (mistral) {
+    logger.warn('[router] Groq and OpenRouter keys missing — using Mistral Small');
+    return mistral('mistral-small-latest');
   }
   throw new Error('No worker model available. Set MISTRAL_API_KEY or GROQ_API_KEY.');
 }
